@@ -7,46 +7,80 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 internal class VoiceImePanel(
     context: Context,
     onVoiceAction: () -> Unit,
     onCancel: () -> Unit,
-    onSwitchInputMethod: () -> Unit
+    onSwitchInputMethod: () -> Unit,
+    onDelete: () -> Unit = {},
+    onBackspacePressed: () -> Unit = {},
+    onBackspaceReleased: () -> Boolean = { false }
 ) {
     private val statusChip = LinearLayout(context)
     private val statusDot = View(context)
-    private val statusLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
+    internal val statusLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
-    private val switchButton = ImageButton(context)
-    private val idleActions = LinearLayout(context)
-    private val recordingActions = LinearLayout(context)
-    private val busyActions = LinearLayout(context)
-    private val terminalMessage = textView(context, sizeSp = 13f, color = TEXT_MUTED)
-    private val previewSection = LinearLayout(context)
-    private val previewText = textView(context, sizeSp = 13f, color = TEXT)
+    internal val switchButton = ImageButton(context)
+    internal val backspaceButton = ImageButton(context)
+    internal val idleActions = LinearLayout(context)
+    internal val recordingActions = LinearLayout(context)
+    internal val busyActions = LinearLayout(context)
+    internal val previewText = textView(
+        context,
+        sizeSp = VoiceImePreviewLayout.TEXT_SIZE_SP,
+        color = PREVIEW_TEXT
+    ).apply {
+        maxLines = VoiceImePreviewLayout.MAX_LINES
+        ellipsize = if (VoiceImePreviewLayout.ELLIPSIZE_AT_END) {
+            android.text.TextUtils.TruncateAt.END
+        } else {
+            null
+        }
+    }
+    internal val previewDivider = View(context).apply {
+        setBackgroundColor(Color.rgb(43, 54, 71))
+    }
     private val busyLabel = textView(context, sizeSp = 13f, color = TEXT)
 
     val view: View
 
     init {
+        val horizontalPadding = dp(context, 12)
+        val topPadding = dp(context, 8)
+        val bottomPadding = dp(context, 6)
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10))
+            setPadding(horizontalPadding, topPadding, horizontalPadding, bottomPadding)
             background = rounded(
                 colors = intArrayOf(BACKGROUND, BACKGROUND),
                 radius = dp(context, 24),
                 strokeColor = OUTLINE,
                 strokeWidth = dp(context, 1)
             )
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val navigationBarBottom = insets.getInsets(
+                WindowInsetsCompat.Type.navigationBars()
+            ).bottom
+            view.setPadding(
+                horizontalPadding,
+                topPadding,
+                horizontalPadding,
+                bottomPadding + navigationBarBottom
+            )
+            insets
         }
 
         val topRow = LinearLayout(context).apply {
@@ -67,6 +101,78 @@ internal class VoiceImePanel(
         }
         topRow.addView(statusChip, LinearLayout.LayoutParams(0, dp(context, 36), 1f))
 
+        var backspacePointerActive = false
+        var backspaceClickAllowed = false
+        backspaceButton.apply {
+            setImageResource(R.drawable.ic_ime_backspace)
+            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
+            contentDescription = "退格 / 刪除"
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
+            setPadding(dp(context, 9), dp(context, 9), dp(context, 9), dp(context, 9))
+            setOnClickListener { onDelete() }
+            setOnTouchListener { button, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        backspacePointerActive = true
+                        backspaceClickAllowed = true
+                        button.isPressed = true
+                        onBackspacePressed()
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (backspacePointerActive && backspaceClickAllowed &&
+                            (event.x < 0 || event.y < 0 || event.x >= button.width ||
+                                event.y >= button.height)
+                        ) {
+                            backspaceClickAllowed = false
+                            button.isPressed = false
+                            onBackspaceReleased()
+                        }
+                        backspacePointerActive
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (backspacePointerActive) {
+                            backspacePointerActive = false
+                            button.isPressed = false
+                            val repeated = onBackspaceReleased()
+                            if (backspaceClickAllowed && !repeated) button.performClick()
+                            backspaceClickAllowed = false
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        if (backspacePointerActive) {
+                            backspacePointerActive = false
+                            backspaceClickAllowed = false
+                            button.isPressed = false
+                            onBackspaceReleased()
+                        }
+                        true
+                    }
+                    else -> backspacePointerActive
+                }
+            }
+            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) = Unit
+
+                override fun onViewDetachedFromWindow(view: View) {
+                    if (backspacePointerActive) {
+                        backspacePointerActive = false
+                        backspaceClickAllowed = false
+                        view.isPressed = false
+                        onBackspaceReleased()
+                    }
+                }
+            })
+        }
+        topRow.addView(
+            backspaceButton,
+            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+                marginEnd = dp(context, 4)
+            }
+        )
+
         switchButton.apply {
             setImageResource(R.drawable.ic_ime_keyboard)
             imageTintList = ColorStateList.valueOf(TEXT_MUTED)
@@ -84,22 +190,19 @@ internal class VoiceImePanel(
         )
         root.addView(topRow)
 
-        val actionCard = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 14), dp(context, 12), dp(context, 14), dp(context, 12))
-            background = rounded(
-                colors = intArrayOf(SURFACE, SURFACE_VARIANT),
-                radius = dp(context, 22),
-                strokeColor = OUTLINE,
-                strokeWidth = dp(context, 1)
-            )
-        }
         root.addView(
-            actionCard,
+            previewText,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(context, 9) }
+            ).apply { topMargin = dp(context, 4) }
+        )
+        root.addView(
+            previewDivider,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(context, VoiceImePreviewLayout.DIVIDER_HEIGHT_DP)
+            ).apply { topMargin = dp(context, 5) }
         )
 
         idleActions.apply {
@@ -134,7 +237,13 @@ internal class VoiceImePanel(
                 ).apply { topMargin = dp(context, 7) }
             )
         }
-        actionCard.addView(idleActions)
+        root.addView(
+            idleActions,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(context, 9) }
+        )
 
         recordingActions.apply {
             orientation = LinearLayout.HORIZONTAL
@@ -164,7 +273,13 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(0, dp(context, 48), 0.8f)
             )
         }
-        actionCard.addView(recordingActions)
+        root.addView(
+            recordingActions,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(context, 9) }
+        )
 
         busyActions.apply {
             orientation = LinearLayout.HORIZONTAL
@@ -196,43 +311,12 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(dp(context, 84), dp(context, 42))
             )
         }
-        actionCard.addView(busyActions)
-
-        terminalMessage.apply {
-            gravity = Gravity.CENTER
-            maxLines = 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            minHeight = dp(context, 38)
-        }
-        actionCard.addView(terminalMessage)
-
-        previewSection.apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 11), dp(context, 8), dp(context, 11), dp(context, 8))
-            background = solid(SURFACE_VARIANT, dp(context, 15))
-            val caption = textView(context, sizeSp = 10f, color = TEXT_MUTED).apply {
-                text = "最近輸入"
-                maxLines = 1
-            }
-            addView(caption)
-            previewText.apply {
-                maxLines = 2
-                ellipsize = android.text.TextUtils.TruncateAt.END
-            }
-            addView(
-                previewText,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(context, 2) }
-            )
-        }
         root.addView(
-            previewSection,
+            busyActions,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(context, 8) }
+            ).apply { topMargin = dp(context, 9) }
         )
 
         view = root
@@ -258,26 +342,25 @@ internal class VoiceImePanel(
             strokeWidth = dp(statusChip.context, 1)
         )
 
-        idleActions.visibility = if (state == VoiceImeState.IDLE) View.VISIBLE else View.GONE
+        val isTerminal = state == VoiceImeState.SUCCESS ||
+            state == VoiceImeState.FORMATTING_FALLBACK ||
+            state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
+        idleActions.visibility = if (state == VoiceImeState.IDLE || isTerminal) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
         recordingActions.visibility = if (state == VoiceImeState.RECORDING) View.VISIBLE else View.GONE
         val isBusy = state == VoiceImeState.TRANSCRIBING || state == VoiceImeState.FORMATTING
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
         busyLabel.text = state.label
 
-        val isTerminal = state == VoiceImeState.SUCCESS || state == VoiceImeState.FORMATTING_FALLBACK ||
-            state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
-        terminalMessage.visibility = if (isTerminal) View.VISIBLE else View.GONE
-        terminalMessage.text = when (state) {
-            VoiceImeState.SUCCESS -> "文字已輸入"
-            VoiceImeState.FORMATTING_FALLBACK -> "已輸入未整理的文字"
-            VoiceImeState.CANCELLED -> "本次操作已取消"
-            VoiceImeState.ERROR -> "語音輸入未完成，請稍後再試"
-            else -> ""
-        }
-        terminalMessage.setTextColor(accent)
-
-        previewSection.visibility = if (latestResult.isNullOrBlank()) View.GONE else View.VISIBLE
-        previewText.text = latestResult.orEmpty()
+        val hasPreview = VoiceImePreviewLayout.shouldShowPreview(latestResult)
+        previewText.visibility = if (hasPreview) View.VISIBLE else View.GONE
+        previewDivider.visibility = if (hasPreview) View.VISIBLE else View.GONE
+        previewText.text = latestResult?.let { "最近：$it" }.orEmpty()
+        val isActive = state == VoiceImeState.RECORDING || isBusy
+        previewText.setTextColor(if (isActive) blend(PREVIEW_TEXT, BACKGROUND, 0.12f) else PREVIEW_TEXT)
     }
 
     private fun actionButton(
@@ -382,5 +465,6 @@ internal class VoiceImePanel(
         val BUTTON_TEXT = Color.rgb(37, 35, 66)
         val TEXT = Color.rgb(230, 234, 243)
         val TEXT_MUTED = Color.rgb(180, 190, 206)
+        val PREVIEW_TEXT = Color.rgb(137, 151, 173)
     }
 }

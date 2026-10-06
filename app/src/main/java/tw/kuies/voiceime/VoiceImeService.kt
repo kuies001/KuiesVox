@@ -9,8 +9,10 @@ import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -33,6 +35,13 @@ class VoiceImeService : InputMethodService() {
     @Volatile
     private var serviceDestroyed = false
 
+    private val backspaceRepeater = BackspaceRepeater(
+        postDelayed = { runnable, delay -> mainHandler.postDelayed(runnable, delay) },
+        removeCallbacks = { runnable -> mainHandler.removeCallbacks(runnable) },
+        onDelete = ::deleteOneBeforeCursor,
+        canRepeat = { !serviceDestroyed }
+    )
+
     @Volatile
     private var activeOperationId = 0L
 
@@ -44,7 +53,7 @@ class VoiceImeService : InputMethodService() {
     private var activeAudioFile: File? = null
     private var activeRequestCall: Call? = null
     private var voicePanel: VoiceImePanel? = null
-    private var latestResult: String? = null
+    private val previewState = VoiceImePreviewState()
     private var statusResetRunnable: Runnable? = null
     private var statusRevision = 0L
 
@@ -62,7 +71,10 @@ class VoiceImeService : InputMethodService() {
                 }
             },
             onCancel = ::cancelCurrentOperation,
-            onSwitchInputMethod = { switchToNextInputMethod(false) }
+            onSwitchInputMethod = { switchToNextInputMethod(false) },
+            onDelete = ::deleteOneBeforeCursor,
+            onBackspacePressed = backspaceRepeater::start,
+            onBackspaceReleased = backspaceRepeater::stop
         )
         voicePanel = panel
         panel.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
@@ -74,6 +86,60 @@ class VoiceImeService : InputMethodService() {
         super.onStartInputView(info, restarting)
         voicePanel?.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
     }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        backspaceRepeater.stop()
+        super.onFinishInputView(finishingInput)
+    }
+
+    private fun deleteOneBeforeCursor() {
+        if (serviceDestroyed) return
+        val inputConnection = try {
+            currentInputConnection
+        } catch (exception: Exception) {
+            Log.w(TAG, "Backspace input connection unavailable: ${exception.javaClass.simpleName}")
+            null
+        } ?: return
+
+        try {
+            BackspaceDeletion.deleteOne(inputConnection.asBackspaceInputConnection())
+        } catch (exception: Exception) {
+            Log.w(TAG, "Backspace failed: ${exception.javaClass.simpleName}")
+        }
+    }
+
+    private fun InputConnection.asBackspaceInputConnection(): BackspaceInputConnection =
+        object : BackspaceInputConnection {
+            override fun getSelectedText(): CharSequence? =
+                this@asBackspaceInputConnection.getSelectedText(0)
+
+            override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean =
+                this@asBackspaceInputConnection.commitText(text, newCursorPosition)
+
+            override fun deleteSurroundingTextInCodePoints(
+                beforeLength: Int,
+                afterLength: Int
+            ): Boolean = this@asBackspaceInputConnection.deleteSurroundingTextInCodePoints(
+                beforeLength,
+                afterLength
+            )
+
+            override fun getTextBeforeCursor(maxChars: Int): CharSequence? =
+                this@asBackspaceInputConnection.getTextBeforeCursor(maxChars, 0)
+
+            override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean =
+                this@asBackspaceInputConnection.deleteSurroundingText(beforeLength, afterLength)
+
+            override fun sendDeleteKey(): Boolean {
+                val down = this@asBackspaceInputConnection.sendKeyEvent(
+                    KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)
+                )
+                val up = this@asBackspaceInputConnection.sendKeyEvent(
+                    KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL)
+                )
+                return down || up
+            }
+        }
 
     private fun startRecording() {
         if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || audioRecord != null) return
@@ -525,8 +591,8 @@ class VoiceImeService : InputMethodService() {
                     Log.e(TAG, "Voice result delivery failed: ${exception.javaClass.simpleName}")
                     false
                 }
+                previewState.recordCommitResult(text, committed, terminalState)
                 if (committed) {
-                    latestResult = text
                     finishSuccessfully(operationId, file, terminalState)
                 } else {
                     finishWithError(operationId, "input_connection_unavailable")
@@ -618,7 +684,7 @@ class VoiceImeService : InputMethodService() {
     }
 
     private fun renderStatus() {
-        voicePanel?.render(stateMachine.state, latestResult)
+        voicePanel?.render(stateMachine.state, previewState.visibleText)
     }
 
     private fun writeWavHeader(output: RandomAccessFile, pcmDataSize: Long) {
@@ -648,6 +714,7 @@ class VoiceImeService : InputMethodService() {
 
     override fun onDestroy() {
         serviceDestroyed = true
+        backspaceRepeater.stop()
         requestGate.invalidate()
         activeOperationId = 0L
         activeRequestCall?.cancel()
