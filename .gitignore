@@ -1,0 +1,57 @@
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Gradle and Kotlin local caches
+.gradle/
+**/.gradle/
+.kotlin/
+**/.kotlin/
+local.properties
+
+# Android build outputs and caches
+/build/
+app/build/
+**/build/
+**/out/
+**/outputs/
+**/captures/
+**/.externalNativeBuild/
+**/.cxx/
+.gradletasknamecache
+*.class
+*.dex
+*.hprof
+*.apk
+*.aab
+*.ap_
+
+# Downloaded or temporary Gradle distributions
+/.tmp-gradle-*/
+**/.tmp-gradle-*/
+
+# Signing keys and local signing configuration
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+**/keystore.properties
+
+# Local credentials and environment files
+.env
+.env.*
+
+# Runtime data copied from an Android device
+**/shared_prefs/
+**/databases/
+
+# Logs and OS metadata
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini
