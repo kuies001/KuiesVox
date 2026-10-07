@@ -27,8 +27,111 @@ class UserHistoryManagerTest {
         manager.record("same", false)
 
         assertEquals("same", manager.list().first().text)
+        assertEquals(3L, manager.list().first().createdAt)
         assertTrue(manager.list().first().pinned)
         assertEquals(1, manager.list().count { it.text == "same" })
+    }
+
+    @Test
+    fun systemClipboardAcceptsPlainAndHtmlTextClips() {
+        assertTrue(
+            SystemClipboardCapturePolicy.canCaptureClip(
+                itemCount = 1,
+                hasPlainText = true,
+                hasHtmlText = false,
+                isSensitiveClip = false,
+                isSensitiveEditor = false
+            )
+        )
+        assertTrue(
+            SystemClipboardCapturePolicy.canCaptureClip(
+                itemCount = 1,
+                hasPlainText = false,
+                hasHtmlText = true,
+                isSensitiveClip = false,
+                isSensitiveEditor = false
+            )
+        )
+    }
+
+    @Test
+    fun systemClipboardRejectsSensitiveEmptyAndNonTextClips() {
+        assertFalse(
+            SystemClipboardCapturePolicy.canCaptureClip(
+                itemCount = 1,
+                hasPlainText = true,
+                hasHtmlText = false,
+                isSensitiveClip = true,
+                isSensitiveEditor = false
+            )
+        )
+        assertFalse(
+            SystemClipboardCapturePolicy.canCaptureClip(
+                itemCount = 0,
+                hasPlainText = true,
+                hasHtmlText = false,
+                isSensitiveClip = false,
+                isSensitiveEditor = false
+            )
+        )
+        assertFalse(
+            SystemClipboardCapturePolicy.canCaptureClip(
+                itemCount = 1,
+                hasPlainText = false,
+                hasHtmlText = false,
+                isSensitiveClip = false,
+                isSensitiveEditor = false
+            )
+        )
+        assertFalse(ClipboardHistoryPolicy.canStore("  ", isSensitiveEditor = false))
+    }
+
+    @Test
+    fun clipboardListenerIsLimitedToActiveNonSensitiveInput() {
+        assertTrue(SystemClipboardCapturePolicy.shouldRegisterListener(false, false))
+        assertFalse(SystemClipboardCapturePolicy.shouldRegisterListener(false, true))
+        assertFalse(SystemClipboardCapturePolicy.shouldRegisterListener(true, false))
+        assertTrue(SystemClipboardCapturePolicy.shouldReadClipboard(false, true, false))
+        assertFalse(SystemClipboardCapturePolicy.shouldReadClipboard(false, false, false))
+        assertFalse(SystemClipboardCapturePolicy.shouldReadClipboard(false, true, true))
+        assertFalse(SystemClipboardCapturePolicy.shouldReadClipboard(true, true, false))
+        assertTrue(
+            SystemClipboardCapturePolicy.shouldReadClipboard(
+                serviceDestroyed = false,
+                listenerRegistered = false,
+                isSensitiveEditor = false,
+                allowWithoutListener = true
+            )
+        )
+        assertFalse(
+            SystemClipboardCapturePolicy.shouldReadClipboard(
+                serviceDestroyed = false,
+                listenerRegistered = false,
+                isSensitiveEditor = true,
+                allowWithoutListener = true
+            )
+        )
+    }
+
+    @Test
+    fun clipboardListenerRegistersOnceAndUnregistersOnLifecycleEnd() {
+        var registrations = 0
+        var unregistrations = 0
+        val lifecycle = ClipboardListenerLifecycle(
+            registerListener = { registrations++; true },
+            unregisterListener = { unregistrations++ }
+        )
+
+        assertFalse(lifecycle.registerIfAllowed(allowed = false))
+        assertTrue(lifecycle.registerIfAllowed(allowed = true))
+        assertFalse(lifecycle.registerIfAllowed(allowed = true))
+        assertTrue(lifecycle.isRegistered)
+        lifecycle.unregister()
+        lifecycle.unregister()
+
+        assertEquals(1, registrations)
+        assertEquals(1, unregistrations)
+        assertFalse(lifecycle.isRegistered)
     }
 
     @Test

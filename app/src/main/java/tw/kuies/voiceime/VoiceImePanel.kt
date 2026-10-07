@@ -61,6 +61,7 @@ internal class VoiceImePanel(
     }
     internal val switchButton = ImageButton(context)
     internal val settingsButton = ImageButton(context)
+    internal val clipboardButton = ImageButton(context)
     internal val backspaceButton = ImageButton(context)
     internal val enterButton = ImageButton(context)
     internal val bulkActionsContainer = FrameLayout(context)
@@ -115,6 +116,9 @@ internal class VoiceImePanel(
     internal val idleHint = textView(context, sizeSp = 11f, color = TEXT_MUTED)
     internal val recordingActions = LinearLayout(context)
     internal val busyActions = LinearLayout(context)
+    private val mainInteractionRow = LinearLayout(context)
+    private val voiceActionsContainer = FrameLayout(context)
+    private val sideActionColumn = LinearLayout(context)
     private val busyLabel = textView(context, sizeSp = 13f, color = TEXT)
 
     val view: View
@@ -182,6 +186,22 @@ internal class VoiceImePanel(
             }
         )
 
+        clipboardButton.apply {
+            setImageResource(R.drawable.ic_ime_clipboard)
+            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
+            contentDescription = "剪貼簿歷史"
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
+            setPadding(dp(context, 9), dp(context, 9), dp(context, 9), dp(context, 9))
+            setOnClickListener { showClipboardHistoryPanel(onIsSensitiveEditor()) }
+        }
+        topRow.addView(
+            clipboardButton,
+            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+                marginEnd = dp(context, 6)
+            }
+        )
+
         var backspacePointerActive = false
         var backspaceClickAllowed = false
         backspaceButton.apply {
@@ -190,7 +210,7 @@ internal class VoiceImePanel(
             contentDescription = "退格 / 刪除"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
-            setPadding(dp(context, 9), dp(context, 9), dp(context, 9), dp(context, 9))
+            setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8))
             setOnClickListener { onDelete() }
             setOnTouchListener { button, event ->
                 when (event.actionMasked) {
@@ -247,31 +267,15 @@ internal class VoiceImePanel(
                 }
             })
         }
-        topRow.addView(
-            backspaceButton,
-            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
-                marginEnd = dp(context, 8)
-            }
-        )
-
         enterButton.apply {
             setImageResource(R.drawable.ic_ime_enter)
             imageTintList = ColorStateList.valueOf(blend(TEXT_MUTED, LAVENDER, 0.5f))
             contentDescription = "Enter / 換行"
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            scaleType = ImageView.ScaleType.FIT_CENTER
             background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
-            setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8))
+            setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
             setOnClickListener { onEnter() }
         }
-        topRow.addView(
-            enterButton,
-            LinearLayout.LayoutParams(dp(context, 40), dp(context, 40)).apply {
-                marginStart = dp(context, 3)
-                topMargin = dp(context, 2)
-                marginEnd = dp(context, 8)
-            }
-        )
-        enterButton.translationX = dp(context, 2).toFloat()
 
         switchButton.apply {
             setImageResource(R.drawable.ic_ime_keyboard)
@@ -429,7 +433,7 @@ internal class VoiceImePanel(
                 ).apply { topMargin = dp(context, 3) }
             )
         }
-        mainInteractionContainer.addView(
+        voiceActionsContainer.addView(
             idleActions,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -466,7 +470,7 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(0, dp(context, 48), 0.8f)
             )
         }
-        mainInteractionContainer.addView(
+        voiceActionsContainer.addView(
             recordingActions,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -505,12 +509,47 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(dp(context, 84), dp(context, 42))
             )
         }
-        mainInteractionContainer.addView(
+        voiceActionsContainer.addView(
             busyActions,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
+            )
+        )
+        sideActionColumn.apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(0, 0, dp(context, 4), 0)
+            addView(
+                backspaceButton,
+                LinearLayout.LayoutParams(dp(context, 40), dp(context, 40))
+            )
+            addView(View(context), LinearLayout.LayoutParams(1, dp(context, 18)))
+            addView(
+                enterButton,
+                LinearLayout.LayoutParams(dp(context, 42), dp(context, 42))
+            )
+        }
+        mainInteractionRow.apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                voiceActionsContainer,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+            )
+            addView(
+                sideActionColumn,
+                LinearLayout.LayoutParams(dp(context, 52), LinearLayout.LayoutParams.MATCH_PARENT).apply {
+                    marginEnd = dp(context, 2)
+                }
+            )
+        }
+        mainInteractionContainer.addView(
+            mainInteractionRow,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
         mainPanel.addView(

@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Build
 import android.os.SystemClock
+import android.text.Html
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -68,10 +69,20 @@ class VoiceImeService : InputMethodService() {
     private var currentEditorInfo: EditorInfo? = null
     @Volatile
     private var activeRawTranscript: String? = null
-    private var clipboardListenerRegistered = false
     private val clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
         mainHandler.post { captureCurrentClipboard() }
     }
+    private val clipboardListenerLifecycle = ClipboardListenerLifecycle(
+        registerListener = {
+            clipboardManager()?.let { manager ->
+                manager.addPrimaryClipChangedListener(clipboardListener)
+                true
+            } ?: false
+        },
+        unregisterListener = {
+            clipboardManager()?.removePrimaryClipChangedListener(clipboardListener)
+        }
+    )
 
     override fun onCreateInputView(): View {
         val panel = VoiceImePanel(
@@ -128,7 +139,7 @@ class VoiceImeService : InputMethodService() {
             }
         }
         registerClipboardListenerForSafeEditor()
-        captureCurrentClipboard()
+        captureCurrentClipboard(allowWithoutListener = true)
     }
 
     override fun onStartInput(attribute: EditorInfo, restarting: Boolean) {
@@ -174,30 +185,34 @@ class VoiceImeService : InputMethodService() {
 
     private fun registerClipboardListenerForSafeEditor() {
         unregisterClipboardListener()
-        if (serviceDestroyed || isCurrentEditorSensitive()) return
+        val shouldRegister = SystemClipboardCapturePolicy.shouldRegisterListener(
+            serviceDestroyed,
+            isCurrentEditorSensitive()
+        )
         try {
-            clipboardManager()?.let { manager ->
-                manager.addPrimaryClipChangedListener(clipboardListener)
-                clipboardListenerRegistered = true
-            }
+            clipboardListenerLifecycle.registerIfAllowed(shouldRegister)
         } catch (exception: Exception) {
             Log.w(TAG, "Clipboard listener unavailable: ${exception.javaClass.simpleName}")
         }
     }
 
     private fun unregisterClipboardListener() {
-        if (!clipboardListenerRegistered) return
         try {
-            clipboardManager()?.removePrimaryClipChangedListener(clipboardListener)
+            clipboardListenerLifecycle.unregister()
         } catch (exception: Exception) {
             Log.w(TAG, "Clipboard listener release failed: ${exception.javaClass.simpleName}")
-        } finally {
-            clipboardListenerRegistered = false
         }
     }
 
-    private fun captureCurrentClipboard() {
-        if (serviceDestroyed || !clipboardListenerRegistered || isCurrentEditorSensitive()) return
+    private fun captureCurrentClipboard(allowWithoutListener: Boolean = false) {
+        val sensitiveEditor = isCurrentEditorSensitive()
+        if (!SystemClipboardCapturePolicy.shouldReadClipboard(
+                serviceDestroyed,
+                clipboardListenerLifecycle.isRegistered,
+                sensitiveEditor,
+                allowWithoutListener
+            )
+        ) return
         val manager = clipboardManager() ?: return
         val clip = try {
             manager.primaryClip
@@ -207,13 +222,33 @@ class VoiceImeService : InputMethodService() {
         } ?: return
 
         val description = clip.description
-        if (Build.VERSION.SDK_INT >= 33 &&
+        val isSensitiveClip = Build.VERSION.SDK_INT >= 33 &&
             description.extras?.getBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, false) == true
-        ) return
-        if (clip.itemCount == 0 || !description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)) {
+        val hasPlainText = description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)
+        val hasHtmlText = description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_HTML)
+        if (!SystemClipboardCapturePolicy.canCaptureClip(
+                clip.itemCount,
+                hasPlainText,
+                hasHtmlText,
+                isSensitiveClip,
+                sensitiveEditor
+            )
+        ) {
             return
         }
-        val text = clip.getItemAt(0).text?.toString() ?: return
+        val item = try {
+            clip.getItemAt(0)
+        } catch (_: Exception) {
+            return
+        }
+        val text = try {
+            item.text?.toString()?.takeIf { it.isNotBlank() } ?: item.htmlText?.let {
+                Html.fromHtml(it, Html.FROM_HTML_MODE_COMPACT).toString()
+            }
+        } catch (exception: Exception) {
+            Log.w(TAG, "Clipboard text conversion failed: ${exception.javaClass.simpleName}")
+            null
+        } ?: return
         if (isCurrentEditorSensitive()) return
         UserHistoryRepository.recordClipboardAsync(
             applicationContext,
@@ -232,7 +267,7 @@ class VoiceImeService : InputMethodService() {
 
     private fun openClipboardHistory() {
         if (isCurrentEditorSensitive()) return
-        captureCurrentClipboard()
+        captureCurrentClipboard(allowWithoutListener = true)
         refreshClipboardHistory()
     }
 

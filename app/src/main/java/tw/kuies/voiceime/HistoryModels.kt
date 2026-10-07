@@ -51,6 +51,54 @@ internal object ClipboardHistoryPolicy {
     }
 }
 
+internal object SystemClipboardCapturePolicy {
+    fun shouldRegisterListener(serviceDestroyed: Boolean, isSensitiveEditor: Boolean): Boolean =
+        !serviceDestroyed && !isSensitiveEditor
+
+    fun shouldReadClipboard(
+        serviceDestroyed: Boolean,
+        listenerRegistered: Boolean,
+        isSensitiveEditor: Boolean,
+        allowWithoutListener: Boolean = false
+    ): Boolean = !serviceDestroyed &&
+        !isSensitiveEditor &&
+        (listenerRegistered || allowWithoutListener)
+
+    fun canCaptureClip(
+        itemCount: Int,
+        hasPlainText: Boolean,
+        hasHtmlText: Boolean,
+        isSensitiveClip: Boolean,
+        isSensitiveEditor: Boolean
+    ): Boolean = itemCount > 0 &&
+        (hasPlainText || hasHtmlText) &&
+        !isSensitiveClip &&
+        !isSensitiveEditor
+}
+
+internal class ClipboardListenerLifecycle(
+    private val registerListener: () -> Boolean,
+    private val unregisterListener: () -> Unit
+) {
+    var isRegistered: Boolean = false
+        private set
+
+    fun registerIfAllowed(allowed: Boolean): Boolean {
+        if (!allowed || isRegistered || !registerListener()) return false
+        isRegistered = true
+        return true
+    }
+
+    fun unregister() {
+        if (!isRegistered) return
+        try {
+            unregisterListener()
+        } finally {
+            isRegistered = false
+        }
+    }
+}
+
 internal object VoiceHistoryPolicy {
     const val MAX_ITEMS = 50
 
