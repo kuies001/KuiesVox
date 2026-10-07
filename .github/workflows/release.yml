@@ -110,9 +110,17 @@ jobs:
           echo "KUIESVOX_KEYSTORE_FILE=$key_dir/release.keystore" >> "$GITHUB_ENV"
 
       - name: Compile app and test sources
+        env:
+          KUIESVOX_KEY_ALIAS: ${{ secrets.KUIESVOX_KEY_ALIAS }}
+          KUIESVOX_KEY_PASSWORD: ${{ secrets.KUIESVOX_KEY_PASSWORD }}
+          KUIESVOX_STORE_PASSWORD: ${{ secrets.KUIESVOX_STORE_PASSWORD }}
         run: ./gradlew :app:compileReleaseKotlin :app:compileDebugUnitTestKotlin --no-daemon
 
       - name: Run JVM tests
+        env:
+          KUIESVOX_KEY_ALIAS: ${{ secrets.KUIESVOX_KEY_ALIAS }}
+          KUIESVOX_KEY_PASSWORD: ${{ secrets.KUIESVOX_KEY_PASSWORD }}
+          KUIESVOX_STORE_PASSWORD: ${{ secrets.KUIESVOX_STORE_PASSWORD }}
         run: ./gradlew test --no-daemon
 
       - name: Build signed Release APK
