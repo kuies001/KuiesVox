@@ -10,6 +10,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -156,6 +157,45 @@ class VoiceImePanelLayoutTest {
         assertEquals(1, enters)
         assertEquals(1, switches)
         assertEquals(1, settingsOpens)
+    }
+
+    @Test
+    fun moreActionsStaySeparateAndClearRequiresConfirmation() {
+        var selections = 0
+        var clears = 0
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {},
+            onSelectAll = { selections += 1 },
+            onClearAll = { clears += 1 }
+        )
+
+        assertEquals(View.GONE, panel.moreActionsPanel.visibility)
+        assertTrue(panel.moreButton.performClick())
+        assertEquals(View.VISIBLE, panel.moreActionsPanel.visibility)
+        assertTrue(panel.selectAllButton.performClick())
+        assertEquals(1, selections)
+        assertEquals(View.GONE, panel.moreActionsPanel.visibility)
+
+        panel.moreButton.performClick()
+        panel.clearAllButton.performClick()
+        assertEquals(View.GONE, panel.moreActionsPanel.visibility)
+        assertEquals(View.VISIBLE, panel.clearConfirmationPanel.visibility)
+        assertEquals(0, clears)
+
+        panel.cancelClearAllButton.performClick()
+        assertEquals(View.GONE, panel.clearConfirmationPanel.visibility)
+        panel.moreButton.performClick()
+        panel.clearAllButton.performClick()
+        panel.confirmClearAllButton.performClick()
+        assertEquals(1, clears)
+        assertEquals(View.GONE, panel.clearConfirmationPanel.visibility)
+
+        panel.render(VoiceImeState.FORMATTING, null)
+        assertFalse(panel.moreButton.isEnabled)
+        assertEquals(View.GONE, panel.moreActionsPanel.visibility)
     }
 
     @Test

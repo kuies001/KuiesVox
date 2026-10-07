@@ -26,7 +26,9 @@ internal class VoiceImePanel(
     onDelete: () -> Unit = {},
     onBackspacePressed: () -> Unit = {},
     onBackspaceReleased: () -> Boolean = { false },
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    onSelectAll: () -> Unit = {},
+    onClearAll: () -> Unit = {}
 ) {
     private val statusChip = LinearLayout(context)
     private val statusDot = View(context)
@@ -38,6 +40,13 @@ internal class VoiceImePanel(
     internal val settingsButton = ImageButton(context)
     internal val backspaceButton = ImageButton(context)
     internal val enterButton = ImageButton(context)
+    internal val moreButton = LinearLayout(context)
+    internal val moreActionsPanel = LinearLayout(context)
+    internal val clearConfirmationPanel = LinearLayout(context)
+    internal val selectAllButton = textView(context, sizeSp = 13f, color = TEXT)
+    internal val clearAllButton = textView(context, sizeSp = 13f, color = PINK)
+    internal val cancelClearAllButton = textView(context, sizeSp = 13f, color = TEXT_MUTED)
+    internal val confirmClearAllButton = textView(context, sizeSp = 13f, color = PINK)
     internal val idleActions = LinearLayout(context)
     internal val idleMicButton = ImageButton(context)
     internal val idleTitle = textView(context, sizeSp = 16f, color = TEXT).apply {
@@ -230,6 +239,145 @@ internal class VoiceImePanel(
         )
         root.addView(topRow)
 
+        moreButton.apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
+            contentDescription = "更多功能"
+            background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
+            setPadding(dp(context, 10), 0, dp(context, 10), 0)
+            val icon = ImageView(context).apply {
+                setImageResource(R.drawable.ic_ime_more)
+                imageTintList = ColorStateList.valueOf(TEXT_MUTED)
+            }
+            addView(icon, LinearLayout.LayoutParams(dp(context, 18), dp(context, 18)))
+            addView(
+                textView(context, sizeSp = 12f, color = TEXT_MUTED).apply {
+                    text = "更多"
+                    setPadding(dp(context, 4), 0, 0, 0)
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            setOnClickListener {
+                val wasExpanded = moreActionsPanel.visibility == View.VISIBLE ||
+                    clearConfirmationPanel.visibility == View.VISIBLE
+                moreActionsPanel.visibility = if (wasExpanded) View.GONE else View.VISIBLE
+                clearConfirmationPanel.visibility = View.GONE
+            }
+        }
+        val moreEntryRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            addView(
+                moreButton,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    dp(context, 32)
+                )
+            )
+        }
+        root.addView(
+            moreEntryRow,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(context, 36)
+            ).apply { topMargin = dp(context, 2) }
+        )
+
+        val moreActionsRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                moreActionButton(context, selectAllButton, "全選", TEXT) {
+                    moreActionsPanel.visibility = View.GONE
+                    onSelectAll()
+                },
+                LinearLayout.LayoutParams(0, dp(context, 40), 1f).apply {
+                    marginEnd = dp(context, 6)
+                }
+            )
+            addView(
+                moreActionButton(context, clearAllButton, "清除全部", PINK) {
+                    moreActionsPanel.visibility = View.GONE
+                    clearConfirmationPanel.visibility = View.VISIBLE
+                },
+                LinearLayout.LayoutParams(0, dp(context, 40), 1f)
+            )
+        }
+        moreActionsPanel.apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8))
+            background = rounded(
+                intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT),
+                dp(context, 18),
+                OUTLINE,
+                dp(context, 1)
+            )
+            addView(moreActionsRow)
+            visibility = View.GONE
+        }
+        root.addView(
+            moreActionsPanel,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(context, 2) }
+        )
+
+        val confirmationLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
+            text = "確定清除目前輸入欄位的全部文字？"
+            maxLines = 2
+        }
+        val confirmationActions = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                moreActionButton(context, cancelClearAllButton, "取消", TEXT_MUTED) {
+                    clearConfirmationPanel.visibility = View.GONE
+                },
+                LinearLayout.LayoutParams(0, dp(context, 40), 1f).apply {
+                    marginEnd = dp(context, 6)
+                }
+            )
+            addView(
+                moreActionButton(context, confirmClearAllButton, "確認清除", PINK) {
+                    clearConfirmationPanel.visibility = View.GONE
+                    onClearAll()
+                },
+                LinearLayout.LayoutParams(0, dp(context, 40), 1f)
+            )
+        }
+        clearConfirmationPanel.apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 8))
+            background = rounded(
+                intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT),
+                dp(context, 18),
+                blend(OUTLINE, PINK, 0.35f),
+                dp(context, 1)
+            )
+            addView(
+                confirmationLabel,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(context, 7) }
+            )
+            addView(confirmationActions)
+            visibility = View.GONE
+        }
+        root.addView(
+            clearConfirmationPanel,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(context, 2) }
+        )
+
         root.addView(
             previewText,
             LinearLayout.LayoutParams(
@@ -396,6 +544,12 @@ internal class VoiceImePanel(
             state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
         settingsButton.isEnabled = state == VoiceImeState.IDLE
         settingsButton.alpha = if (settingsButton.isEnabled) 1f else 0.5f
+        moreButton.isEnabled = state == VoiceImeState.IDLE
+        moreButton.alpha = if (moreButton.isEnabled) 1f else 0.5f
+        if (!moreButton.isEnabled) {
+            moreActionsPanel.visibility = View.GONE
+            clearConfirmationPanel.visibility = View.GONE
+        }
         idleActions.visibility = if (state == VoiceImeState.IDLE || isTerminal) {
             View.VISIBLE
         } else {
@@ -449,6 +603,27 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { marginStart = dp(context, 7) }
+        )
+        setOnClickListener { onClick() }
+    }
+
+    private fun moreActionButton(
+        context: Context,
+        button: TextView,
+        label: String,
+        color: Int,
+        onClick: () -> Unit
+    ): View = button.apply {
+        text = label
+        gravity = Gravity.CENTER
+        setTextColor(color)
+        setTypeface(typeface, Typeface.BOLD)
+        isClickable = true
+        isFocusable = true
+        background = RippleDrawable(
+            ColorStateList.valueOf(0x33FFFFFF),
+            solid(SURFACE, dp(context, 14)),
+            null
         )
         setOnClickListener { onClick() }
     }

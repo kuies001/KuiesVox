@@ -9,10 +9,13 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
+import android.text.InputType
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import java.io.File
 import java.io.IOException
@@ -80,7 +83,9 @@ class VoiceImeService : InputMethodService() {
             onDelete = ::deleteOneBeforeCursor,
             onBackspacePressed = backspaceRepeater::start,
             onBackspaceReleased = backspaceRepeater::stop,
-            onOpenSettings = ::openSettings
+            onOpenSettings = ::openSettings,
+            onSelectAll = ::selectAllInputText,
+            onClearAll = ::clearAllInputText
         )
         voicePanel = panel
         panel.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
@@ -158,6 +163,108 @@ class VoiceImeService : InputMethodService() {
             }
         })
         if (!inserted) Log.w(TAG, "Enter insertion unavailable")
+    }
+
+    private fun selectAllInputText() = performBulkTextAction(clearAll = false)
+
+    private fun clearAllInputText() = performBulkTextAction(clearAll = true)
+
+    private fun performBulkTextAction(clearAll: Boolean) {
+        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE) return
+        val inputConnection = try {
+            currentInputConnection
+        } catch (exception: Exception) {
+            Log.w(TAG, "Bulk text input connection unavailable: ${exception.javaClass.simpleName}")
+            null
+        } ?: return
+
+        val canInspectText = canInspectEditorText(currentEditorInfo)
+        val connection = inputConnection.asBulkEditInputConnection()
+        val succeeded = if (clearAll) {
+            BulkTextEditing.clearAll(connection, allowFullTextFallback = canInspectText)
+        } else {
+            BulkTextEditing.selectAll(connection, allowFullTextFallback = canInspectText)
+        }
+        if (!succeeded) {
+            Log.w(TAG, if (clearAll) "Clear-all action unavailable" else "Select-all action unavailable")
+        }
+    }
+
+    private fun canInspectEditorText(editorInfo: EditorInfo?): Boolean {
+        editorInfo ?: return false
+        if (editorInfo.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING != 0) return false
+
+        val inputClass = editorInfo.inputType and InputType.TYPE_MASK_CLASS
+        val variation = editorInfo.inputType and InputType.TYPE_MASK_VARIATION
+        return when (inputClass) {
+            InputType.TYPE_CLASS_TEXT -> variation !in setOf(
+                InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
+                InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
+            )
+            InputType.TYPE_CLASS_NUMBER -> variation != InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
+    }
+
+    private fun InputConnection.asBulkEditInputConnection(): BulkEditInputConnection =
+        object : BulkEditInputConnection {
+            override fun performSelectAll(): Boolean =
+                this@asBulkEditInputConnection.performContextMenuAction(android.R.id.selectAll)
+
+            override fun getFullTextLength(): Int? {
+                val extracted = this@asBulkEditInputConnection.getExtractedText(
+                    ExtractedTextRequest(),
+                    0
+                ) ?: return null
+                val text = extracted.text ?: return null
+                if (extracted.startOffset != 0 || extracted.partialStartOffset != -1 ||
+                    extracted.partialEndOffset != -1
+                ) {
+                    return null
+                }
+                return text.length
+            }
+
+            override fun setSelection(start: Int, end: Int): Boolean =
+                this@asBulkEditInputConnection.setSelection(start, end)
+
+            override fun sendSelectAllShortcut(): Boolean =
+                this@asBulkEditInputConnection.sendKeyPair(
+                    keyCode = KeyEvent.KEYCODE_A,
+                    metaState = KeyEvent.META_CTRL_ON
+                )
+
+            override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean =
+                this@asBulkEditInputConnection.commitText(text, newCursorPosition)
+
+            override fun sendDeleteKey(): Boolean =
+                this@asBulkEditInputConnection.sendKeyPair(KeyEvent.KEYCODE_DEL)
+        }
+
+    private fun InputConnection.sendKeyPair(
+        keyCode: Int,
+        metaState: Int = 0
+    ): Boolean {
+        val downTime = SystemClock.uptimeMillis()
+        val down = try {
+            sendKeyEvent(
+                KeyEvent(downTime, downTime, KeyEvent.ACTION_DOWN, keyCode, 0, metaState)
+            )
+        } catch (_: Exception) {
+            false
+        }
+        val upTime = SystemClock.uptimeMillis()
+        val up = try {
+            sendKeyEvent(
+                KeyEvent(downTime, upTime, KeyEvent.ACTION_UP, keyCode, 0, metaState)
+            )
+        } catch (_: Exception) {
+            false
+        }
+        return down || up
     }
 
     private fun InputConnection.asBackspaceInputConnection(): BackspaceInputConnection =
