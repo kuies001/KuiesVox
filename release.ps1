@@ -36,7 +36,7 @@ function Invoke-Git {
         if ($LASTEXITCODE -ne 0) {
             throw "git command failed (exit $LASTEXITCODE): git $($GitArguments -join ' ')"
         }
-        return ($output -join [Environment]::NewLine).Trim()
+        return ($output -join [Environment]::NewLine).TrimEnd()
     }
 
     & git -C $repositoryRoot @GitArguments
