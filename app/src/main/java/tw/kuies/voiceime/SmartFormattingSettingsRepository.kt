@@ -9,6 +9,7 @@ internal object SmartFormattingSettingsRepository {
     private const val THRESHOLD_KEY = "smart_formatting_threshold"
     private const val LEGACY_MODEL_KEY = "smart_formatting_model"
     private const val SPEECH_MODEL_KEY = "speech_model"
+    private const val SPEECH_LANGUAGE_MODE_KEY = "speech_language_mode"
     private const val PROVIDER_KEY = "text_formatting_provider"
     private const val GROQ_MODEL_KEY = "groq_formatting_model"
     private const val GROQ_CUSTOM_MODEL_KEY = "groq_custom_model_id"
@@ -46,6 +47,10 @@ internal object SmartFormattingSettingsRepository {
                     SPEECH_MODEL_KEY,
                     SmartFormattingSettings.DEFAULT_SPEECH_MODEL
                 ).orEmpty(),
+                speechLanguageMode = SpeechLanguageMode.fromStoredValues(
+                    preferences.getString(SPEECH_LANGUAGE_MODE_KEY, null),
+                    preferences.getString(SpeechLanguageMode.LEGACY_PREFERENCE_KEY, null)
+                ),
                 groqFormattingModel = preferences.getString(
                     GROQ_MODEL_KEY,
                     preferences.getString(LEGACY_MODEL_KEY, SmartFormattingSettings.DEFAULT_GROQ_MODEL)
@@ -75,6 +80,7 @@ internal object SmartFormattingSettingsRepository {
             .putBoolean(ENABLED_KEY, normalized.enabled)
             .putInt(THRESHOLD_KEY, normalized.threshold)
             .putString(SPEECH_MODEL_KEY, normalized.speechModel)
+            .putString(SPEECH_LANGUAGE_MODE_KEY, normalized.speechLanguageMode.storageValue)
             .putString(PROVIDER_KEY, normalized.provider.name.lowercase())
             .putString(GROQ_MODEL_KEY, normalized.groqFormattingModel)
             .putString(LEGACY_MODEL_KEY, normalized.groqFormattingModel)

@@ -7,8 +7,10 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -38,6 +40,9 @@ internal class VoiceImePanel(
     onClearAll: () -> Unit = {},
     private val onOpenClipboardHistory: () -> Unit = {},
     private val onOpenVoiceHistory: () -> Unit = {},
+    private val onHoldToTalkStart: () -> Boolean = { false },
+    private val onHoldToTalkRelease: () -> Unit = {},
+    private val onHoldToTalkCancel: () -> Unit = {},
     private val onInsertHistoryText: (String) -> Unit = {},
     private val onCopyHistoryText: (String) -> Unit = {},
     private val onPinClipboardItem: (String, Boolean) -> Unit = { _, _ -> },
@@ -87,6 +92,19 @@ internal class VoiceImePanel(
     private var voiceStatus: String? = null
     private var clearHistoryConfirmation = false
     private var expandedVoiceItemId: Long? = null
+    private val holdToTalkTracker = HoldToTalkGestureTracker()
+    private var holdToTalkPointerId = MotionEvent.INVALID_POINTER_ID
+    private var holdToTalkButton: ImageButton? = null
+    private val holdToTalkTimeoutRunnable = Runnable {
+        val button = holdToTalkButton ?: return@Runnable
+        val pointerId = holdToTalkPointerId
+        if (pointerId != MotionEvent.INVALID_POINTER_ID &&
+            holdToTalkTracker.onLongPress(pointerId) &&
+            onHoldToTalkStart()
+        ) {
+            button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        }
+    }
     internal val mainInteractionContainer = FrameLayout(context)
     internal val idleActions = LinearLayout(context)
     internal val idleMicButton = ImageButton(context)
@@ -408,6 +426,7 @@ internal class VoiceImePanel(
                 isClickable = true
                 isFocusable = true
                 setOnClickListener { onVoiceAction() }
+                installHoldToTalkGesture(this)
             }
             addView(
                 idleMicButton,
@@ -940,7 +959,12 @@ internal class VoiceImePanel(
     private fun formatHistoryTime(timestamp: Long): String =
         SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date(timestamp))
 
-    fun render(state: VoiceImeState, latestResult: String?, statusLabelOverride: String? = null) {
+    fun render(
+        state: VoiceImeState,
+        latestResult: String?,
+        statusLabelOverride: String? = null,
+        holdToTalkRecording: Boolean = false
+    ) {
         val accent = accentFor(state)
         statusLabel.text = statusLabelOverride ?: state.label
         statusLabel.setTextColor(accent)
@@ -971,12 +995,24 @@ internal class VoiceImePanel(
             clearConfirmationPanel.visibility = View.GONE
             bulkActionsRow.visibility = View.VISIBLE
         }
-        idleActions.visibility = if (state == VoiceImeState.IDLE || isTerminal) {
+        idleHint.text = if (holdToTalkRecording) "放開即辨識" else "點一下開始說話"
+        idleMicButton.isActivated = holdToTalkRecording
+        idleMicButton.alpha = if (holdToTalkRecording) 0.9f else 1f
+        idleMicButton.background = if (holdToTalkRecording) {
+            solid(CORAL, dp(idleMicButton.context, 100))
+        } else {
+            circleRipple(idleMicButton.context)
+        }
+        idleActions.visibility = if (
+            state == VoiceImeState.IDLE || isTerminal || holdToTalkRecording
+        ) {
             View.VISIBLE
         } else {
             View.GONE
         }
-        recordingActions.visibility = if (state == VoiceImeState.RECORDING) View.VISIBLE else View.GONE
+        recordingActions.visibility = if (
+            state == VoiceImeState.RECORDING && !holdToTalkRecording
+        ) View.VISIBLE else View.GONE
         val isBusy = state == VoiceImeState.TRANSCRIBING || state == VoiceImeState.FORMATTING
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
         busyLabel.text = state.label
@@ -987,6 +1023,110 @@ internal class VoiceImePanel(
         previewText.text = latestResult?.let { "最近：$it" }.orEmpty()
         val isActive = state == VoiceImeState.RECORDING || isBusy
         previewText.setTextColor(if (isActive) blend(PREVIEW_TEXT, BACKGROUND, 0.12f) else PREVIEW_TEXT)
+    }
+
+    internal fun cancelHoldToTalkGesture() {
+        holdToTalkButton?.removeCallbacks(holdToTalkTimeoutRunnable)
+        val event = holdToTalkTracker.onCancel()
+        holdToTalkPointerId = MotionEvent.INVALID_POINTER_ID
+        holdToTalkButton?.isPressed = false
+        holdToTalkButton?.parent?.requestDisallowInterceptTouchEvent(false)
+        finishHoldToTalkGesture(event)
+    }
+
+    internal fun disposeHoldToTalkGesture() {
+        holdToTalkButton?.removeCallbacks(holdToTalkTimeoutRunnable)
+        holdToTalkTracker.reset()
+        holdToTalkPointerId = MotionEvent.INVALID_POINTER_ID
+        holdToTalkButton?.isPressed = false
+        holdToTalkButton = null
+    }
+
+    private fun installHoldToTalkGesture(button: ImageButton) {
+        holdToTalkButton = button
+        button.setOnTouchListener { touched, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val pointerId = event.getPointerId(event.actionIndex)
+                    if (!holdToTalkTracker.onDown(pointerId)) return@setOnTouchListener true
+                    holdToTalkPointerId = pointerId
+                    touched.isPressed = true
+                    touched.parent?.requestDisallowInterceptTouchEvent(true)
+                    touched.postDelayed(
+                        holdToTalkTimeoutRunnable,
+                        ViewConfiguration.getLongPressTimeout().toLong()
+                    )
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val pointerId = holdToTalkPointerId
+                    val pointerIndex = event.findPointerIndex(pointerId)
+                    if (pointerId == MotionEvent.INVALID_POINTER_ID || pointerIndex < 0) {
+                        cancelHoldToTalkGesture()
+                        return@setOnTouchListener true
+                    }
+                    val isInside = event.getX(pointerIndex) >= 0f &&
+                        event.getY(pointerIndex) >= 0f &&
+                        event.getX(pointerIndex) < touched.width &&
+                        event.getY(pointerIndex) < touched.height
+                    if (!isInside) {
+                        touched.removeCallbacks(holdToTalkTimeoutRunnable)
+                        touched.isPressed = false
+                        touched.parent?.requestDisallowInterceptTouchEvent(false)
+                        finishHoldToTalkGesture(holdToTalkTracker.onMove(pointerId, false))
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val pointerId = event.getPointerId(event.actionIndex)
+                    if (pointerId != holdToTalkPointerId) {
+                        cancelHoldToTalkGesture()
+                        return@setOnTouchListener true
+                    }
+                    touched.removeCallbacks(holdToTalkTimeoutRunnable)
+                    val isInside = event.x >= 0f && event.y >= 0f &&
+                        event.x < touched.width && event.y < touched.height
+                    val gesture = holdToTalkTracker.onUp(pointerId, isInside)
+                    holdToTalkPointerId = MotionEvent.INVALID_POINTER_ID
+                    touched.isPressed = false
+                    touched.parent?.requestDisallowInterceptTouchEvent(false)
+                    finishHoldToTalkGesture(gesture, touched)
+                    true
+                }
+                MotionEvent.ACTION_CANCEL,
+                MotionEvent.ACTION_POINTER_DOWN,
+                MotionEvent.ACTION_POINTER_UP -> {
+                    cancelHoldToTalkGesture()
+                    true
+                }
+                else -> true
+            }
+        }
+        button.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) {
+                holdToTalkButton = view as? ImageButton
+            }
+
+            override fun onViewDetachedFromWindow(view: View) {
+                cancelHoldToTalkGesture()
+                holdToTalkButton = null
+            }
+        })
+    }
+
+    private fun finishHoldToTalkGesture(
+        event: HoldToTalkGestureEvent,
+        button: View? = holdToTalkButton
+    ) {
+        when (event) {
+            HoldToTalkGestureEvent.NONE -> Unit
+            HoldToTalkGestureEvent.TAP -> button?.performClick()
+            HoldToTalkGestureEvent.RELEASE_HOLD -> onHoldToTalkRelease()
+            HoldToTalkGestureEvent.CANCEL_HOLD -> onHoldToTalkCancel()
+        }
+        if (event != HoldToTalkGestureEvent.NONE) {
+            holdToTalkPointerId = MotionEvent.INVALID_POINTER_ID
+        }
     }
 
     private fun actionButton(

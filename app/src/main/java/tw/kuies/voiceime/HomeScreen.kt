@@ -636,6 +636,8 @@ internal fun GroqSettingsScreen(
     modifier: Modifier = Modifier,
     speechModel: String,
     onSpeechModelChange: (String) -> Unit,
+    speechLanguageMode: SpeechLanguageMode,
+    onSpeechLanguageModeChange: (SpeechLanguageMode) -> Unit,
     apiKey: String,
     apiKeySaved: Boolean,
     apiKeyLoaded: Boolean,
@@ -646,6 +648,7 @@ internal fun GroqSettingsScreen(
     onBack: () -> Unit
 ) {
     var speechModelMenuOpen by remember { mutableStateOf(false) }
+    var speechLanguageMenuOpen by remember { mutableStateOf(false) }
     val selectedSpeechModel = FormattingModels.speech.firstOrNull { it.id == speechModel }
         ?: FormattingModels.speech.last()
     Column(
@@ -677,6 +680,35 @@ internal fun GroqSettingsScreen(
         }
         Text(
             selectedSpeechModel.description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text("語音辨識語言", style = MaterialTheme.typography.titleMedium)
+        Box {
+            OutlinedButton(
+                onClick = { speechLanguageMenuOpen = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(speechLanguageMode.displayName, modifier = Modifier.weight(1f))
+                Text("▾")
+            }
+            DropdownMenu(
+                expanded = speechLanguageMenuOpen,
+                onDismissRequest = { speechLanguageMenuOpen = false }
+            ) {
+                SpeechLanguageMode.entries.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.displayName) },
+                        onClick = {
+                            speechLanguageMenuOpen = false
+                            onSpeechLanguageModeChange(option)
+                        }
+                    )
+                }
+            }
+        }
+        Text(
+            speechLanguageMode.description,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

@@ -540,6 +540,10 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
             onSpeechModelChange = { model ->
                 saveSmartFormattingSettings(smartFormattingSettings.copy(speechModel = model))
             },
+            speechLanguageMode = smartFormattingSettings.speechLanguageMode,
+            onSpeechLanguageModeChange = { mode ->
+                saveSmartFormattingSettings(smartFormattingSettings.copy(speechLanguageMode = mode))
+            },
             apiKey = apiKey,
             apiKeySaved = apiKeySaved,
             apiKeyLoaded = apiKeyLoaded,

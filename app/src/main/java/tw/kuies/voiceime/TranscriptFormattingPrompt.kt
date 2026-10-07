@@ -67,5 +67,5 @@ internal object TranscriptFormattingPrompt {
         - 只允許純文字、自然段落，以及 1. 2. 3. 或 - 的簡單列點
 
         輸出必須只包含處理後的逐字稿。
-    """.trimIndent()
+    """.trimIndent() + "\n\n語言規則：保留中文與英文的自然混合；英文技術詞、品牌及模型名稱沿用原拼法，不要翻譯。"
 }

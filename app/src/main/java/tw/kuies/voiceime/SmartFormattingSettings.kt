@@ -11,6 +11,39 @@ internal enum class TextFormattingProviderId(val displayName: String) {
     }
 }
 
+internal enum class SpeechLanguageMode(
+    val displayName: String,
+    val description: String,
+    val groqLanguageCode: String?,
+    val storageValue: String
+) {
+    AUTO("自動偵測", "由 Whisper 自動判斷語音語言。", null, "auto"),
+    CHINESE("中文", "以中文作為辨識語言。", "zh", "zh"),
+    ENGLISH("英文", "以英文作為辨識語言。", "en", "en"),
+    MIXED(
+        "中英混合",
+        "適合中文句子中包含英文品牌、技術詞或專有名詞。",
+        null,
+        "mixed"
+    );
+
+    companion object {
+        const val LEGACY_PREFERENCE_KEY = "speech_language"
+
+        fun fromStoredValue(value: String?): SpeechLanguageMode? =
+            when (value?.trim()?.lowercase()) {
+                "auto", "auto_detect", "auto-detect" -> AUTO
+                "zh", "zh-cn", "chinese" -> CHINESE
+                "en", "en-us", "english" -> ENGLISH
+                "mixed", "zh-en", "zh_en", "bilingual" -> MIXED
+                else -> null
+            }
+
+        fun fromStoredValues(currentValue: String?, legacyValue: String?): SpeechLanguageMode =
+            fromStoredValue(currentValue) ?: fromStoredValue(legacyValue) ?: MIXED
+    }
+}
+
 internal data class FormattingModelOption(
     val id: String,
     val displayName: String,
@@ -110,6 +143,7 @@ internal data class SmartFormattingSettings(
     val threshold: Int = DEFAULT_THRESHOLD,
     val provider: TextFormattingProviderId = TextFormattingProviderId.GROQ,
     val speechModel: String = DEFAULT_SPEECH_MODEL,
+    val speechLanguageMode: SpeechLanguageMode = SpeechLanguageMode.MIXED,
     val groqFormattingModel: String = DEFAULT_GROQ_MODEL,
     val groqCustomModelId: String = "",
     val geminiFormattingModel: String = DEFAULT_GEMINI_MODEL,

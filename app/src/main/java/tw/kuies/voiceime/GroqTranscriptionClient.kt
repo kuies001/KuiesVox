@@ -24,12 +24,13 @@ internal object GroqTranscriptionClient {
         apiKey: String,
         audioFile: File,
         prompt: String? = null,
-        model: String = SmartFormattingSettings.DEFAULT_SPEECH_MODEL
+        model: String = SmartFormattingSettings.DEFAULT_SPEECH_MODEL,
+        language: String? = "zh"
     ): Call {
         val request = Request.Builder()
             .url(ENDPOINT)
             .header("Authorization", "Bearer $apiKey")
-            .post(createRequestBody(audioFile, prompt, model))
+            .post(createRequestBody(audioFile, prompt, model, language))
             .build()
 
         return GroqHttpClient.client.newCall(request)
@@ -38,7 +39,8 @@ internal object GroqTranscriptionClient {
     internal fun createRequestBody(
         audioFile: File,
         prompt: String?,
-        model: String = SmartFormattingSettings.DEFAULT_SPEECH_MODEL
+        model: String = SmartFormattingSettings.DEFAULT_SPEECH_MODEL,
+        language: String? = "zh"
     ): MultipartBody {
         val requestBodyBuilder = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
@@ -52,16 +54,18 @@ internal object GroqTranscriptionClient {
             requestBodyBuilder.addFormDataPart("prompt", prompt)
         }
 
-        return requestBodyBuilder
+        val withRequiredFields = requestBodyBuilder
             .addFormDataPart(
                 "model",
                 model.takeIf { candidate -> FormattingModels.speech.any { it.id == candidate } }
                     ?: SmartFormattingSettings.DEFAULT_SPEECH_MODEL
             )
             .addFormDataPart("response_format", "json")
-            .addFormDataPart("language", "zh")
             .addFormDataPart("temperature", "0")
-            .build()
+        if (!language.isNullOrBlank()) {
+            withRequiredFields.addFormDataPart("language", language)
+        }
+        return withRequiredFields.build()
     }
 
     fun enqueue(call: Call, onResult: (GroqTranscriptionResult) -> Unit) {

@@ -66,6 +66,39 @@ class PersonalGlossaryRulesTest {
     }
 
     @Test
+    fun mixedLanguagePromptPreservesGlossaryAndMcpSpellings() {
+        val entries = listOf(
+            PersonalGlossaryTerm("1", "KuiesVox", true),
+            PersonalGlossaryTerm("2", "GitHub", true),
+            PersonalGlossaryTerm("3", "OpenCode", true)
+        )
+
+        val prompt = requireNotNull(
+            GlossaryPromptBuilder.build(
+                entries,
+                listOf("Codex", "Groq"),
+                SpeechLanguageMode.MIXED
+            )
+        )
+
+        assertTrue(prompt.contains("中英口語切換"))
+        assertTrue(prompt.contains("不翻譯"))
+        assertTrue(prompt.contains("KuiesVox"))
+        assertTrue(prompt.contains("GitHub"))
+        assertTrue(prompt.contains("Codex"))
+        assertTrue(prompt.contains("Groq"))
+    }
+
+    @Test
+    fun mixedLanguagePromptIsPresentEvenWithoutGlossaryTerms() {
+        val prompt = requireNotNull(
+            GlossaryPromptBuilder.build(emptyList(), languageMode = SpeechLanguageMode.MIXED)
+        )
+
+        assertTrue(prompt.contains("中英口語切換"))
+    }
+
+    @Test
     fun promptStaysWithinConservativeUnicodeAndUtf8Limits() {
         val entries = (1..60).map { index ->
             PersonalGlossaryTerm(index.toString(), "詞$index", true)

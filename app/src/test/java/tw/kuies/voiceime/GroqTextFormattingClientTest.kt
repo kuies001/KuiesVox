@@ -44,6 +44,13 @@ class GroqTextFormattingClientTest {
     }
 
     @Test
+    fun systemPromptKeepsEnglishTechnicalTermsInMixedTranscripts() {
+        assertTrue(TranscriptFormattingPrompt.SYSTEM_PROMPT.contains("保留中文與英文的自然混合"))
+        assertTrue(TranscriptFormattingPrompt.SYSTEM_PROMPT.contains("英文技術詞"))
+        assertTrue(TranscriptFormattingPrompt.SYSTEM_PROMPT.contains("不要翻譯"))
+    }
+
+    @Test
     fun modelUnavailableErrorsAreReportedWithoutExposingServerBody() {
         val errorBody = """{"error":{"message":"model not found: model unavailable; token=do-not-log"}}"""
         val response = Response.Builder()

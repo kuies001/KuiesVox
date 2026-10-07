@@ -58,6 +58,7 @@ class VoiceImeService : InputMethodService() {
     private var audioRecord: AudioRecord? = null
     private var recordingThread: Thread? = null
     private var activeAudioFile: File? = null
+    private var holdToTalkRecording = false
     private var activeRequestCall: Call? = null
     private var voicePanel: VoiceImePanel? = null
     private val previewState = VoiceImePreviewState()
@@ -97,6 +98,9 @@ class VoiceImeService : InputMethodService() {
             onClearAll = ::clearAllInputText,
             onOpenClipboardHistory = ::openClipboardHistory,
             onOpenVoiceHistory = ::openVoiceHistory,
+            onHoldToTalkStart = ::startHoldToTalkRecording,
+            onHoldToTalkRelease = ::releaseHoldToTalkRecording,
+            onHoldToTalkCancel = ::cancelHoldToTalkRecording,
             onInsertHistoryText = ::insertHistoryText,
             onCopyHistoryText = ::copyHistoryText,
             onPinClipboardItem = ::setClipboardPinned,
@@ -155,6 +159,7 @@ class VoiceImeService : InputMethodService() {
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        voicePanel?.cancelHoldToTalkGesture()
         backspaceRepeater.stop()
         unregisterClipboardListener()
         super.onFinishInputView(finishingInput)
@@ -538,12 +543,33 @@ class VoiceImeService : InputMethodService() {
             }
         }
 
-    private fun startRecording() {
-        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || audioRecord != null) return
+    private fun startHoldToTalkRecording(): Boolean {
+        if (serviceDestroyed || stateMachine.state == VoiceImeState.RECORDING ||
+            stateMachine.state == VoiceImeState.TRANSCRIBING ||
+            stateMachine.state == VoiceImeState.FORMATTING
+        ) return false
+        resetTerminalStatus()
+        return startRecording(isHoldToTalk = true)
+    }
+
+    private fun releaseHoldToTalkRecording() {
+        if (serviceDestroyed || !holdToTalkRecording) return
+        holdToTalkRecording = false
+        stopAndTranscribe()
+    }
+
+    private fun cancelHoldToTalkRecording() {
+        if (holdToTalkRecording) cancelCurrentOperation()
+    }
+
+    private fun startRecording(isHoldToTalk: Boolean = false): Boolean {
+        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || audioRecord != null) {
+            return false
+        }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "Recording unavailable: microphone_permission_missing")
             transitionStatus(VoiceImeState.ERROR)
-            return
+            return false
         }
 
         var newRecorder: AudioRecord? = null
@@ -585,7 +611,11 @@ class VoiceImeService : InputMethodService() {
             activeAudioFile = file
             recordingFailure = null
             audioRecord = recorder
-            transitionStatus(VoiceImeState.RECORDING)
+            holdToTalkRecording = isHoldToTalk
+            transitionStatus(
+                VoiceImeState.RECORDING,
+                if (isHoldToTalk) "放開即辨識" else null
+            )
             recordingThread = Thread(
                 { capturePcmWav(recorder, file, bufferSize, operationId) },
                 "VoiceImeAudioRecorder"
@@ -594,8 +624,10 @@ class VoiceImeService : InputMethodService() {
                 start()
             }
             Log.i(TAG, "Recording started: ${file.absolutePath}")
+            return true
         } catch (exception: Exception) {
             Log.e(TAG, "Recording start failed: ${exception.javaClass.simpleName}")
+            holdToTalkRecording = false
             releaseRecorder(newRecorder)
             audioRecord = null
             recordingThread = null
@@ -606,6 +638,7 @@ class VoiceImeService : InputMethodService() {
                 activeAudioFile = null
                 transitionStatus(VoiceImeState.ERROR)
             }
+            return false
         }
     }
 
@@ -653,9 +686,9 @@ class VoiceImeService : InputMethodService() {
     private fun stopAndTranscribe() {
         val operationId = activeOperationId
         val completedFile = activeAudioFile
-        if (operationId == 0L || completedFile == null ||
-            !transitionStatus(VoiceImeState.TRANSCRIBING)
-        ) return
+        if (operationId == 0L || completedFile == null) return
+        holdToTalkRecording = false
+        if (!transitionStatus(VoiceImeState.TRANSCRIBING)) return
 
         stopRecorderAndJoin()
         if (!isOperationCurrent(operationId)) return
@@ -677,6 +710,7 @@ class VoiceImeService : InputMethodService() {
         ) return
 
         val file = activeAudioFile
+        holdToTalkRecording = false
         requestGate.invalidate()
         activeOperationId = 0L
         activeRequestCall?.cancel()
@@ -786,28 +820,44 @@ class VoiceImeService : InputMethodService() {
             McpContextProvider.getContext(applicationContext) { mcpTerms ->
                 mainHandler.post {
                     if (!isOperationCurrent(operationId)) return@post
-                    val prompt = GlossaryPromptBuilder.build(localGlossary, mcpTerms)
-                    enqueueTranscription(file, operationId, apiKey, prompt)
+                    enqueueTranscription(file, operationId, apiKey, localGlossary, mcpTerms)
                 }
             }
         } catch (exception: Exception) {
             Log.w(TAG, "MCP context unavailable; continuing with local glossary: ${exception.javaClass.simpleName}")
-            enqueueTranscription(file, operationId, apiKey, GlossaryPromptBuilder.build(localGlossary))
+            enqueueTranscription(file, operationId, apiKey, localGlossary, emptyList())
         }
     }
 
-    private fun enqueueTranscription(file: File, operationId: Long, apiKey: String, prompt: String?) {
+    private fun enqueueTranscription(
+        file: File,
+        operationId: Long,
+        apiKey: String,
+        localGlossary: List<PersonalGlossaryTerm>,
+        mcpTerms: List<String>
+    ) {
         if (!isOperationCurrent(operationId)) return
         try {
             SmartFormattingSettingsRepository.loadAsync(applicationContext) { settingsResult ->
                 mainHandler.post {
                     if (!isOperationCurrent(operationId)) return@post
-                    val model = settingsResult.getOrElse { exception ->
+                    val settings = settingsResult.getOrElse { exception ->
                         Log.w(TAG, "Speech model settings read failed: ${exception.javaClass.simpleName}")
                         SmartFormattingSettings()
-                    }.speechModel
+                    }
+                    val prompt = GlossaryPromptBuilder.build(
+                        localGlossary,
+                        mcpTerms,
+                        settings.speechLanguageMode
+                    )
                     try {
-                        val call = GroqTranscriptionClient.createCall(apiKey, file, prompt, model)
+                        val call = GroqTranscriptionClient.createCall(
+                            apiKey,
+                            file,
+                            prompt,
+                            settings.speechModel,
+                            settings.speechLanguageMode.groqLanguageCode
+                        )
                         activeRequestCall = call
                         GroqTranscriptionClient.enqueue(call) { result ->
                             mainHandler.post {
@@ -837,11 +887,18 @@ class VoiceImeService : InputMethodService() {
             }
         } catch (exception: Exception) {
             Log.e(TAG, "Speech settings read setup failed: ${exception.javaClass.simpleName}")
+            val fallbackSettings = SmartFormattingSettings()
+            val fallbackPrompt = GlossaryPromptBuilder.build(
+                localGlossary,
+                mcpTerms,
+                fallbackSettings.speechLanguageMode
+            )
             val fallbackCall = GroqTranscriptionClient.createCall(
                 apiKey,
                 file,
-                prompt,
-                SmartFormattingSettings.DEFAULT_SPEECH_MODEL
+                fallbackPrompt,
+                fallbackSettings.speechModel,
+                fallbackSettings.speechLanguageMode.groqLanguageCode
             )
             activeRequestCall = fallbackCall
             GroqTranscriptionClient.enqueue(fallbackCall) { result ->
@@ -1124,6 +1181,7 @@ class VoiceImeService : InputMethodService() {
         httpStatus: Int? = null
     ) {
         if (!isOperationCurrent(operationId)) return
+        holdToTalkRecording = false
         val status = httpStatus?.let { ", http_status=$it" }.orEmpty()
         Log.e(TAG, "Voice operation failed: $errorType$status")
         requestGate.invalidate()
@@ -1187,7 +1245,12 @@ class VoiceImeService : InputMethodService() {
     }
 
     private fun renderStatus() {
-        voicePanel?.render(stateMachine.state, previewState.visibleText, statusLabelOverride)
+        voicePanel?.render(
+            stateMachine.state,
+            previewState.visibleText,
+            statusLabelOverride,
+            holdToTalkRecording
+        )
     }
 
     private fun writeWavHeader(output: RandomAccessFile, pcmDataSize: Long) {
@@ -1216,7 +1279,9 @@ class VoiceImeService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        voicePanel?.disposeHoldToTalkGesture()
         serviceDestroyed = true
+        holdToTalkRecording = false
         unregisterClipboardListener()
         backspaceRepeater.stop()
         requestGate.invalidate()
