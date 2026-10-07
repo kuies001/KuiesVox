@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish signed APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate tag, version and release notes
+        id: release-metadata
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            major="${BASH_REMATCH[1]}"
+          else
+            echo "::error::Release tag must use vX.Y.Z, for example v0.10.0."
+            exit 1
+          fi
+          version="${RELEASE_TAG#v}"
+          notes="RELEASE_NOTES_${RELEASE_TAG}.md"
+          if [[ ! -s "$notes" ]]; then
+            echo "::error::Required release notes file is missing or empty: $notes"
+            exit 1
+          fi
+          if ! grep -Fq "versionName = \"$version\"" app/build.gradle.kts; then
+            echo "::error::The tagged version does not match app/build.gradle.kts."
+            exit 1
+          fi
+          if [[ "$major" == "0" ]]; then
+            prerelease=true
+          else
+            prerelease=false
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release signing secrets
+        shell: bash
+        env:
+          KUIESVOX_KEYSTORE_BASE64: ${{ secrets.KUIESVOX_KEYSTORE_BASE64 }}
+          KUIESVOX_KEY_ALIAS: ${{ secrets.KUIESVOX_KEY_ALIAS }}
+          KUIESVOX_KEY_PASSWORD: ${{ secrets.KUIESVOX_KEY_PASSWORD }}
+          KUIESVOX_STORE_PASSWORD: ${{ secrets.KUIESVOX_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in KUIESVOX_KEYSTORE_BASE64 KUIESVOX_KEY_ALIAS KUIESVOX_KEY_PASSWORD KUIESVOX_STORE_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Configure all required repository Actions secrets before publishing."
+            printf 'Missing secret: %s\n' "${missing[@]}"
+            exit 1
+          fi
+
+      - name: Restore temporary signing keystore
+        shell: bash
+        env:
+          KUIESVOX_KEYSTORE_BASE64: ${{ secrets.KUIESVOX_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          key_dir="$RUNNER_TEMP/kuiesvox-release-signing"
+          mkdir -p "$key_dir"
+          chmod 700 "$key_dir"
+          printf '%s' "$KUIESVOX_KEYSTORE_BASE64" | base64 --decode > "$key_dir/release.keystore"
+          chmod 600 "$key_dir/release.keystore"
+          echo "KUIESVOX_KEYSTORE_FILE=$key_dir/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Compile app and test sources
+        run: ./gradlew :app:compileReleaseKotlin :app:compileDebugUnitTestKotlin --no-daemon
+
+      - name: Run JVM tests
+        run: ./gradlew test --no-daemon
+
+      - name: Build signed Release APK
+        env:
+          KUIESVOX_KEY_ALIAS: ${{ secrets.KUIESVOX_KEY_ALIAS }}
+          KUIESVOX_KEY_PASSWORD: ${{ secrets.KUIESVOX_KEY_PASSWORD }}
+          KUIESVOX_STORE_PASSWORD: ${{ secrets.KUIESVOX_STORE_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Verify signature and prepare release assets
+        id: release-assets
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          source_apk="app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -s "$source_apk" ]]; then
+            echo "::error::Release APK was not produced at $source_apk."
+            exit 1
+          fi
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "$sdk_root" ]]; then
+            echo "::error::Android SDK path is not configured on the runner."
+            exit 1
+          fi
+          apksigner="$(find "$sdk_root/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" ]]; then
+            echo "::error::Android apksigner was not found."
+            exit 1
+          fi
+          "$apksigner" verify --verbose "$source_apk"
+
+          mkdir -p release-assets
+          apk_name="KuiesVox-${RELEASE_TAG}.apk"
+          sha_name="KuiesVox-${RELEASE_TAG}.sha256"
+          cp "$source_apk" "release-assets/$apk_name"
+          (cd release-assets && sha256sum "$apk_name" > "$sha_name")
+          echo "apk=release-assets/$apk_name" >> "$GITHUB_OUTPUT"
+          echo "sha=release-assets/$sha_name" >> "$GITHUB_OUTPUT"
+
+      - name: Remove temporary signing keystore
+        if: always()
+        shell: bash
+        run: |
+          key_file="$RUNNER_TEMP/kuiesvox-release-signing/release.keystore"
+          if [[ -f "$key_file" ]]; then
+            rm -f -- "$key_file"
+            rmdir "$RUNNER_TEMP/kuiesvox-release-signing" 2>/dev/null || true
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_NOTES: ${{ steps.release-metadata.outputs.notes }}
+          RELEASE_PRERELEASE: ${{ steps.release-metadata.outputs.prerelease }}
+          RELEASE_APK: ${{ steps.release-assets.outputs.apk }}
+          RELEASE_SHA: ${{ steps.release-assets.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=("$RELEASE_TAG" "$RELEASE_APK" "$RELEASE_SHA" --title "KuiesVox $RELEASE_TAG" --notes-file "$RELEASE_NOTES")
+          if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}"

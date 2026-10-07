@@ -3,6 +3,19 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val releaseSigningValues = mapOf(
+    "storeFile" to providers.environmentVariable("KUIESVOX_KEYSTORE_FILE").orNull,
+    "keyAlias" to providers.environmentVariable("KUIESVOX_KEY_ALIAS").orNull,
+    "keyPassword" to providers.environmentVariable("KUIESVOX_KEY_PASSWORD").orNull,
+    "storePassword" to providers.environmentVariable("KUIESVOX_STORE_PASSWORD").orNull
+)
+val hasAnyReleaseSigningValue = releaseSigningValues.values.any { !it.isNullOrBlank() }
+val hasCompleteReleaseSigning = releaseSigningValues.values.all { !it.isNullOrBlank() }
+
+if (hasAnyReleaseSigningValue && !hasCompleteReleaseSigning) {
+    throw GradleException("Release signing requires all KUIESVOX_* signing environment variables.")
+}
+
 android {
     namespace = "tw.kuies.voiceime"
     compileSdk {
@@ -15,12 +28,25 @@ android {
         targetSdk = 37
         versionCode = 4
         versionName = "0.9.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (hasCompleteReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseSigningValues["storeFile"]))
+                keyAlias = requireNotNull(releaseSigningValues["keyAlias"])
+                keyPassword = requireNotNull(releaseSigningValues["keyPassword"])
+                storePassword = requireNotNull(releaseSigningValues["storePassword"])
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (hasCompleteReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             optimization {
                 enable = true
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
