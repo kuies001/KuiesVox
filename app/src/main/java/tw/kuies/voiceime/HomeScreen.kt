@@ -64,7 +64,7 @@ internal fun HomeScreen(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
-                "VoiceIME 設定",
+                "KuiesVox 設定",
                 style = MaterialTheme.typography.displaySmall,
                 color = colors.onBackground
             )

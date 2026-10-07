@@ -464,7 +464,7 @@ internal class McpClient(private val config: McpConfig) {
         .put("io.modelcontextprotocol/clientCapabilities", JSONObject())
 
     private fun clientInfo() = JSONObject()
-        .put("name", "VoiceIME")
+        .put("name", "KuiesVox")
         .put("version", "0.6.0")
 
     private fun requireConnected() {

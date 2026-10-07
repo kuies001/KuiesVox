@@ -1,6 +1,6 @@
-# VoiceIME
+# KuiesVox
 
-VoiceIME 是 Android 語音輸入法。
+KuiesVox 是 Android 語音輸入法。
 
 **目前版本：v0.7.0 Beta（測試版）**
 
@@ -21,11 +21,11 @@ VoiceIME 是 Android 語音輸入法。
 
 ## 安裝與啟用
 
-1. 從 [GitHub Releases](https://github.com/kuies001/VoiceIME/releases) 下載 `VoiceIME-v0.7.0-debug.apk`。
+1. 從 [GitHub Releases](https://github.com/kuies001/VoiceIME/releases) 下載 `KuiesVox-v0.7.0-debug.apk`。
 2. 在 Android 設定中允許目前使用的瀏覽器或檔案管理器安裝未知來源 App，然後開啟 APK 安裝。
-3. 開啟 VoiceIME，在 Groq 設定頁輸入並儲存自己的 Groq API Key，並允許麥克風權限。
-4. 到 Android 的「設定 → 系統 → 語言與輸入」啟用 VoiceIME，再將它選為目前輸入法。不同廠牌的設定名稱可能不同。
-5. 在文字欄位切換到 VoiceIME，點「開始語音輸入」；完成後按停止。退格按鈕可單擊刪除一個字元，或長按連續刪除。
+3. 開啟 KuiesVox，在 Groq 設定頁輸入並儲存自己的 Groq API Key，並允許麥克風權限。
+4. 到 Android 的「設定 → 系統 → 語言與輸入」啟用 KuiesVox，再將它選為目前輸入法。不同廠牌的設定名稱可能不同。
+5. 在文字欄位切換到 KuiesVox，點「開始語音輸入」；完成後按停止。退格按鈕可單擊刪除一個字元，或長按連續刪除。
 
 此版本仍是測試版。v0.7.0 的 GitHub Release 尚未建立；發布時請將上述 APK 作為 Release asset 上傳。
 
@@ -42,4 +42,4 @@ Groq API Key 需由使用者自行提供，並在 App 的 Groq 設定頁儲存�
 ./gradlew assembleDebug
 ```
 
-Debug APK 預設輸出於 `app/build/outputs/apk/debug/app-debug.apk`。v0.7.0 發布檔名為 `VoiceIME-v0.7.0-debug.apk`。
+Debug APK 預設輸出於 `app/build/outputs/apk/debug/app-debug.apk`。v0.7.0 發布檔名為 `KuiesVox-v0.7.0-debug.apk`。
