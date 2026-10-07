@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -19,8 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -42,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -54,10 +58,18 @@ internal fun HomeScreen(
     correctionRules: List<TextCorrectionRule>,
     mcpConfig: McpConfig,
     mcpConnectionStatus: String,
+    currentVersionName: String,
+    updateState: AppUpdateState,
     onOpenGroq: () -> Unit,
     onOpenSmartFormatting: () -> Unit,
     onOpenPersonalization: () -> Unit,
     onOpenMcp: () -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: (GitHubRelease, SemanticVersion, GitHubReleaseAsset) -> Unit,
+    onInstallUpdate: (GitHubRelease, Long) -> Unit,
+    onOpenUnknownSourcesSettings: () -> Unit,
+    onOpenReleases: () -> Unit,
+    onOpenRelease: (String?) -> Unit,
     onRequestMicrophonePermission: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
@@ -82,6 +94,17 @@ internal fun HomeScreen(
             )
         }
         Spacer(Modifier.height(2.dp))
+
+        AppUpdateFeatureCard(
+            currentVersionName = currentVersionName,
+            updateState = updateState,
+            onCheckForUpdates = onCheckForUpdates,
+            onDownloadUpdate = onDownloadUpdate,
+            onInstallUpdate = onInstallUpdate,
+            onOpenUnknownSourcesSettings = onOpenUnknownSourcesSettings,
+            onOpenReleases = onOpenReleases,
+            onOpenRelease = onOpenRelease
+        )
 
         HomeFeatureCard(
             icon = R.drawable.ic_home_groq,
@@ -209,6 +232,211 @@ internal fun HomeScreen(
         }
     }
 }
+
+@Composable
+private fun AppUpdateFeatureCard(
+    currentVersionName: String,
+    updateState: AppUpdateState,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: (GitHubRelease, SemanticVersion, GitHubReleaseAsset) -> Unit,
+    onInstallUpdate: (GitHubRelease, Long) -> Unit,
+    onOpenUnknownSourcesSettings: () -> Unit,
+    onOpenReleases: () -> Unit,
+    onOpenRelease: (String?) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    var showReleaseNotes by remember { mutableStateOf(false) }
+    val busy = updateState is AppUpdateState.Checking || updateState is AppUpdateState.Downloading
+    val releaseUrl = when (updateState) {
+        is AppUpdateState.UpdateAvailable -> updateState.release.htmlUrl
+        is AppUpdateState.Downloading -> updateState.release.htmlUrl
+        is AppUpdateState.ReadyToInstall -> updateState.release.htmlUrl
+        is AppUpdateState.AwaitingUnknownSourcesPermission -> updateState.release.htmlUrl
+        is AppUpdateState.Installing -> updateState.release.htmlUrl
+        is AppUpdateState.Installed -> updateState.release.htmlUrl
+        is AppUpdateState.Error -> updateState.releasePageUrl
+        else -> null
+    }
+
+    HomeFeatureCard(
+        icon = R.drawable.ic_ime_settings,
+        title = "版本更新",
+        subtitle = "檢查 KuiesVox 新版本",
+        accent = colors.tertiary,
+        status = "v$currentVersionName"
+    ) {
+        StatusLine(label = "目前版本", value = "v$currentVersionName")
+
+        when (updateState) {
+            AppUpdateState.Idle -> Text(
+                "檢查官方 GitHub Releases，或手動前往下載。",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.onSurfaceVariant
+            )
+            AppUpdateState.Checking -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                Text("正在檢查更新…", style = MaterialTheme.typography.bodyMedium)
+            }
+            AppUpdateState.UpToDate -> Text(
+                "目前已是最新版",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.primary
+            )
+            is AppUpdateState.UpdateAvailable -> {
+                val release = updateState.release
+                Text(
+                    "發現新版本 v${updateState.version}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = colors.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (release.title != release.tagName) {
+                    Text(release.title, style = MaterialTheme.typography.bodyMedium)
+                }
+                release.publishedAt?.take(10)?.let { date ->
+                    Text("發布日期：$date", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                }
+                val summary = releaseNotesSummary(release.body)
+                if (summary.isNotBlank()) {
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                TextButton(onClick = { showReleaseNotes = true }, modifier = Modifier.align(Alignment.End)) {
+                    Text("查看更新內容")
+                }
+                Button(
+                    onClick = { onDownloadUpdate(release, updateState.version, updateState.apk) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text("下載並安裝")
+                }
+            }
+            is AppUpdateState.Downloading -> Text(
+                "正在下載 APK，進度可在系統通知列查看。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurfaceVariant
+            )
+            is AppUpdateState.ReadyToInstall -> {
+                Text(
+                    "APK 已下載完成，接下來由 Android 安裝器顯示確認畫面。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant
+                )
+                Button(
+                    onClick = { onInstallUpdate(updateState.release, updateState.downloadId) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text("開啟安裝器")
+                }
+                Text(
+                    "更新需使用相同 applicationId、相同簽章及較高 versionCode。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant
+                )
+            }
+            is AppUpdateState.AwaitingUnknownSourcesPermission -> {
+                Text(
+                    "若要由 KuiesVox 直接更新，需要允許此 App 安裝未知來源應用程式。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant
+                )
+                Button(
+                    onClick = onOpenUnknownSourcesSettings,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text("前往授權")
+                }
+                OutlinedButton(
+                    onClick = { onInstallUpdate(updateState.release, updateState.downloadId) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text("重新開啟安裝器")
+                }
+            }
+            is AppUpdateState.Installing -> {
+                Text(
+                    "已開啟 Android 系統安裝器，請確認是否安裝更新。若取消安裝，可再次開啟安裝器。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant
+                )
+                Button(
+                    onClick = { onInstallUpdate(updateState.release, updateState.downloadId) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text("重新開啟安裝器")
+                }
+            }
+            is AppUpdateState.Installed -> Text(
+                "KuiesVox 更新安裝完成。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.primary
+            )
+            is AppUpdateState.Error -> Text(
+                updateState.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.error
+            )
+        }
+
+        Button(
+            onClick = onCheckForUpdates,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(50)
+        ) {
+            Text(if (updateState is AppUpdateState.Checking) "正在檢查更新…" else "檢查版本更新")
+        }
+        OutlinedButton(
+            onClick = { onOpenRelease(releaseUrl) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(50)
+        ) {
+            Text(if (releaseUrl == null) "前往 GitHub Releases" else "前往 GitHub 手動下載")
+        }
+
+        if (showReleaseNotes && updateState is AppUpdateState.UpdateAvailable) {
+            AlertDialog(
+                onDismissRequest = { showReleaseNotes = false },
+                title = { Text("v${updateState.version} 更新內容") },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 420.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(updateState.release.body.take(MAX_RELEASE_NOTES_LENGTH).ifBlank { "此版本沒有提供更新內容。" })
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showReleaseNotes = false }) { Text("關閉") }
+                }
+            )
+        }
+    }
+}
+
+private fun releaseNotesSummary(body: String): String = body
+    .lineSequence()
+    .map { it.trim().replace(Regex("^#{1,6}\\s*"), "").replace(Regex("[`*_]"), "") }
+    .filter { it.isNotBlank() }
+    .joinToString(" ")
+    .take(220)
+    .let { summary -> if (body.length > summary.length) "$summary…" else summary }
+
+private const val MAX_RELEASE_NOTES_LENGTH = 6000
 
 @Composable
 private fun HomeFeatureCard(

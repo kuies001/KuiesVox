@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +65,29 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
     val applicationContext = context.applicationContext
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val screenIsActive = remember { AtomicBoolean(true) }
+    var installResultCode by remember { mutableStateOf<Int?>(null) }
+    val installerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result -> installResultCode = result.resultCode }
+    val currentVersionName = remember(applicationContext) {
+        currentInstalledVersionName(applicationContext)
+    }
+    var appUpdateState by remember { mutableStateOf<AppUpdateState>(AppUpdateState.Idle) }
+    val appUpdateController = remember(applicationContext, currentVersionName) {
+        AppUpdateController(
+            context = applicationContext,
+            currentVersionName = currentVersionName,
+            launchInstaller = installerLauncher::launch,
+            onStateChanged = { state ->
+                if (screenIsActive.get()) appUpdateState = state
+            }
+        )
+    }
+    LaunchedEffect(appUpdateController, installResultCode) {
+        val resultCode = installResultCode ?: return@LaunchedEffect
+        appUpdateController.onInstallResult(resultCode)
+        installResultCode = null
+    }
 
     var destination by remember { mutableStateOf(SettingsDestination.HOME) }
     var hasRecordAudioPermission by remember {
@@ -109,8 +133,9 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
         destination = SettingsDestination.HOME
     }
 
-    DisposableEffect(applicationContext) {
+    DisposableEffect(applicationContext, appUpdateController) {
         screenIsActive.set(true)
+        appUpdateController.start()
         GroqApiKeyStore.readAsync(applicationContext) { result ->
             mainHandler.post {
                 if (!screenIsActive.get()) return@post
@@ -210,7 +235,10 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
                 smartFormattingLoaded = true
             }
         }
-        onDispose { screenIsActive.set(false) }
+        onDispose {
+            screenIsActive.set(false)
+            appUpdateController.close()
+        }
     }
 
     fun saveMcpConfig(config: McpConfig, successMessage: String = "") {
@@ -286,6 +314,15 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (exception: Exception) {
             Log.w(MAIN_ACTIVITY_TAG, "Could not open API key page: ${exception.javaClass.simpleName}")
+        }
+    }
+
+    fun openReleasePage(url: String?) {
+        val officialUrl = GitHubReleaseConfig.releasePageUrlOrFallback(url)
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(officialUrl)))
+        } catch (exception: Exception) {
+            Log.w(MAIN_ACTIVITY_TAG, "Could not open GitHub Releases: ${exception.javaClass.simpleName}")
         }
     }
 
@@ -470,10 +507,28 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
             correctionRules = correctionRules,
             mcpConfig = mcpConfig,
             mcpConnectionStatus = mcpConnectionStatus,
+            currentVersionName = currentVersionName,
+            updateState = appUpdateState,
             onOpenGroq = { destination = SettingsDestination.GROQ },
             onOpenSmartFormatting = { destination = SettingsDestination.SMART_FORMATTING },
             onOpenPersonalization = { destination = SettingsDestination.PERSONALIZATION },
             onOpenMcp = { destination = SettingsDestination.MCP },
+            onCheckForUpdates = appUpdateController::checkForUpdates,
+            onDownloadUpdate = { release, version, apk ->
+                appUpdateController.download(release, version, apk)
+            },
+            onInstallUpdate = { release, downloadId ->
+                appUpdateController.install(release, downloadId)
+            },
+            onOpenUnknownSourcesSettings = {
+                if (!appUpdateController.openUnknownSourcesSettings()) {
+                    appUpdateState = AppUpdateState.Error(
+                        "無法開啟授權頁，請到系統設定允許 KuiesVox 安裝未知來源應用程式。"
+                    )
+                }
+            },
+            onOpenReleases = { openReleasePage(null) },
+            onOpenRelease = ::openReleasePage,
             onRequestMicrophonePermission = {
                 permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
@@ -607,6 +662,12 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
         )
     }
 }
+
+@Suppress("DEPRECATION")
+private fun currentInstalledVersionName(context: android.content.Context): String =
+    runCatching {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+    }.getOrNull().orEmpty().ifBlank { "unknown" }
 
 private fun mcpConfigFromSnapshot(config: McpConfig, snapshot: McpServerSnapshot): McpConfig {
     val availableResources = snapshot.resources.mapTo(mutableSetOf()) { it.uri }

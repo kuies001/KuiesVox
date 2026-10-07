@@ -2,7 +2,7 @@
 
 KuiesVox 是 Android 語音輸入法。
 
-**目前版本：v0.8.0 Beta（測試版）**
+**目前版本：v0.9.0 Beta（測試版）**
 
 ## 功能
 
@@ -22,13 +22,21 @@ KuiesVox 是 Android 語音輸入法。
 
 ## 安裝與啟用
 
-1. 從 [GitHub Releases](https://github.com/kuies001/VoiceIME/releases) 下載 `KuiesVox-v0.8.0-debug.apk`（發布時提供）。
+1. 從 [GitHub Releases](https://github.com/kuies001/KuiesVox/releases) 下載 `KuiesVox-v0.9.0-debug.apk`（發布時提供）。
 2. 在 Android 設定中允許目前使用的瀏覽器或檔案管理器安裝未知來源 App，然後開啟 APK 安裝。
 3. 開啟 KuiesVox，在 Groq 設定頁輸入並儲存自己的 Groq API Key，並允許麥克風權限。
 4. 到 Android 的「設定 → 系統 → 語言與輸入」啟用 KuiesVox，再將它選為目前輸入法。不同廠牌的設定名稱可能不同。
 5. 在文字欄位切換到 KuiesVox，點大圓形麥克風按鈕開始語音輸入；完成後按停止。也可使用工具列刪除、換行或切換鍵盤。
 
-此版本仍是測試版。建立 GitHub Release 時，請將 Debug APK 作為 Release asset 上傳。
+此版本仍是測試版。Debug APK 會作為 GitHub Release asset 提供。
+
+## App 更新
+
+KuiesVox 支援在 App 內檢查 GitHub Releases 新版本、下載新版 APK，並呼叫 Android 系統安裝器；設定首頁也提供前往 GitHub Releases 手動下載的入口。
+
+Android 基於安全限制，下載完成後仍需由使用者確認安裝。App 內直接更新需要允許 KuiesVox 安裝未知來源應用程式。
+
+更新需要相同的 `applicationId`、相同的 APK signing certificate，以及較高的 `versionCode`。若簽章不同，Android 會拒絕覆蓋安裝。
 
 ## API Key 與資料處理
 
@@ -47,4 +55,4 @@ API Key 由使用者自行申請並儲存在 App 私有設定中，不包含在 
 ./gradlew assembleDebug
 ```
 
-Debug APK 預設輸出於 `app/build/outputs/apk/debug/app-debug.apk`。v0.8.0 發布檔名為 `KuiesVox-v0.8.0-debug.apk`。
+Debug APK 預設輸出於 `app/build/outputs/apk/debug/app-debug.apk`。v0.9.0 發布檔名為 `KuiesVox-v0.9.0-debug.apk`。
