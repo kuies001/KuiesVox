@@ -22,9 +22,11 @@ internal class VoiceImePanel(
     onVoiceAction: () -> Unit,
     onCancel: () -> Unit,
     onSwitchInputMethod: () -> Unit,
+    onEnter: () -> Unit = {},
     onDelete: () -> Unit = {},
     onBackspacePressed: () -> Unit = {},
-    onBackspaceReleased: () -> Boolean = { false }
+    onBackspaceReleased: () -> Boolean = { false },
+    onOpenSettings: () -> Unit = {}
 ) {
     private val statusChip = LinearLayout(context)
     private val statusDot = View(context)
@@ -33,8 +35,15 @@ internal class VoiceImePanel(
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
     internal val switchButton = ImageButton(context)
+    internal val settingsButton = ImageButton(context)
     internal val backspaceButton = ImageButton(context)
+    internal val enterButton = ImageButton(context)
     internal val idleActions = LinearLayout(context)
+    internal val idleMicButton = ImageButton(context)
+    internal val idleTitle = textView(context, sizeSp = 16f, color = TEXT).apply {
+        setTypeface(typeface, Typeface.BOLD)
+    }
+    internal val idleHint = textView(context, sizeSp = 12f, color = TEXT_MUTED)
     internal val recordingActions = LinearLayout(context)
     internal val busyActions = LinearLayout(context)
     internal val previewText = textView(
@@ -71,14 +80,15 @@ internal class VoiceImePanel(
             )
         }
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            val navigationBarBottom = insets.getInsets(
-                WindowInsetsCompat.Type.navigationBars()
-            ).bottom
+            val safeInsets = insets.getInsets(
+                WindowInsetsCompat.Type.navigationBars() or
+                    WindowInsetsCompat.Type.systemGestures()
+            )
             view.setPadding(
-                horizontalPadding,
+                horizontalPadding + safeInsets.left,
                 topPadding,
-                horizontalPadding,
-                bottomPadding + navigationBarBottom
+                horizontalPadding + safeInsets.right,
+                bottomPadding + safeInsets.bottom
             )
             insets
         }
@@ -101,11 +111,27 @@ internal class VoiceImePanel(
         }
         topRow.addView(statusChip, LinearLayout.LayoutParams(0, dp(context, 36), 1f))
 
+        settingsButton.apply {
+            setImageResource(R.drawable.ic_ime_settings)
+            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
+            contentDescription = "Open KuiesVox settings"
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
+            setPadding(dp(context, 9), dp(context, 9), dp(context, 9), dp(context, 9))
+            setOnClickListener { onOpenSettings() }
+        }
+        topRow.addView(
+            settingsButton,
+            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+                marginEnd = dp(context, 6)
+            }
+        )
+
         var backspacePointerActive = false
         var backspaceClickAllowed = false
         backspaceButton.apply {
             setImageResource(R.drawable.ic_ime_backspace)
-            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
+            imageTintList = ColorStateList.valueOf(blend(TEXT_MUTED, PINK, 0.45f))
             contentDescription = "退格 / 刪除"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
@@ -169,7 +195,23 @@ internal class VoiceImePanel(
         topRow.addView(
             backspaceButton,
             LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
-                marginEnd = dp(context, 4)
+                marginEnd = dp(context, 8)
+            }
+        )
+
+        enterButton.apply {
+            setImageResource(R.drawable.ic_ime_enter)
+            imageTintList = ColorStateList.valueOf(blend(TEXT_MUTED, LAVENDER, 0.5f))
+            contentDescription = "Enter / 換行"
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
+            setPadding(dp(context, 9), dp(context, 9), dp(context, 9), dp(context, 9))
+            setOnClickListener { onEnter() }
+        }
+        topRow.addView(
+            enterButton,
+            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+                marginEnd = dp(context, 8)
             }
         )
 
@@ -179,14 +221,12 @@ internal class VoiceImePanel(
             contentDescription = "切換輸入法"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
-            setPadding(dp(context, 10), dp(context, 10), dp(context, 10), dp(context, 10))
+            setPadding(dp(context, 9), dp(context, 9), dp(context, 9), dp(context, 9))
             setOnClickListener { onSwitchInputMethod() }
         }
         topRow.addView(
             switchButton,
-            LinearLayout.LayoutParams(dp(context, 40), dp(context, 40)).apply {
-                marginStart = dp(context, 8)
-            }
+            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36))
         )
         root.addView(topRow)
 
@@ -208,33 +248,42 @@ internal class VoiceImePanel(
         idleActions.apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
+            idleMicButton.apply {
+                setImageResource(R.drawable.ic_ime_mic)
+                imageTintList = ColorStateList.valueOf(BUTTON_TEXT)
+                contentDescription = "開始語音輸入"
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                background = circleRipple(context)
+                setPadding(dp(context, 32), dp(context, 32), dp(context, 32), dp(context, 32))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { onVoiceAction() }
+            }
             addView(
-                actionButton(
-                    context = context,
-                    icon = R.drawable.ic_ime_mic,
-                    label = "開始語音輸入",
-                    foregroundColor = BUTTON_TEXT,
-                    background = GradientDrawable(
-                        GradientDrawable.Orientation.LEFT_RIGHT,
-                        intArrayOf(LAVENDER, LAVENDER_BRIGHT)
-                    ).apply { cornerRadius = dp(context, 50).toFloat() },
-                    onClick = onVoiceAction
-                ),
+                idleMicButton,
+                LinearLayout.LayoutParams(dp(context, 112), dp(context, 112))
+            )
+            idleTitle.apply {
+                text = "開始語音輸入"
+                gravity = Gravity.CENTER
+            }
+            addView(
+                idleTitle,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(context, 48)
-                )
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(context, 9) }
             )
-            val hint = textView(context, sizeSp = 12f, color = TEXT_MUTED).apply {
+            idleHint.apply {
                 text = "點一下開始說話"
                 gravity = Gravity.CENTER
             }
             addView(
-                hint,
+                idleHint,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(context, 7) }
+                ).apply { topMargin = dp(context, 4) }
             )
         }
         root.addView(
@@ -327,9 +376,9 @@ internal class VoiceImePanel(
         switchButton.visibility = if (available) View.VISIBLE else View.GONE
     }
 
-    fun render(state: VoiceImeState, latestResult: String?) {
+    fun render(state: VoiceImeState, latestResult: String?, statusLabelOverride: String? = null) {
         val accent = accentFor(state)
-        statusLabel.text = state.label
+        statusLabel.text = statusLabelOverride ?: state.label
         statusLabel.setTextColor(accent)
         statusDot.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
@@ -345,6 +394,8 @@ internal class VoiceImePanel(
         val isTerminal = state == VoiceImeState.SUCCESS ||
             state == VoiceImeState.FORMATTING_FALLBACK ||
             state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
+        settingsButton.isEnabled = state == VoiceImeState.IDLE
+        settingsButton.alpha = if (settingsButton.isEnabled) 1f else 0.5f
         idleActions.visibility = if (state == VoiceImeState.IDLE || isTerminal) {
             View.VISIBLE
         } else {
@@ -436,6 +487,18 @@ internal class VoiceImePanel(
         ColorStateList.valueOf(0x33FFFFFF),
         solid(color, radius),
         rounded(intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT), radius, stroke, dp(context, 1))
+    )
+
+    private fun circleRipple(context: Context) = RippleDrawable(
+        ColorStateList.valueOf(0x44FFFFFF),
+        GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(LAVENDER, LAVENDER_BRIGHT)
+        ).apply { shape = GradientDrawable.OVAL },
+        GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.WHITE)
+        }
     )
 
     private fun dp(context: Context, value: Int): Int =

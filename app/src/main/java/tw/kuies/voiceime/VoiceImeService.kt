@@ -1,6 +1,7 @@
 package tw.kuies.voiceime
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
 import android.media.AudioFormat
@@ -56,6 +57,9 @@ class VoiceImeService : InputMethodService() {
     private val previewState = VoiceImePreviewState()
     private var statusResetRunnable: Runnable? = null
     private var statusRevision = 0L
+    private var statusLabelOverride: String? = null
+    @Volatile
+    private var currentEditorInfo: EditorInfo? = null
 
     override fun onCreateInputView(): View {
         val panel = VoiceImePanel(
@@ -72,9 +76,11 @@ class VoiceImeService : InputMethodService() {
             },
             onCancel = ::cancelCurrentOperation,
             onSwitchInputMethod = { switchToNextInputMethod(false) },
+            onEnter = ::insertNewline,
             onDelete = ::deleteOneBeforeCursor,
             onBackspacePressed = backspaceRepeater::start,
-            onBackspaceReleased = backspaceRepeater::stop
+            onBackspaceReleased = backspaceRepeater::stop,
+            onOpenSettings = ::openSettings
         )
         voicePanel = panel
         panel.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
@@ -84,7 +90,23 @@ class VoiceImeService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        currentEditorInfo = info
         voicePanel?.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
+    }
+
+    private fun openSettings() {
+        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || activeOperationId != 0L) return
+        try {
+            startActivity(
+                Intent(this, MainActivity::class.java).addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+            )
+        } catch (exception: Exception) {
+            Log.w(TAG, "Settings activity could not be opened: ${exception.javaClass.simpleName}")
+        }
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -106,6 +128,36 @@ class VoiceImeService : InputMethodService() {
         } catch (exception: Exception) {
             Log.w(TAG, "Backspace failed: ${exception.javaClass.simpleName}")
         }
+    }
+
+    private fun insertNewline() {
+        if (serviceDestroyed) return
+        val inputConnection = try {
+            currentInputConnection
+        } catch (exception: Exception) {
+            Log.w(TAG, "Enter input connection unavailable: ${exception.javaClass.simpleName}")
+            null
+        } ?: return
+
+        val inserted = EnterKeyInsertion.insertNewline(object : EnterInputConnection {
+            override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean =
+                inputConnection.commitText(text, newCursorPosition)
+
+            override fun sendEnterKey(): Boolean {
+                val down = try {
+                    inputConnection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                } catch (_: Exception) {
+                    false
+                }
+                val up = try {
+                    inputConnection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+                } catch (_: Exception) {
+                    false
+                }
+                return down || up
+            }
+        })
+        if (!inserted) Log.w(TAG, "Enter insertion unavailable")
     }
 
     private fun InputConnection.asBackspaceInputConnection(): BackspaceInputConnection =
@@ -400,27 +452,63 @@ class VoiceImeService : InputMethodService() {
     private fun enqueueTranscription(file: File, operationId: Long, apiKey: String, prompt: String?) {
         if (!isOperationCurrent(operationId)) return
         try {
-            val call = GroqTranscriptionClient.createCall(apiKey, file, prompt)
-            activeRequestCall = call
-            GroqTranscriptionClient.enqueue(call) { result ->
+            SmartFormattingSettingsRepository.loadAsync(applicationContext) { settingsResult ->
                 mainHandler.post {
                     if (!isOperationCurrent(operationId)) return@post
-                    activeRequestCall = null
-                    when (result) {
-                        is GroqTranscriptionResult.Success -> {
-                            loadCorrectionRulesAndCommit(file, operationId, result.text, apiKey)
+                    val model = settingsResult.getOrElse { exception ->
+                        Log.w(TAG, "Speech model settings read failed: ${exception.javaClass.simpleName}")
+                        SmartFormattingSettings()
+                    }.speechModel
+                    try {
+                        val call = GroqTranscriptionClient.createCall(apiKey, file, prompt, model)
+                        activeRequestCall = call
+                        GroqTranscriptionClient.enqueue(call) { result ->
+                            mainHandler.post {
+                                if (!isOperationCurrent(operationId)) return@post
+                                activeRequestCall = null
+                                when (result) {
+                                    is GroqTranscriptionResult.Success -> {
+                                        loadCorrectionRulesAndCommit(file, operationId, result.text, apiKey)
+                                    }
+                                    is GroqTranscriptionResult.Failure -> {
+                                        val status = result.httpStatus?.let { ", http_status=$it" }.orEmpty()
+                                        Log.e(TAG, "Groq transcription failed: ${result.type}$status")
+                                        finishWithError(
+                                            operationId,
+                                            "transcription_${result.type}",
+                                            result.httpStatus
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        is GroqTranscriptionResult.Failure -> {
-                            val status = result.httpStatus?.let { ", http_status=$it" }.orEmpty()
-                            Log.e(TAG, "Groq transcription failed: ${result.type}$status")
-                            finishWithError(operationId, "transcription_${result.type}", result.httpStatus)
-                        }
+                    } catch (exception: Exception) {
+                        Log.e(TAG, "Groq request setup failed: ${exception.javaClass.simpleName}")
+                        finishWithError(operationId, "request_setup_failed")
                     }
                 }
             }
         } catch (exception: Exception) {
-            Log.e(TAG, "Groq request setup failed: ${exception.javaClass.simpleName}")
-            finishWithError(operationId, "request_setup_failed")
+            Log.e(TAG, "Speech settings read setup failed: ${exception.javaClass.simpleName}")
+            val fallbackCall = GroqTranscriptionClient.createCall(
+                apiKey,
+                file,
+                prompt,
+                SmartFormattingSettings.DEFAULT_SPEECH_MODEL
+            )
+            activeRequestCall = fallbackCall
+            GroqTranscriptionClient.enqueue(fallbackCall) { result ->
+                mainHandler.post {
+                    if (!isOperationCurrent(operationId)) return@post
+                    activeRequestCall = null
+                    when (result) {
+                        is GroqTranscriptionResult.Success ->
+                            loadCorrectionRulesAndCommit(file, operationId, result.text, apiKey)
+                        is GroqTranscriptionResult.Failure ->
+                            finishWithError(operationId, "transcription_${result.type}", result.httpStatus)
+                    }
+                }
+            }
         }
     }
 
@@ -491,17 +579,33 @@ class VoiceImeService : InputMethodService() {
                                 file,
                                 operationId,
                                 decision.text,
-                                VoiceImeState.SUCCESS
+                                VoiceImeState.SUCCESS,
+                                terminalPeriodMode = settings.terminalPeriodMode
                             )
                         }
                         is SmartFormattingDecision.Format -> {
                             if (!transitionStatus(VoiceImeState.FORMATTING)) return@post
+                            val provider = TextFormattingProviderRegistry.forProvider(decision.provider)
+                            if (provider == null) {
+                                val providerName = decision.provider.displayName
+                                commitFormattingFallback(
+                                    file,
+                                    operationId,
+                                    decision.text,
+                                    "provider_not_integrated",
+                                    statusLabel = "$providerName API 尚未串接，已使用本地修正結果",
+                                    terminalPeriodMode = settings.terminalPeriodMode
+                                )
+                                return@post
+                            }
                             formatTranscript(
                                 file,
                                 operationId,
                                 apiKey,
                                 decision.text,
-                                decision.model
+                                decision.model,
+                                provider,
+                                settings.terminalPeriodMode
                             )
                         }
                     }
@@ -520,47 +624,62 @@ class VoiceImeService : InputMethodService() {
         operationId: Long,
         apiKey: String,
         originalText: String,
-        model: String
+        model: String,
+        provider: TextFormattingProvider,
+        terminalPeriodMode: TerminalPeriodMode
     ) {
         if (!isOperationCurrent(operationId)) return
         try {
-            val call = GroqTextFormattingClient.createCall(apiKey, model, originalText)
-            activeRequestCall = call
-            GroqTextFormattingClient.enqueue(call) { result ->
+            val call = provider.format(apiKey, model, originalText) { result ->
                 mainHandler.post {
                     if (!isOperationCurrent(operationId)) return@post
                     activeRequestCall = null
                     when (result) {
-                        is GroqTextFormattingResult.Success -> {
+                        is TextFormattingResult.Success -> {
                             val resolution = SmartFormattingPolicy.resolve(originalText, result.text)
                             if (resolution.usedFallback) {
-                                commitFormattingFallback(file, operationId, resolution.text, "empty_text")
+                                commitFormattingFallback(
+                                    file, operationId, resolution.text, "empty_text",
+                                    terminalPeriodMode = terminalPeriodMode
+                                )
                             } else {
                                 commitTranscriptText(
                                     file,
                                     operationId,
                                     resolution.text,
-                                    VoiceImeState.SUCCESS
+                                    VoiceImeState.SUCCESS,
+                                    terminalPeriodMode = terminalPeriodMode
                                 )
                             }
                         }
-                        is GroqTextFormattingResult.Failure -> {
+                        is TextFormattingResult.Failure -> {
                             val status = result.httpStatus?.let { ", http_status=$it" }.orEmpty()
                             Log.w(TAG, "Groq text formatting failed: ${result.type}$status")
+                            val userMessage = if (result.type == "model_unavailable" && model == "qwen/qwen3.6-27b") {
+                                "此模型目前無法使用，建議改用 Qwen 3.8 27B。"
+                            } else {
+                                null
+                            }
                             commitFormattingFallback(
                                 file,
                                 operationId,
                                 originalText,
                                 result.type,
-                                result.httpStatus
+                                result.httpStatus,
+                                userMessage,
+                                terminalPeriodMode
                             )
                         }
                     }
                 }
             }
+            activeRequestCall = call
         } catch (exception: Exception) {
             Log.w(TAG, "Groq text formatting setup failed: ${exception.javaClass.simpleName}")
-            commitFormattingFallback(file, operationId, originalText, "request_setup_failed")
+            commitFormattingFallback(
+                file, operationId, originalText, "request_setup_failed",
+                terminalPeriodMode = terminalPeriodMode
+            )
         }
     }
 
@@ -569,31 +688,49 @@ class VoiceImeService : InputMethodService() {
         operationId: Long,
         originalText: String,
         failureType: String,
-        httpStatus: Int? = null
+        httpStatus: Int? = null,
+        statusLabel: String? = null,
+        terminalPeriodMode: TerminalPeriodMode = TerminalPeriodMode.AUTO
     ) {
         val status = httpStatus?.let { ", http_status=$it" }.orEmpty()
         Log.w(TAG, "Using post-processed transcript after formatting failure: $failureType$status")
-        commitTranscriptText(file, operationId, originalText, VoiceImeState.FORMATTING_FALLBACK)
+        commitTranscriptText(
+            file,
+            operationId,
+            originalText,
+            VoiceImeState.FORMATTING_FALLBACK,
+            statusLabel,
+            terminalPeriodMode
+        )
     }
 
     private fun commitTranscriptText(
         file: File,
         operationId: Long,
         text: String,
-        terminalState: VoiceImeState
+        terminalState: VoiceImeState,
+        statusLabel: String? = null,
+        terminalPeriodMode: TerminalPeriodMode = TerminalPeriodMode.AUTO
     ) {
         try {
             requestGate.runIfCurrent(operationId) {
                 if (!isOperationCurrent(operationId)) return@runIfCurrent
+                val editorInfo = currentEditorInfo
+                val finalText = TerminalPunctuationProcessor.process(
+                    text,
+                    terminalPeriodMode,
+                    imeOptions = editorInfo?.imeOptions ?: 0,
+                    inputType = editorInfo?.inputType ?: 0
+                )
                 val committed = try {
-                    currentInputConnection?.commitText(text, 1) == true
+                    currentInputConnection?.commitText(finalText, 1) == true
                 } catch (exception: Exception) {
                     Log.e(TAG, "Voice result delivery failed: ${exception.javaClass.simpleName}")
                     false
                 }
-                previewState.recordCommitResult(text, committed, terminalState)
+                previewState.recordCommitResult(finalText, committed, terminalState)
                 if (committed) {
-                    finishSuccessfully(operationId, file, terminalState)
+                    finishSuccessfully(operationId, file, terminalState, statusLabel)
                 } else {
                     finishWithError(operationId, "input_connection_unavailable")
                 }
@@ -607,7 +744,8 @@ class VoiceImeService : InputMethodService() {
     private fun finishSuccessfully(
         operationId: Long,
         file: File,
-        terminalState: VoiceImeState
+        terminalState: VoiceImeState,
+        statusLabel: String? = null
     ) {
         if (!isOperationCurrent(operationId)) return
         requestGate.invalidate()
@@ -616,7 +754,7 @@ class VoiceImeService : InputMethodService() {
         activeAudioFile = null
         recordingFailure = null
         deleteAudioFile(file)
-        transitionStatus(terminalState)
+        transitionStatus(terminalState, statusLabel)
     }
 
     private fun finishWithError(
@@ -647,8 +785,9 @@ class VoiceImeService : InputMethodService() {
     private fun isOperationCurrent(operationId: Long): Boolean =
         !serviceDestroyed && activeOperationId == operationId && requestGate.isCurrent(operationId)
 
-    private fun transitionStatus(next: VoiceImeState): Boolean {
+    private fun transitionStatus(next: VoiceImeState, labelOverride: String? = null): Boolean {
         if (!stateMachine.transitionTo(next)) return false
+        statusLabelOverride = labelOverride
         statusRevision += 1
         statusResetRunnable?.let { mainHandler.removeCallbacks(it) }
         statusResetRunnable = null
@@ -660,6 +799,7 @@ class VoiceImeService : InputMethodService() {
             val reset = Runnable {
                 if (!serviceDestroyed && statusRevision == revision && stateMachine.state == next) {
                     stateMachine.transitionTo(VoiceImeState.IDLE)
+                    statusLabelOverride = null
                     statusResetRunnable = null
                     statusRevision += 1
                     renderStatus()
@@ -679,12 +819,13 @@ class VoiceImeService : InputMethodService() {
         ) return
         statusResetRunnable?.let { mainHandler.removeCallbacks(it) }
         statusResetRunnable = null
+        statusLabelOverride = null
         statusRevision += 1
         if (stateMachine.transitionTo(VoiceImeState.IDLE)) renderStatus()
     }
 
     private fun renderStatus() {
-        voicePanel?.render(stateMachine.state, previewState.visibleText)
+        voicePanel?.render(stateMachine.state, previewState.visibleText, statusLabelOverride)
     }
 
     private fun writeWavHeader(output: RandomAccessFile, pcmDataSize: Long) {

@@ -11,9 +11,9 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
-internal sealed interface GroqTextFormattingResult {
-    data class Success(val text: String) : GroqTextFormattingResult
-    data class Failure(val type: String, val httpStatus: Int? = null) : GroqTextFormattingResult
+internal sealed interface TextFormattingResult {
+    data class Success(val text: String) : TextFormattingResult
+    data class Failure(val type: String, val httpStatus: Int? = null) : TextFormattingResult
 }
 
 internal object GroqTextFormattingClient {
@@ -45,12 +45,12 @@ internal object GroqTextFormattingClient {
             .put("max_completion_tokens", MAX_COMPLETION_TOKENS)
     }
 
-    fun enqueue(call: Call, onResult: (GroqTextFormattingResult) -> Unit) {
+    fun enqueue(call: Call, onResult: (TextFormattingResult) -> Unit) {
         call.enqueue(object : Callback {
             @Suppress("PARAMETER_NAME_CHANGED_ON_OVERRIDE")
             override fun onFailure(call: Call, exception: IOException) {
                 onResult(
-                    GroqTextFormattingResult.Failure(
+                    TextFormattingResult.Failure(
                         if (call.isCanceled()) "cancelled" else "network_error"
                     )
                 )
@@ -60,48 +60,78 @@ internal object GroqTextFormattingClient {
                 val result = try {
                     response.use { parseResponse(it) }
                 } catch (exception: Exception) {
-                    GroqTextFormattingResult.Failure("response_error")
+                    TextFormattingResult.Failure("response_error")
                 }
                 onResult(result)
             }
         })
     }
 
-    internal fun parseResponse(response: Response): GroqTextFormattingResult {
+    internal fun parseResponse(response: Response): TextFormattingResult {
         if (!response.isSuccessful) {
-            return GroqTextFormattingResult.Failure("http_error", response.code)
+            return TextFormattingResult.Failure(httpFailureType(response), response.code)
         }
 
         val responseBody = try {
             response.body?.string()
         } catch (exception: IOException) {
-            return GroqTextFormattingResult.Failure("response_read_error")
+            return TextFormattingResult.Failure("response_read_error")
         }
         if (responseBody.isNullOrBlank()) {
-            return GroqTextFormattingResult.Failure("empty_response")
+            return TextFormattingResult.Failure("empty_response")
         }
 
         return try {
             val json = JSONObject(responseBody)
             if (json.has("error") && !json.isNull("error")) {
-                return GroqTextFormattingResult.Failure("api_error", response.code)
+                val errorType = modelUnavailableType(json.opt("error")) ?: "api_error"
+                return TextFormattingResult.Failure(errorType, response.code)
             }
             val choice = json.optJSONArray("choices")?.optJSONObject(0)
-                ?: return GroqTextFormattingResult.Failure("invalid_response")
+                ?: return TextFormattingResult.Failure("invalid_response")
             if (choice.optString("finish_reason") == "length") {
-                return GroqTextFormattingResult.Failure("incomplete_response")
+                return TextFormattingResult.Failure("incomplete_response")
             }
             val message = choice.optJSONObject("message")
-                ?: return GroqTextFormattingResult.Failure("invalid_response")
+                ?: return TextFormattingResult.Failure("invalid_response")
             val text = message.opt("content") as? String
-                ?: return GroqTextFormattingResult.Failure("invalid_content")
+                ?: return TextFormattingResult.Failure("invalid_content")
             if (text.isBlank()) {
-                GroqTextFormattingResult.Failure("empty_text")
+                TextFormattingResult.Failure("empty_text")
             } else {
-                GroqTextFormattingResult.Success(text)
+                TextFormattingResult.Success(text)
             }
         } catch (exception: JSONException) {
-            GroqTextFormattingResult.Failure("invalid_json")
+            TextFormattingResult.Failure("invalid_json")
         }
+    }
+
+    private fun httpFailureType(response: Response): String {
+        val errorBody = try {
+            response.body?.string().orEmpty()
+        } catch (_: IOException) {
+            return "http_error"
+        }
+        if (errorBody.isBlank()) return "http_error"
+        val errorValue = try {
+            val error = JSONObject(errorBody).opt("error")
+            error ?: errorBody
+        } catch (_: JSONException) {
+            errorBody
+        }
+        return modelUnavailableType(errorValue) ?: "http_error"
+    }
+
+    private fun modelUnavailableType(errorValue: Any?): String? {
+        val description = errorValue?.toString()?.lowercase().orEmpty()
+        val markers = listOf(
+            "model unavailable",
+            "model not found",
+            "deprecated model",
+            "model_unavailable",
+            "model_not_found",
+            "model_deprecated"
+        )
+        return "model_unavailable".takeIf { markers.any(description::contains) }
     }
 }

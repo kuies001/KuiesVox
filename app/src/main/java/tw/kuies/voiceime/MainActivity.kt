@@ -1,8 +1,10 @@
 package tw.kuies.voiceime
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -93,6 +95,14 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
     var mcpBusy by remember { mutableStateOf(false) }
     var smartFormattingSettings by remember { mutableStateOf(SmartFormattingSettings()) }
     var smartFormattingLoaded by remember { mutableStateOf(false) }
+    var geminiApiKey by remember { mutableStateOf("") }
+    var geminiApiKeySaved by remember { mutableStateOf(false) }
+    var geminiApiKeyLoaded by remember { mutableStateOf(false) }
+    var geminiApiKeyStatus by remember { mutableStateOf("") }
+    var openAiApiKey by remember { mutableStateOf("") }
+    var openAiApiKeySaved by remember { mutableStateOf(false) }
+    var openAiApiKeyLoaded by remember { mutableStateOf(false) }
+    var openAiApiKeyStatus by remember { mutableStateOf("") }
     var smartFormattingStatus by remember { mutableStateOf("載入智慧整理設定中…") }
 
     BackHandler(enabled = destination != SettingsDestination.HOME) {
@@ -117,6 +127,32 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
                     apiKeyStatus = "API Key 讀取失敗，請重新輸入並儲存。"
                 }
                 apiKeyLoaded = true
+            }
+        }
+        TextFormattingApiKeyStore.readAsync(applicationContext, ExternalFormattingProvider.GEMINI) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                result.onSuccess { storedKey ->
+                    geminiApiKey = storedKey.orEmpty()
+                    geminiApiKeySaved = !storedKey.isNullOrBlank()
+                }.onFailure { exception ->
+                    Log.w(MAIN_ACTIVITY_TAG, "Gemini API key read failed: ${exception.javaClass.simpleName}")
+                    geminiApiKeyStatus = "API Key 讀取失敗。"
+                }
+                geminiApiKeyLoaded = true
+            }
+        }
+        TextFormattingApiKeyStore.readAsync(applicationContext, ExternalFormattingProvider.OPENAI) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                result.onSuccess { storedKey ->
+                    openAiApiKey = storedKey.orEmpty()
+                    openAiApiKeySaved = !storedKey.isNullOrBlank()
+                }.onFailure { exception ->
+                    Log.w(MAIN_ACTIVITY_TAG, "OpenAI API key read failed: ${exception.javaClass.simpleName}")
+                    openAiApiKeyStatus = "API Key 讀取失敗。"
+                }
+                openAiApiKeyLoaded = true
             }
         }
         PersonalGlossaryRepository.load(applicationContext) { result ->
@@ -214,6 +250,42 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
                     smartFormattingStatus = "設定儲存失敗，請稍後再試。"
                 }
             }
+        }
+    }
+
+    fun saveExternalApiKey(provider: ExternalFormattingProvider, value: String) {
+        val isGemini = provider == ExternalFormattingProvider.GEMINI
+        if (isGemini) geminiApiKeyStatus = "正在儲存 API Key…" else openAiApiKeyStatus = "正在儲存 API Key…"
+        TextFormattingApiKeyStore.saveAsync(applicationContext, provider, value) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                result.onSuccess {
+                    if (isGemini) {
+                        geminiApiKeySaved = value.isNotBlank()
+                        geminiApiKeyStatus = if (value.isBlank()) "API Key 已清除。" else "API Key 已儲存在 App 私有設定。"
+                    } else {
+                        openAiApiKeySaved = value.isNotBlank()
+                        openAiApiKeyStatus = if (value.isBlank()) "API Key 已清除。" else "API Key 已儲存在 App 私有設定。"
+                    }
+                }.onFailure { exception ->
+                    Log.w(MAIN_ACTIVITY_TAG, "Provider API key save failed: ${exception.javaClass.simpleName}")
+                    if (isGemini) {
+                        geminiApiKeySaved = false
+                        geminiApiKeyStatus = "API Key 儲存失敗。"
+                    } else {
+                        openAiApiKeySaved = false
+                        openAiApiKeyStatus = "API Key 儲存失敗。"
+                    }
+                }
+            }
+        }
+    }
+
+    fun openApiKeyPage(url: String) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (exception: Exception) {
+            Log.w(MAIN_ACTIVITY_TAG, "Could not open API key page: ${exception.javaClass.simpleName}")
         }
     }
 
@@ -409,6 +481,10 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
 
         SettingsDestination.GROQ -> GroqSettingsScreen(
             modifier = modifier,
+            speechModel = smartFormattingSettings.speechModel,
+            onSpeechModelChange = { model ->
+                saveSmartFormattingSettings(smartFormattingSettings.copy(speechModel = model))
+            },
             apiKey = apiKey,
             apiKeySaved = apiKeySaved,
             apiKeyLoaded = apiKeyLoaded,
@@ -458,7 +534,38 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
             settings = smartFormattingSettings,
             loaded = smartFormattingLoaded,
             status = smartFormattingStatus,
+            groqApiKeySaved = apiKeySaved,
+            geminiApiKey = geminiApiKey,
+            geminiApiKeySaved = geminiApiKeySaved,
+            geminiApiKeyLoaded = geminiApiKeyLoaded,
+            geminiApiKeyStatus = geminiApiKeyStatus,
+            openAiApiKey = openAiApiKey,
+            openAiApiKeySaved = openAiApiKeySaved,
+            openAiApiKeyLoaded = openAiApiKeyLoaded,
+            openAiApiKeyStatus = openAiApiKeyStatus,
             onSave = ::saveSmartFormattingSettings,
+            onGeminiApiKeyChange = {
+                geminiApiKey = it
+                geminiApiKeySaved = false
+                geminiApiKeyStatus = "尚未儲存"
+            },
+            onSaveGeminiApiKey = { saveExternalApiKey(ExternalFormattingProvider.GEMINI, geminiApiKey) },
+            onClearGeminiApiKey = {
+                geminiApiKey = ""
+                saveExternalApiKey(ExternalFormattingProvider.GEMINI, "")
+            },
+            onOpenAiApiKeyChange = {
+                openAiApiKey = it
+                openAiApiKeySaved = false
+                openAiApiKeyStatus = "尚未儲存"
+            },
+            onSaveOpenAiApiKey = { saveExternalApiKey(ExternalFormattingProvider.OPENAI, openAiApiKey) },
+            onClearOpenAiApiKey = {
+                openAiApiKey = ""
+                saveExternalApiKey(ExternalFormattingProvider.OPENAI, "")
+            },
+            onOpenGroqSettings = { destination = SettingsDestination.GROQ },
+            onOpenApiKeyPage = ::openApiKeyPage,
             onBack = { destination = SettingsDestination.HOME }
         )
 

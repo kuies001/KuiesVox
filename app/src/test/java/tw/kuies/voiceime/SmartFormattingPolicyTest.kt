@@ -2,6 +2,7 @@ package tw.kuies.voiceime
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -128,9 +129,85 @@ class SmartFormattingPolicyTest {
         )
     }
 
+    @Test
+    fun providersHaveIndependentRequestedDefaults() {
+        val settings = SmartFormattingSettings()
+
+        assertEquals("whisper-large-v3-turbo", settings.speechModel)
+        assertEquals("qwen/qwen3.8-27b", settings.modelFor(TextFormattingProviderId.GROQ))
+        assertEquals("gemini-3.5-flash-lite", settings.modelFor(TextFormattingProviderId.GEMINI))
+        assertEquals("gpt-5.6-luna", settings.modelFor(TextFormattingProviderId.OPENAI))
+    }
+
+    @Test
+    fun changingProviderPreservesEveryProvidersModelAndCustomId() {
+        val configured = SmartFormattingSettings(
+            provider = TextFormattingProviderId.GROQ,
+            groqFormattingModel = FormattingModels.CUSTOM_MODEL_ID,
+            groqCustomModelId = "groq/new-model",
+            geminiFormattingModel = FormattingModels.CUSTOM_MODEL_ID,
+            geminiCustomModelId = "gemini/new-model",
+            openAiFormattingModel = FormattingModels.CUSTOM_MODEL_ID,
+            openAiCustomModelId = "openai/new-model"
+        )
+
+        val switched = configured.copy(provider = TextFormattingProviderId.GEMINI)
+
+        assertEquals("groq/new-model", switched.modelFor(TextFormattingProviderId.GROQ))
+        assertEquals("gemini/new-model", switched.modelFor(TextFormattingProviderId.GEMINI))
+        assertEquals("openai/new-model", switched.modelFor(TextFormattingProviderId.OPENAI))
+        assertEquals(TextFormattingProviderId.GEMINI, switched.provider)
+    }
+
+    @Test
+    fun externalProvidersAreRepresentedInFormattingDecisionForLocalFallbackRouting() {
+        val decision = SmartFormattingPolicy.decide(
+            "一段超過門檻、等待處理的逐字稿內容",
+            SmartFormattingSettings(
+                threshold = 0,
+                provider = TextFormattingProviderId.OPENAI
+            )
+        )
+
+        assertEquals(
+            SmartFormattingDecision.Format(
+                "一段超過門檻、等待處理的逐字稿內容",
+                "gpt-5.6-luna",
+                TextFormattingProviderId.OPENAI
+            ),
+            decision
+        )
+    }
+
+    @Test
+    fun invalidSpeechModelNormalizesToDefault() {
+        val normalized = SmartFormattingSettingsRepository.normalize(
+            SmartFormattingSettings(speechModel = "invalid-model")
+        )
+
+        assertEquals(SmartFormattingSettings.DEFAULT_SPEECH_MODEL, normalized.speechModel)
+    }
+
+    @Test
+    fun legacyFreeFormGroqModelIsMigratedToCustomModelId() {
+        val normalized = SmartFormattingSettingsRepository.normalize(
+            SmartFormattingSettings(groqFormattingModel = "groq/legacy-custom-model")
+        )
+
+        assertEquals(FormattingModels.CUSTOM_MODEL_ID, normalized.groqFormattingModel)
+        assertEquals("groq/legacy-custom-model", normalized.groqCustomModelId)
+    }
+
+    @Test
+    fun onlyGroqHasAnIntegratedFormattingProvider() {
+        assertTrue(TextFormattingProviderRegistry.forProvider(TextFormattingProviderId.GROQ) is GroqTextFormattingProvider)
+        assertNull(TextFormattingProviderRegistry.forProvider(TextFormattingProviderId.GEMINI))
+        assertNull(TextFormattingProviderRegistry.forProvider(TextFormattingProviderId.OPENAI))
+    }
+
     private fun settings(
         enabled: Boolean = true,
         threshold: Int,
-        model: String = SmartFormattingSettings.DEFAULT_MODEL
-    ) = SmartFormattingSettings(enabled = enabled, threshold = threshold, model = model)
+        model: String = SmartFormattingSettings.DEFAULT_GROQ_MODEL
+    ) = SmartFormattingSettings(enabled = enabled, threshold = threshold, groqFormattingModel = model)
 }

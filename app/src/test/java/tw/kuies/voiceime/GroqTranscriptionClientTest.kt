@@ -23,11 +23,24 @@ class GroqTranscriptionClientTest {
         assertFalse(requestBody.contains("name=\"prompt\""))
     }
 
-    private fun serializedRequestBody(prompt: String?): String {
+    @Test
+    fun speechModelCanBeSelectedInMultipartRequest() {
+        val large = serializedRequestBody(null, "whisper-large-v3")
+        val turbo = serializedRequestBody(null, "whisper-large-v3-turbo")
+
+        assertTrue(large.contains("whisper-large-v3"))
+        assertFalse(large.contains("whisper-large-v3-turbo"))
+        assertTrue(turbo.contains("whisper-large-v3-turbo"))
+    }
+
+    private fun serializedRequestBody(
+        prompt: String?,
+        model: String = SmartFormattingSettings.DEFAULT_SPEECH_MODEL
+    ): String {
         val audioFile = File.createTempFile("voice-ime-test-", ".wav")
         return try {
             audioFile.writeText("test wav data")
-            val requestBody = GroqTranscriptionClient.createRequestBody(audioFile, prompt)
+            val requestBody = GroqTranscriptionClient.createRequestBody(audioFile, prompt, model)
             val buffer = Buffer()
             requestBody.writeTo(buffer)
             buffer.readUtf8()

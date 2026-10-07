@@ -21,13 +21,20 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -353,6 +360,8 @@ private fun ActionButton(
 @Composable
 internal fun GroqSettingsScreen(
     modifier: Modifier = Modifier,
+    speechModel: String,
+    onSpeechModelChange: (String) -> Unit,
     apiKey: String,
     apiKeySaved: Boolean,
     apiKeyLoaded: Boolean,
@@ -362,6 +371,9 @@ internal fun GroqSettingsScreen(
     onClear: () -> Unit,
     onBack: () -> Unit
 ) {
+    var speechModelMenuOpen by remember { mutableStateOf(false) }
+    val selectedSpeechModel = FormattingModels.speech.firstOrNull { it.id == speechModel }
+        ?: FormattingModels.speech.last()
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -371,6 +383,29 @@ internal fun GroqSettingsScreen(
     ) {
         TextButton(onClick = onBack) { Text("返回") }
         Text("Groq", style = MaterialTheme.typography.headlineSmall)
+        Text("語音辨識模型", style = MaterialTheme.typography.titleMedium)
+        Box {
+            OutlinedButton(onClick = { speechModelMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(selectedSpeechModel.displayName, modifier = Modifier.weight(1f))
+                Text("▾")
+            }
+            DropdownMenu(expanded = speechModelMenuOpen, onDismissRequest = { speechModelMenuOpen = false }) {
+                FormattingModels.speech.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.displayName) },
+                        onClick = {
+                            speechModelMenuOpen = false
+                            onSpeechModelChange(option.id)
+                        }
+                    )
+                }
+            }
+        }
+        Text(
+            selectedSpeechModel.description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Text("API Key：${if (apiKeySaved) "已設定" else "未設定"}")
         OutlinedTextField(
             value = apiKey,

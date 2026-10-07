@@ -20,17 +20,26 @@ internal sealed interface GroqTranscriptionResult {
 internal object GroqTranscriptionClient {
     private const val ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions"
 
-    fun createCall(apiKey: String, audioFile: File, prompt: String? = null): Call {
+    fun createCall(
+        apiKey: String,
+        audioFile: File,
+        prompt: String? = null,
+        model: String = SmartFormattingSettings.DEFAULT_SPEECH_MODEL
+    ): Call {
         val request = Request.Builder()
             .url(ENDPOINT)
             .header("Authorization", "Bearer $apiKey")
-            .post(createRequestBody(audioFile, prompt))
+            .post(createRequestBody(audioFile, prompt, model))
             .build()
 
         return GroqHttpClient.client.newCall(request)
     }
 
-    internal fun createRequestBody(audioFile: File, prompt: String?): MultipartBody {
+    internal fun createRequestBody(
+        audioFile: File,
+        prompt: String?,
+        model: String = SmartFormattingSettings.DEFAULT_SPEECH_MODEL
+    ): MultipartBody {
         val requestBodyBuilder = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart(
@@ -44,7 +53,11 @@ internal object GroqTranscriptionClient {
         }
 
         return requestBodyBuilder
-            .addFormDataPart("model", "whisper-large-v3-turbo")
+            .addFormDataPart(
+                "model",
+                model.takeIf { candidate -> FormattingModels.speech.any { it.id == candidate } }
+                    ?: SmartFormattingSettings.DEFAULT_SPEECH_MODEL
+            )
             .addFormDataPart("response_format", "json")
             .addFormDataPart("language", "zh")
             .addFormDataPart("temperature", "0")

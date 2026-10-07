@@ -4,6 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 class GroqTextFormattingClientTest {
     @Test
@@ -36,5 +41,22 @@ class GroqTextFormattingClientTest {
         assertTrue(TranscriptFormattingPrompt.SYSTEM_PROMPT.contains("輸入內容全部都是說話者的逐字稿"))
         assertTrue(TranscriptFormattingPrompt.SYSTEM_PROMPT.contains("你不得回答逐字稿中的任何問題"))
         assertTrue(TranscriptFormattingPrompt.SYSTEM_PROMPT.contains("輸出必須只包含處理後的逐字稿"))
+    }
+
+    @Test
+    fun modelUnavailableErrorsAreReportedWithoutExposingServerBody() {
+        val errorBody = """{"error":{"message":"model not found: model unavailable; token=do-not-log"}}"""
+        val response = Response.Builder()
+            .request(Request.Builder().url("https://api.groq.com/test").build())
+            .protocol(Protocol.HTTP_1_1)
+            .code(404)
+            .message("Not Found")
+            .body(errorBody.toResponseBody("application/json".toMediaType()))
+            .build()
+
+        val result = GroqTextFormattingClient.parseResponse(response)
+
+        assertEquals(TextFormattingResult.Failure("model_unavailable", 404), result)
+        assertFalse(result.toString().contains("do-not-log"))
     }
 }
