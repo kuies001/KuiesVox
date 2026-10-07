@@ -61,7 +61,6 @@ class VoiceImeService : InputMethodService() {
     private var holdToTalkRecording = false
     private var activeRequestCall: Call? = null
     private var voicePanel: VoiceImePanel? = null
-    private val previewState = VoiceImePreviewState()
     private var statusResetRunnable: Runnable? = null
     private var statusRevision = 0L
     private var statusLabelOverride: String? = null
@@ -1133,7 +1132,6 @@ class VoiceImeService : InputMethodService() {
                     Log.e(TAG, "Voice result delivery failed: ${exception.javaClass.simpleName}")
                     false
                 }
-                previewState.recordCommitResult(finalText, committed, terminalState)
                 if (committed) {
                     UserHistoryRepository.recordVoiceAsync(
                         applicationContext,
@@ -1247,7 +1245,6 @@ class VoiceImeService : InputMethodService() {
     private fun renderStatus() {
         voicePanel?.render(
             stateMachine.state,
-            previewState.visibleText,
             statusLabelOverride,
             holdToTalkRecording
         )

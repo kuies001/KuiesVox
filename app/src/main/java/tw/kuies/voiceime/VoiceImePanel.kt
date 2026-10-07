@@ -25,6 +25,7 @@ import java.util.Date
 import java.util.Locale
 
 internal const val VOICE_IME_MAIN_INTERACTION_HEIGHT_DP = 130
+internal const val VOICE_IME_PAGE_CONTENT_HEIGHT_DP = 216
 
 internal class VoiceImePanel(
     context: Context,
@@ -114,21 +115,6 @@ internal class VoiceImePanel(
     internal val idleHint = textView(context, sizeSp = 11f, color = TEXT_MUTED)
     internal val recordingActions = LinearLayout(context)
     internal val busyActions = LinearLayout(context)
-    internal val previewText = textView(
-        context,
-        sizeSp = VoiceImePreviewLayout.TEXT_SIZE_SP,
-        color = PREVIEW_TEXT
-    ).apply {
-        maxLines = VoiceImePreviewLayout.MAX_LINES
-        ellipsize = if (VoiceImePreviewLayout.ELLIPSIZE_AT_END) {
-            android.text.TextUtils.TruncateAt.END
-        } else {
-            null
-        }
-    }
-    internal val previewDivider = View(context).apply {
-        setBackgroundColor(Color.rgb(43, 54, 71))
-    }
     private val busyLabel = textView(context, sizeSp = 13f, color = TEXT)
 
     val view: View
@@ -274,15 +260,18 @@ internal class VoiceImePanel(
             contentDescription = "Enter / 換行"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
-            setPadding(dp(context, 9), dp(context, 9), dp(context, 9), dp(context, 9))
+            setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8))
             setOnClickListener { onEnter() }
         }
         topRow.addView(
             enterButton,
-            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+            LinearLayout.LayoutParams(dp(context, 40), dp(context, 40)).apply {
+                marginStart = dp(context, 3)
+                topMargin = dp(context, 2)
                 marginEnd = dp(context, 8)
             }
         )
+        enterButton.translationX = dp(context, 2).toFloat()
 
         switchButton.apply {
             setImageResource(R.drawable.ic_ime_keyboard)
@@ -396,21 +385,6 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(context, 36)
             ).apply { topMargin = dp(context, 2) }
-        )
-
-        mainPanel.addView(
-            previewText,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(context, 4) }
-        )
-        mainPanel.addView(
-            previewDivider,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(context, VoiceImePreviewLayout.DIVIDER_HEIGHT_DP)
-            ).apply { topMargin = dp(context, 5) }
         )
 
         idleActions.apply {
@@ -551,12 +525,12 @@ internal class VoiceImePanel(
             mainPanel,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                dp(context, VOICE_IME_PAGE_CONTENT_HEIGHT_DP)
             )
         )
         buildHistoryPanels(context, root)
         view = root
-        render(VoiceImeState.IDLE, null)
+        render(VoiceImeState.IDLE)
     }
 
     fun setSwitchAvailable(available: Boolean) {
@@ -745,18 +719,28 @@ internal class VoiceImePanel(
         historyRows.orientation = LinearLayout.VERTICAL
         historyPanel.addView(
             scrollView,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 230)).apply {
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply {
                 topMargin = dp(context, 2)
             }
         )
 
+        morePanel.addView(
+            View(context),
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        )
         root.addView(
             morePanel,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(context, VOICE_IME_PAGE_CONTENT_HEIGHT_DP)
+            )
         )
         root.addView(
             historyPanel,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(context, VOICE_IME_PAGE_CONTENT_HEIGHT_DP)
+            )
         )
         morePanel.visibility = View.GONE
         historyPanel.visibility = View.GONE
@@ -961,7 +945,6 @@ internal class VoiceImePanel(
 
     fun render(
         state: VoiceImeState,
-        latestResult: String?,
         statusLabelOverride: String? = null,
         holdToTalkRecording: Boolean = false
     ) {
@@ -1016,13 +999,6 @@ internal class VoiceImePanel(
         val isBusy = state == VoiceImeState.TRANSCRIBING || state == VoiceImeState.FORMATTING
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
         busyLabel.text = state.label
-
-        val hasPreview = VoiceImePreviewLayout.shouldShowPreview(latestResult)
-        previewText.visibility = if (hasPreview) View.VISIBLE else View.GONE
-        previewDivider.visibility = if (hasPreview) View.VISIBLE else View.GONE
-        previewText.text = latestResult?.let { "最近：$it" }.orEmpty()
-        val isActive = state == VoiceImeState.RECORDING || isBusy
-        previewText.setTextColor(if (isActive) blend(PREVIEW_TEXT, BACKGROUND, 0.12f) else PREVIEW_TEXT)
     }
 
     internal fun cancelHoldToTalkGesture() {
@@ -1271,6 +1247,5 @@ internal class VoiceImePanel(
         val BUTTON_TEXT = Color.rgb(37, 35, 66)
         val TEXT = Color.rgb(230, 234, 243)
         val TEXT_MUTED = Color.rgb(180, 190, 206)
-        val PREVIEW_TEXT = Color.rgb(137, 151, 173)
     }
 }
