@@ -14,9 +14,13 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 internal const val VOICE_IME_MAIN_INTERACTION_HEIGHT_DP = 130
 
@@ -31,7 +35,17 @@ internal class VoiceImePanel(
     onBackspaceReleased: () -> Boolean = { false },
     onOpenSettings: () -> Unit = {},
     onSelectAll: () -> Unit = {},
-    onClearAll: () -> Unit = {}
+    onClearAll: () -> Unit = {},
+    private val onOpenClipboardHistory: () -> Unit = {},
+    private val onOpenVoiceHistory: () -> Unit = {},
+    private val onInsertHistoryText: (String) -> Unit = {},
+    private val onCopyHistoryText: (String) -> Unit = {},
+    private val onPinClipboardItem: (String, Boolean) -> Unit = { _, _ -> },
+    private val onDeleteClipboardItem: (String) -> Unit = {},
+    private val onClearUnpinnedClipboard: () -> Unit = {},
+    private val onDeleteVoiceHistoryItem: (Long) -> Unit = {},
+    private val onClearVoiceHistory: () -> Unit = {},
+    private val onIsSensitiveEditor: () -> Boolean = { true }
 ) {
     private val statusChip = LinearLayout(context)
     private val statusDot = View(context)
@@ -50,6 +64,29 @@ internal class VoiceImePanel(
     internal val clearAllButton = textView(context, sizeSp = 13f, color = PINK)
     internal val cancelClearAllButton = textView(context, sizeSp = 13f, color = TEXT_MUTED)
     internal val confirmClearAllButton = textView(context, sizeSp = 13f, color = PINK)
+    private val moreButton = textView(context, sizeSp = 12f, color = LAVENDER_BRIGHT)
+    private val mainPanel = LinearLayout(context)
+    private val morePanel = LinearLayout(context)
+    private val historyPanel = LinearLayout(context)
+    private val historyTitle = textView(context, sizeSp = 14f, color = TEXT).apply {
+        setTypeface(typeface, Typeface.BOLD)
+    }
+    private val historyRows = LinearLayout(context)
+    private val historyStatus = textView(context, sizeSp = 12f, color = TEXT_MUTED)
+    private val historyConfirmation = LinearLayout(context)
+    private val historyClearButton = textView(context, sizeSp = 12f, color = PINK)
+    private val historyConfirmLabel = textView(context, sizeSp = 12f, color = TEXT)
+    private val historyConfirmButton = textView(context, sizeSp = 12f, color = PINK)
+    private val historyCancelButton = textView(context, sizeSp = 12f, color = TEXT_MUTED)
+    private var page = PanelPage.MAIN
+    private var clipboardItems: List<ClipboardHistoryEntity> = emptyList()
+    private var voiceItems: List<VoiceHistoryEntity> = emptyList()
+    private var clipboardHiddenForPrivacy = false
+    private var voiceHiddenForPrivacy = false
+    private var clipboardStatus: String? = null
+    private var voiceStatus: String? = null
+    private var clearHistoryConfirmation = false
+    private var expandedVoiceItemId: Long? = null
     internal val mainInteractionContainer = FrameLayout(context)
     internal val idleActions = LinearLayout(context)
     internal val idleMicButton = ImageButton(context)
@@ -92,6 +129,7 @@ internal class VoiceImePanel(
                 strokeWidth = dp(context, 1)
             )
         }
+        mainPanel.orientation = LinearLayout.VERTICAL
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val safeInsets = insets.getInsets(
                 WindowInsetsCompat.Type.navigationBars() or
@@ -241,7 +279,7 @@ internal class VoiceImePanel(
             switchButton,
             LinearLayout.LayoutParams(dp(context, 36), dp(context, 36))
         )
-        root.addView(topRow)
+        mainPanel.addView(topRow)
 
         bulkActionsRow.apply {
             orientation = LinearLayout.HORIZONTAL
@@ -264,8 +302,14 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(
                     0,
                     dp(context, 34),
-                    1f
+                    1.15f
                 )
+            )
+            addView(
+                secondaryActionButton(context, moreButton, "更多", LAVENDER_BRIGHT) {
+                    showMorePanel()
+                },
+                LinearLayout.LayoutParams(0, dp(context, 34), 0.72f)
             )
         }
         val confirmationLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
@@ -328,7 +372,7 @@ internal class VoiceImePanel(
                 )
             )
         }
-        root.addView(
+        mainPanel.addView(
             bulkActionsContainer,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -336,14 +380,14 @@ internal class VoiceImePanel(
             ).apply { topMargin = dp(context, 2) }
         )
 
-        root.addView(
+        mainPanel.addView(
             previewText,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(context, 4) }
         )
-        root.addView(
+        mainPanel.addView(
             previewDivider,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -476,7 +520,7 @@ internal class VoiceImePanel(
                 Gravity.CENTER
             )
         )
-        root.addView(
+        mainPanel.addView(
             mainInteractionContainer,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -484,6 +528,14 @@ internal class VoiceImePanel(
             ).apply { topMargin = dp(context, 6) }
         )
 
+        root.addView(
+            mainPanel,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        buildHistoryPanels(context, root)
         view = root
         render(VoiceImeState.IDLE, null)
     }
@@ -491,6 +543,402 @@ internal class VoiceImePanel(
     fun setSwitchAvailable(available: Boolean) {
         switchButton.visibility = if (available) View.VISIBLE else View.GONE
     }
+
+    fun showMainPanel() {
+        page = PanelPage.MAIN
+        updatePageVisibility()
+    }
+
+    fun isShowingClipboardHistory(): Boolean = page == PanelPage.CLIPBOARD_HISTORY
+
+    fun isShowingVoiceHistory(): Boolean = page == PanelPage.VOICE_HISTORY
+
+    fun showClipboardHistoryPanel(isSensitiveEditor: Boolean) {
+        page = PanelPage.CLIPBOARD_HISTORY
+        clearHistoryConfirmation = false
+        clipboardHiddenForPrivacy = isSensitiveEditor
+        clipboardStatus = if (isSensitiveEditor) {
+            "此欄位不顯示剪貼簿內容"
+        } else {
+            "正在載入剪貼簿…"
+        }
+        updatePageVisibility()
+        renderHistoryRows()
+        if (!isSensitiveEditor) onOpenClipboardHistory()
+    }
+
+    fun updateClipboardHistory(
+        items: List<ClipboardHistoryEntity>,
+        statusMessage: String? = null
+    ) {
+        clipboardItems = items
+        clipboardStatus = statusMessage ?: if (items.isEmpty()) "目前沒有剪貼簿紀錄" else null
+        if (page == PanelPage.CLIPBOARD_HISTORY) renderHistoryRows()
+    }
+
+    fun showVoiceHistoryPanel(isSensitiveEditor: Boolean) {
+        page = PanelPage.VOICE_HISTORY
+        clearHistoryConfirmation = false
+        voiceHiddenForPrivacy = isSensitiveEditor
+        voiceStatus = if (isSensitiveEditor) {
+            "此欄位不顯示語音歷史"
+        } else {
+            "正在載入語音歷史…"
+        }
+        updatePageVisibility()
+        renderHistoryRows()
+        if (!isSensitiveEditor) onOpenVoiceHistory()
+    }
+
+    fun updateVoiceHistory(items: List<VoiceHistoryEntity>, statusMessage: String? = null) {
+        voiceItems = items
+        voiceStatus = statusMessage ?: if (items.isEmpty()) "目前沒有語音歷史" else null
+        if (page == PanelPage.VOICE_HISTORY) renderHistoryRows()
+    }
+
+    private fun showMorePanel() {
+        page = PanelPage.MORE
+        updatePageVisibility()
+    }
+
+    private fun updatePageVisibility() {
+        mainPanel.visibility = if (page == PanelPage.MAIN) View.VISIBLE else View.GONE
+        morePanel.visibility = if (page == PanelPage.MORE) View.VISIBLE else View.GONE
+        historyPanel.visibility = if (
+            page == PanelPage.CLIPBOARD_HISTORY || page == PanelPage.VOICE_HISTORY
+        ) View.VISIBLE else View.GONE
+        renderHistoryRows()
+    }
+
+    private fun buildHistoryPanels(context: Context, root: LinearLayout) {
+        morePanel.orientation = LinearLayout.VERTICAL
+        morePanel.addView(
+            subpanelHeader(context, "更多功能"),
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 42))
+        )
+        morePanel.addView(
+            historyNavigationButton(context, "剪貼簿歷史") {
+                showClipboardHistoryPanel(onIsSensitiveEditor())
+            },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 44)).apply {
+                topMargin = dp(context, 8)
+            }
+        )
+        morePanel.addView(
+            historyNavigationButton(context, "語音辨識歷史") {
+                showVoiceHistoryPanel(onIsSensitiveEditor())
+            },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 44)).apply {
+                topMargin = dp(context, 8)
+            }
+        )
+
+        historyPanel.orientation = LinearLayout.VERTICAL
+        val historyHeader = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        historyHeader.addView(
+            secondaryActionButton(context, textView(context, sizeSp = 12f, color = TEXT_MUTED), "返回", TEXT_MUTED) {
+                showMainPanel()
+            },
+            LinearLayout.LayoutParams(dp(context, 62), dp(context, 34)).apply {
+                marginEnd = dp(context, 8)
+            }
+        )
+        historyHeader.addView(
+            historyTitle,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        historyClearButton.apply {
+            text = "清除"
+            gravity = Gravity.CENTER
+            setPadding(dp(context, 10), 0, dp(context, 10), 0)
+            setOnClickListener {
+                clearHistoryConfirmation = true
+                renderHistoryRows()
+            }
+        }
+        historyHeader.addView(historyClearButton, LinearLayout.LayoutParams(dp(context, 54), dp(context, 34)))
+        historyPanel.addView(
+            historyHeader,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 38))
+        )
+
+        historyConfirmation.apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(context, 9), 0, dp(context, 5), 0)
+            background = rounded(
+                intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT),
+                dp(context, 16),
+                blend(OUTLINE, PINK, 0.35f),
+                dp(context, 1)
+            )
+            addView(historyConfirmLabel, LinearLayout.LayoutParams(0, dp(context, 34), 1f))
+            addView(
+                secondaryActionButton(context, historyCancelButton, "取消", TEXT_MUTED) {
+                    clearHistoryConfirmation = false
+                    renderHistoryRows()
+                },
+                LinearLayout.LayoutParams(dp(context, 52), dp(context, 30)).apply {
+                    marginEnd = dp(context, 4)
+                }
+            )
+            addView(
+                secondaryActionButton(context, historyConfirmButton, "清除", PINK) {
+                    clearHistoryConfirmation = false
+                    if (page == PanelPage.CLIPBOARD_HISTORY) onClearUnpinnedClipboard()
+                    if (page == PanelPage.VOICE_HISTORY) onClearVoiceHistory()
+                    renderHistoryRows()
+                },
+                LinearLayout.LayoutParams(dp(context, 52), dp(context, 30))
+            )
+            visibility = View.GONE
+        }
+        historyPanel.addView(
+            historyConfirmation,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 38)).apply {
+                topMargin = dp(context, 6)
+            }
+        )
+        historyStatus.apply {
+            gravity = Gravity.CENTER
+            maxLines = 2
+        }
+        historyPanel.addView(
+            historyStatus,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 32)).apply {
+                topMargin = dp(context, 2)
+            }
+        )
+        val scrollView = ScrollView(context).apply {
+            isFillViewport = false
+            clipToPadding = false
+            addView(
+                historyRows,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        historyRows.orientation = LinearLayout.VERTICAL
+        historyPanel.addView(
+            scrollView,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 230)).apply {
+                topMargin = dp(context, 2)
+            }
+        )
+
+        root.addView(
+            morePanel,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        )
+        root.addView(
+            historyPanel,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        )
+        morePanel.visibility = View.GONE
+        historyPanel.visibility = View.GONE
+    }
+
+    private fun subpanelHeader(context: Context, title: String): View = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        addView(
+            secondaryActionButton(context, textView(context, sizeSp = 12f, color = TEXT_MUTED), "返回", TEXT_MUTED) {
+                showMainPanel()
+            },
+            LinearLayout.LayoutParams(dp(context, 62), dp(context, 34)).apply {
+                marginEnd = dp(context, 8)
+            }
+        )
+        addView(
+            textView(context, sizeSp = 14f, color = TEXT).apply {
+                text = title
+                setTypeface(typeface, Typeface.BOLD)
+            },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        )
+    }
+
+    private fun historyNavigationButton(context: Context, label: String, onClick: () -> Unit): View =
+        secondaryActionButton(context, textView(context, sizeSp = 14f, color = TEXT), label, TEXT) {
+            onClick()
+        }
+
+    private fun renderHistoryRows() {
+        if (!isShowingClipboardHistory() && !isShowingVoiceHistory()) return
+        historyRows.removeAllViews()
+        historyTitle.text = if (page == PanelPage.CLIPBOARD_HISTORY) "剪貼簿歷史" else "語音辨識歷史"
+        historyClearButton.visibility = if (
+            clipboardHiddenForPrivacy && page == PanelPage.CLIPBOARD_HISTORY ||
+            voiceHiddenForPrivacy && page == PanelPage.VOICE_HISTORY
+        ) View.GONE else View.VISIBLE
+        historyClearButton.contentDescription = if (page == PanelPage.CLIPBOARD_HISTORY) {
+            "清除未釘選項目"
+        } else {
+            "清除全部語音歷史"
+        }
+        historyConfirmLabel.text = if (page == PanelPage.CLIPBOARD_HISTORY) {
+            "清除未釘選剪貼簿項目？"
+        } else {
+            "清除全部語音歷史？"
+        }
+        historyConfirmation.visibility = if (clearHistoryConfirmation) View.VISIBLE else View.GONE
+
+        val status = when (page) {
+            PanelPage.CLIPBOARD_HISTORY -> clipboardStatus
+            PanelPage.VOICE_HISTORY -> voiceStatus
+            else -> null
+        }
+        historyStatus.text = status.orEmpty()
+        historyStatus.visibility = if (status.isNullOrBlank()) View.GONE else View.VISIBLE
+
+        if (page == PanelPage.CLIPBOARD_HISTORY && !clipboardHiddenForPrivacy) {
+            clipboardItems.forEach { item -> historyRows.addView(clipboardHistoryCard(item)) }
+        } else if (page == PanelPage.VOICE_HISTORY && !voiceHiddenForPrivacy) {
+            voiceItems.forEach { item -> historyRows.addView(voiceHistoryCard(item)) }
+        }
+    }
+
+    private fun clipboardHistoryCard(item: ClipboardHistoryEntity): View = LinearLayout(view.context).apply {
+        val context = view.context
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(context, 10), dp(context, 8), dp(context, 8), dp(context, 7))
+        background = rounded(
+            intArrayOf(SURFACE, SURFACE), dp(context, 16), OUTLINE, dp(context, 1)
+        )
+        val contentRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val text = textView(context, sizeSp = 13f, color = TEXT).apply {
+            this.text = item.text
+            maxLines = 3
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            isClickable = true
+            setOnClickListener { onInsertHistoryText(item.text) }
+        }
+        contentRow.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        val actions = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+        actions.addView(
+            smallHistoryButton(context, if (item.pinned) "取消釘選" else "釘選", LAVENDER_BRIGHT) {
+                onPinClipboardItem(item.id, !item.pinned)
+            }
+        )
+        actions.addView(
+            smallHistoryButton(context, "刪除", PINK) { onDeleteClipboardItem(item.id) }
+        )
+        contentRow.addView(actions, LinearLayout.LayoutParams(dp(context, 68), LinearLayout.LayoutParams.WRAP_CONTENT))
+        addView(contentRow)
+        addView(
+            textView(context, sizeSp = 10f, color = TEXT_MUTED).apply {
+                this.text = "${if (item.pinned) "已釘選 · " else ""}${formatHistoryTime(item.createdAt)}"
+            },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(context, 4)
+            }
+        )
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(context, 6) }
+    }
+
+    private fun voiceHistoryCard(item: VoiceHistoryEntity): View = LinearLayout(view.context).apply {
+        val context = view.context
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(context, 10), dp(context, 8), dp(context, 8), dp(context, 7))
+        background = rounded(
+            intArrayOf(SURFACE, SURFACE), dp(context, 16), OUTLINE, dp(context, 1)
+        )
+        val finalTextView = textView(context, sizeSp = 13f, color = TEXT).apply {
+            text = item.finalText
+            maxLines = 3
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            isClickable = true
+            setOnClickListener { onInsertHistoryText(item.finalText) }
+        }
+        addView(finalTextView)
+        addView(
+            textView(context, sizeSp = 10f, color = TEXT_MUTED).apply {
+                text = formatHistoryTime(item.createdAt)
+            },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(context, 3)
+            }
+        )
+        if (item.rawText != item.finalText && expandedVoiceItemId == item.id) {
+            addView(
+                textView(context, sizeSp = 12f, color = TEXT_MUTED).apply {
+                    text = "原始辨識：${item.rawText}"
+                },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(context, 5)
+                }
+            )
+        }
+        val actions = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        if (item.rawText != item.finalText) {
+            actions.addView(
+                smallHistoryButton(
+                    context,
+                    if (expandedVoiceItemId == item.id) "收合原文" else "查看原文",
+                    TEXT_MUTED
+                ) {
+                    expandedVoiceItemId = if (expandedVoiceItemId == item.id) null else item.id
+                    renderHistoryRows()
+                },
+                LinearLayout.LayoutParams(0, dp(context, 30), 1f)
+            )
+        } else {
+            actions.addView(View(context), LinearLayout.LayoutParams(0, dp(context, 30), 1f))
+        }
+        actions.addView(
+            smallHistoryButton(context, "複製", LAVENDER_BRIGHT) { onCopyHistoryText(item.finalText) },
+            LinearLayout.LayoutParams(dp(context, 55), dp(context, 30))
+        )
+        actions.addView(
+            smallHistoryButton(context, "刪除", PINK) { onDeleteVoiceHistoryItem(item.id) },
+            LinearLayout.LayoutParams(dp(context, 55), dp(context, 30)).apply { marginStart = dp(context, 4) }
+        )
+        addView(actions, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 30)).apply {
+            topMargin = dp(context, 4)
+        })
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(context, 6) }
+    }
+
+    private fun smallHistoryButton(
+        context: Context,
+        label: String,
+        color: Int,
+        onClick: () -> Unit
+    ): View = secondaryActionButton(
+        context,
+        textView(context, sizeSp = 11f, color = color),
+        label,
+        color,
+        onClick
+    ).apply {
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dp(context, 30)
+        ).apply { bottomMargin = dp(context, 3) }
+    }
+
+    private fun formatHistoryTime(timestamp: Long): String =
+        SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date(timestamp))
 
     fun render(state: VoiceImeState, latestResult: String?, statusLabelOverride: String? = null) {
         val accent = accentFor(state)
@@ -517,6 +965,8 @@ internal class VoiceImePanel(
         clearAllButton.isEnabled = bulkActionsEnabled
         selectAllButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
         clearAllButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
+        moreButton.isEnabled = bulkActionsEnabled
+        moreButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
         if (!bulkActionsEnabled) {
             clearConfirmationPanel.visibility = View.GONE
             bulkActionsRow.visibility = View.VISIBLE
@@ -608,6 +1058,13 @@ internal class VoiceImePanel(
         VoiceImeState.FORMATTING_FALLBACK -> PINK
         VoiceImeState.CANCELLED -> TEXT_MUTED
         VoiceImeState.ERROR -> ERROR
+    }
+
+    private enum class PanelPage {
+        MAIN,
+        MORE,
+        CLIPBOARD_HISTORY,
+        VOICE_HISTORY
     }
 
     private fun textView(context: Context, sizeSp: Float, color: Int) = TextView(context).apply {

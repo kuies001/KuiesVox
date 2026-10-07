@@ -1,6 +1,8 @@
 package tw.kuies.voiceime
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
@@ -9,6 +11,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
@@ -63,6 +66,12 @@ class VoiceImeService : InputMethodService() {
     private var statusLabelOverride: String? = null
     @Volatile
     private var currentEditorInfo: EditorInfo? = null
+    @Volatile
+    private var activeRawTranscript: String? = null
+    private var clipboardListenerRegistered = false
+    private val clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
+        mainHandler.post { captureCurrentClipboard() }
+    }
 
     override fun onCreateInputView(): View {
         val panel = VoiceImePanel(
@@ -85,7 +94,17 @@ class VoiceImeService : InputMethodService() {
             onBackspaceReleased = backspaceRepeater::stop,
             onOpenSettings = ::openSettings,
             onSelectAll = ::selectAllInputText,
-            onClearAll = ::clearAllInputText
+            onClearAll = ::clearAllInputText,
+            onOpenClipboardHistory = ::openClipboardHistory,
+            onOpenVoiceHistory = ::openVoiceHistory,
+            onInsertHistoryText = ::insertHistoryText,
+            onCopyHistoryText = ::copyHistoryText,
+            onPinClipboardItem = ::setClipboardPinned,
+            onDeleteClipboardItem = ::deleteClipboardHistoryItem,
+            onClearUnpinnedClipboard = ::clearUnpinnedClipboardHistory,
+            onDeleteVoiceHistoryItem = ::deleteVoiceHistoryItem,
+            onClearVoiceHistory = ::clearVoiceHistory,
+            onIsSensitiveEditor = ::isCurrentEditorSensitive
         )
         voicePanel = panel
         panel.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
@@ -97,6 +116,27 @@ class VoiceImeService : InputMethodService() {
         super.onStartInputView(info, restarting)
         currentEditorInfo = info
         voicePanel?.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
+        if (isCurrentEditorSensitive()) {
+            when {
+                voicePanel?.isShowingClipboardHistory() == true ->
+                    voicePanel?.showClipboardHistoryPanel(isSensitiveEditor = true)
+                voicePanel?.isShowingVoiceHistory() == true ->
+                    voicePanel?.showVoiceHistoryPanel(isSensitiveEditor = true)
+            }
+        }
+        registerClipboardListenerForSafeEditor()
+        captureCurrentClipboard()
+    }
+
+    override fun onStartInput(attribute: EditorInfo, restarting: Boolean) {
+        super.onStartInput(attribute, restarting)
+        currentEditorInfo = attribute
+    }
+
+    override fun onFinishInput() {
+        unregisterClipboardListener()
+        currentEditorInfo = null
+        super.onFinishInput()
     }
 
     private fun openSettings() {
@@ -116,7 +156,205 @@ class VoiceImeService : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         backspaceRepeater.stop()
+        unregisterClipboardListener()
         super.onFinishInputView(finishingInput)
+    }
+
+    private fun isCurrentEditorSensitive(): Boolean {
+        val info = currentEditorInfo ?: return true
+        return EditorPrivacyPolicy.isSensitive(info.inputType, info.imeOptions)
+    }
+
+    private fun clipboardManager(): ClipboardManager? =
+        getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager
+
+    private fun registerClipboardListenerForSafeEditor() {
+        unregisterClipboardListener()
+        if (serviceDestroyed || isCurrentEditorSensitive()) return
+        try {
+            clipboardManager()?.let { manager ->
+                manager.addPrimaryClipChangedListener(clipboardListener)
+                clipboardListenerRegistered = true
+            }
+        } catch (exception: Exception) {
+            Log.w(TAG, "Clipboard listener unavailable: ${exception.javaClass.simpleName}")
+        }
+    }
+
+    private fun unregisterClipboardListener() {
+        if (!clipboardListenerRegistered) return
+        try {
+            clipboardManager()?.removePrimaryClipChangedListener(clipboardListener)
+        } catch (exception: Exception) {
+            Log.w(TAG, "Clipboard listener release failed: ${exception.javaClass.simpleName}")
+        } finally {
+            clipboardListenerRegistered = false
+        }
+    }
+
+    private fun captureCurrentClipboard() {
+        if (serviceDestroyed || !clipboardListenerRegistered || isCurrentEditorSensitive()) return
+        val manager = clipboardManager() ?: return
+        val clip = try {
+            manager.primaryClip
+        } catch (exception: Exception) {
+            Log.w(TAG, "Clipboard read unavailable: ${exception.javaClass.simpleName}")
+            return
+        } ?: return
+
+        val description = clip.description
+        if (Build.VERSION.SDK_INT >= 33 &&
+            description.extras?.getBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, false) == true
+        ) return
+        if (clip.itemCount == 0 || !description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)) {
+            return
+        }
+        val text = clip.getItemAt(0).text?.toString() ?: return
+        if (isCurrentEditorSensitive()) return
+        UserHistoryRepository.recordClipboardAsync(
+            applicationContext,
+            text,
+            isSensitiveEditor = false
+        ) { result ->
+            if (result.isFailure) {
+                logHistoryFailure("clipboard_record", result.exceptionOrNull())
+            } else {
+                mainHandler.post {
+                    if (voicePanel?.isShowingClipboardHistory() == true) refreshClipboardHistory()
+                }
+            }
+        }
+    }
+
+    private fun openClipboardHistory() {
+        if (isCurrentEditorSensitive()) return
+        captureCurrentClipboard()
+        refreshClipboardHistory()
+    }
+
+    private fun refreshClipboardHistory() {
+        if (isCurrentEditorSensitive()) {
+            mainHandler.post {
+                if (voicePanel?.isShowingClipboardHistory() == true) {
+                    voicePanel?.updateClipboardHistory(emptyList(), "此欄位不顯示剪貼簿內容")
+                }
+            }
+            return
+        }
+        UserHistoryRepository.loadClipboardAsync(applicationContext) { result ->
+            mainHandler.post {
+                val panel = voicePanel ?: return@post
+                if (!panel.isShowingClipboardHistory()) return@post
+                if (isCurrentEditorSensitive()) {
+                    panel.updateClipboardHistory(emptyList(), "此欄位不顯示剪貼簿內容")
+                } else {
+                    panel.updateClipboardHistory(
+                        result.getOrElse { emptyList() },
+                        if (result.isFailure) "無法載入剪貼簿歷史，請稍後再試" else null
+                    )
+                }
+            }
+        }
+    }
+
+    private fun openVoiceHistory() {
+        if (isCurrentEditorSensitive()) return
+        UserHistoryRepository.loadVoiceAsync(applicationContext) { result ->
+            mainHandler.post {
+                val panel = voicePanel ?: return@post
+                if (!panel.isShowingVoiceHistory()) return@post
+                if (isCurrentEditorSensitive()) {
+                    panel.updateVoiceHistory(emptyList(), "此欄位不顯示語音歷史")
+                } else {
+                    panel.updateVoiceHistory(
+                        result.getOrElse { emptyList() },
+                        if (result.isFailure) "無法載入語音歷史，請稍後再試" else null
+                    )
+                }
+            }
+        }
+    }
+
+    private fun insertHistoryText(text: String) {
+        if (serviceDestroyed || isCurrentEditorSensitive() || text.isEmpty()) return
+        val connection = try {
+            currentInputConnection
+        } catch (exception: Exception) {
+            Log.w(TAG, "History input connection unavailable: ${exception.javaClass.simpleName}")
+            null
+        } ?: return
+        try {
+            if (!connection.commitText(text, 1)) Log.w(TAG, "History insertion unavailable")
+        } catch (exception: Exception) {
+            Log.w(TAG, "History insertion failed: ${exception.javaClass.simpleName}")
+        }
+    }
+
+    private fun copyHistoryText(text: String) {
+        if (serviceDestroyed) return
+        try {
+            clipboardManager()?.setPrimaryClip(ClipData.newPlainText("KuiesVox history", text))
+        } catch (exception: Exception) {
+            Log.w(TAG, "History copy failed: ${exception.javaClass.simpleName}")
+        }
+    }
+
+    private fun setClipboardPinned(id: String, pinned: Boolean) {
+        UserHistoryRepository.setClipboardPinnedAsync(applicationContext, id, pinned) { result ->
+            if (result.isFailure) logHistoryFailure("clipboard_pin", result.exceptionOrNull())
+            refreshClipboardHistory()
+        }
+    }
+
+    private fun deleteClipboardHistoryItem(id: String) {
+        UserHistoryRepository.deleteClipboardAsync(applicationContext, id) { result ->
+            if (result.isFailure) logHistoryFailure("clipboard_delete", result.exceptionOrNull())
+            refreshClipboardHistory()
+        }
+    }
+
+    private fun clearUnpinnedClipboardHistory() {
+        UserHistoryRepository.clearUnpinnedClipboardAsync(applicationContext) { result ->
+            if (result.isFailure) logHistoryFailure("clipboard_clear_unpinned", result.exceptionOrNull())
+            refreshClipboardHistory()
+        }
+    }
+
+    private fun deleteVoiceHistoryItem(id: Long) {
+        UserHistoryRepository.deleteVoiceAsync(applicationContext, id) { result ->
+            if (result.isFailure) logHistoryFailure("voice_history_delete", result.exceptionOrNull())
+            refreshVoiceHistory()
+        }
+    }
+
+    private fun clearVoiceHistory() {
+        UserHistoryRepository.clearVoiceAsync(applicationContext) { result ->
+            if (result.isFailure) logHistoryFailure("voice_history_clear", result.exceptionOrNull())
+            refreshVoiceHistory()
+        }
+    }
+
+    private fun refreshVoiceHistory() {
+        if (isCurrentEditorSensitive()) return
+        UserHistoryRepository.loadVoiceAsync(applicationContext) { result ->
+            mainHandler.post {
+                val panel = voicePanel ?: return@post
+                if (!panel.isShowingVoiceHistory()) return@post
+                if (isCurrentEditorSensitive()) {
+                    panel.updateVoiceHistory(emptyList(), "此欄位不顯示語音歷史")
+                } else {
+                    panel.updateVoiceHistory(
+                        result.getOrElse { emptyList() },
+                        if (result.isFailure) "無法載入語音歷史，請稍後再試" else null
+                    )
+                }
+            }
+        }
+    }
+
+    private fun logHistoryFailure(operation: String, exception: Throwable?) {
+        val type = exception?.javaClass?.simpleName ?: "unknown"
+        Log.w(TAG, "History operation=$operation failure=$type")
     }
 
     private fun deleteOneBeforeCursor() {
@@ -311,6 +549,7 @@ class VoiceImeService : InputMethodService() {
         var newRecorder: AudioRecord? = null
         var outputFile: File? = null
         try {
+            activeRawTranscript = null
             val minBufferSize = AudioRecord.getMinBufferSize(
                 SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
@@ -442,6 +681,7 @@ class VoiceImeService : InputMethodService() {
         activeOperationId = 0L
         activeRequestCall?.cancel()
         activeRequestCall = null
+        activeRawTranscript = null
         transitionStatus(VoiceImeState.CANCELLED)
         stopRecorderAndJoin()
         recordingFailure = null
@@ -626,6 +866,7 @@ class VoiceImeService : InputMethodService() {
         apiKey: String
     ) {
         if (!isOperationCurrent(operationId)) return
+        activeRawTranscript = originalText
         try {
             TextCorrectionRuleRepository.load(applicationContext) { result ->
                 mainHandler.post {
@@ -837,6 +1078,18 @@ class VoiceImeService : InputMethodService() {
                 }
                 previewState.recordCommitResult(finalText, committed, terminalState)
                 if (committed) {
+                    UserHistoryRepository.recordVoiceAsync(
+                        applicationContext,
+                        rawText = activeRawTranscript.orEmpty(),
+                        finalText = finalText,
+                        successfulCommit = true,
+                        cancelled = false,
+                        isSensitiveEditor = isCurrentEditorSensitive()
+                    ) { result ->
+                        if (result.isFailure) {
+                            logHistoryFailure("voice_history_record", result.exceptionOrNull())
+                        }
+                    }
                     finishSuccessfully(operationId, file, terminalState, statusLabel)
                 } else {
                     finishWithError(operationId, "input_connection_unavailable")
@@ -859,6 +1112,7 @@ class VoiceImeService : InputMethodService() {
         activeOperationId = 0L
         activeRequestCall = null
         activeAudioFile = null
+        activeRawTranscript = null
         recordingFailure = null
         deleteAudioFile(file)
         transitionStatus(terminalState, statusLabel)
@@ -876,6 +1130,7 @@ class VoiceImeService : InputMethodService() {
         activeOperationId = 0L
         activeRequestCall?.cancel()
         activeRequestCall = null
+        activeRawTranscript = null
         stopRecorderAndJoin()
         deleteAudioFile(activeAudioFile)
         activeAudioFile = null
@@ -962,6 +1217,7 @@ class VoiceImeService : InputMethodService() {
 
     override fun onDestroy() {
         serviceDestroyed = true
+        unregisterClipboardListener()
         backspaceRepeater.stop()
         requestGate.invalidate()
         activeOperationId = 0L
