@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build and publish (for example v0.10.0)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -21,6 +27,11 @@ jobs:
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -35,7 +46,7 @@ jobs:
         id: release-metadata
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
           if [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
@@ -60,6 +71,7 @@ jobs:
             prerelease=false
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "notes=$notes" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
@@ -114,7 +126,7 @@ jobs:
         id: release-assets
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ steps.release-metadata.outputs.tag }}
         run: |
           set -euo pipefail
           source_apk="app/build/outputs/apk/release/app-release.apk"
@@ -155,7 +167,7 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ steps.release-metadata.outputs.tag }}
           RELEASE_NOTES: ${{ steps.release-metadata.outputs.notes }}
           RELEASE_PRERELEASE: ${{ steps.release-metadata.outputs.prerelease }}
           RELEASE_APK: ${{ steps.release-assets.outputs.apk }}
