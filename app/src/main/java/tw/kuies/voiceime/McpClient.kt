@@ -132,6 +132,13 @@ internal class McpClient(private val config: McpConfig) {
         ?.toString()
         ?.toHttpUrlOrNull()
         ?: throw McpClientException(McpFailureKind.INVALID_URL)
+
+    init {
+        if (endpoint.scheme == "http" && config.bearerToken.isNotBlank()) {
+            throw McpClientException(McpFailureKind.INVALID_URL)
+        }
+    }
+
     private var requestSequence = 0L
     private var protocolVersion = ""
     private var modernProtocol = false

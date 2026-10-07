@@ -2,10 +2,39 @@ package tw.kuies.voiceime
 
 import org.json.JSONException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UpdateRepositoryTest {
+    @Test
+    fun releaseAssetsRequireOfficialHttpsGitHubUrlsWithoutEmbeddedCredentials() {
+        val officialUrl =
+            "https://github.com/kuies001/KuiesVox/releases/download/v0.10.0/KuiesVox.apk"
+
+        assertEquals(officialUrl, GitHubReleaseConfig.officialAssetUrlOrNull(officialUrl))
+        assertNull(
+            GitHubReleaseConfig.officialAssetUrlOrNull(
+                "https://example.com/kuies001/KuiesVox/releases/download/v0.10.0/KuiesVox.apk"
+            )
+        )
+        assertNull(
+            GitHubReleaseConfig.officialAssetUrlOrNull(
+                "http://github.com/kuies001/KuiesVox/releases/download/v0.10.0/KuiesVox.apk"
+            )
+        )
+        assertNull(
+            GitHubReleaseConfig.officialAssetUrlOrNull(
+                "https://user:pass@github.com/kuies001/KuiesVox/releases/download/v0.10.0/KuiesVox.apk"
+            )
+        )
+        assertNull(
+            GitHubReleaseConfig.officialAssetUrlOrNull(
+                "https://github.com/kuies001/Other/releases/download/v0.10.0/KuiesVox.apk"
+            )
+        )
+    }
+
     @Test
     fun ignoresDraftAndAllowsPreviewReleaseByDefault() {
         val repository = repository(
