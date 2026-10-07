@@ -8,15 +8,13 @@ internal enum class ExternalFormattingProvider {
 }
 
 internal object TextFormattingApiKeyStore {
-    private const val PREFERENCES_NAME = "text_formatting_api_keys"
-    private const val GEMINI_API_KEY = "gemini_api_key"
-    private const val OPENAI_API_KEY = "openai_api_key"
-
-    fun read(context: Context, provider: ExternalFormattingProvider): String? =
-        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-            .getString(keyFor(provider), null)
+    fun read(context: Context, provider: ExternalFormattingProvider): String? {
+        CredentialMigration.ensure(context)
+        return SecureCredentialStore(context)
+            .readSecret(keyFor(provider))
             ?.trim()
             ?.takeIf(String::isNotEmpty)
+    }
 
     fun readAsync(
         context: Context,
@@ -28,14 +26,13 @@ internal object TextFormattingApiKeyStore {
     }
 
     fun save(context: Context, provider: ExternalFormattingProvider, apiKey: String) {
-        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-        val editor = preferences.edit()
+        CredentialMigration.ensure(context)
+        val storage = SecureCredentialStore(context)
         if (apiKey.isBlank()) {
-            editor.remove(keyFor(provider))
+            storage.removeSecret(keyFor(provider))
         } else {
-            editor.putString(keyFor(provider), apiKey.trim())
+            storage.saveSecret(keyFor(provider), apiKey.trim())
         }
-        editor.apply()
     }
 
     fun saveAsync(
@@ -52,7 +49,7 @@ internal object TextFormattingApiKeyStore {
     }
 
     private fun keyFor(provider: ExternalFormattingProvider): String = when (provider) {
-        ExternalFormattingProvider.GEMINI -> GEMINI_API_KEY
-        ExternalFormattingProvider.OPENAI -> OPENAI_API_KEY
+        ExternalFormattingProvider.GEMINI -> SecureCredentialStore.GEMINI_API_KEY
+        ExternalFormattingProvider.OPENAI -> SecureCredentialStore.OPENAI_API_KEY
     }
 }

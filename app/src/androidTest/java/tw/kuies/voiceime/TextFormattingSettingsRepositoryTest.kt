@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,7 +68,10 @@ class TextFormattingSettingsRepositoryTest {
     fun providerApiKeysAreIndependentAndClearingOneKeepsTheOther() {
         val context = isolatedPreferencesContext()
         val preferences = context.getSharedPreferences("text_formatting_api_keys", Context.MODE_PRIVATE)
+        val secureStorage = SecureCredentialStore(context)
         preferences.edit().clear().commit()
+        secureStorage.removeSecret(SecureCredentialStore.GEMINI_API_KEY)
+        secureStorage.removeSecret(SecureCredentialStore.OPENAI_API_KEY)
         try {
             TextFormattingApiKeyStore.save(context, ExternalFormattingProvider.GEMINI, "gemini-test-value")
             TextFormattingApiKeyStore.save(context, ExternalFormattingProvider.OPENAI, "openai-test-value")
@@ -78,9 +82,13 @@ class TextFormattingSettingsRepositoryTest {
 
             assertNull(TextFormattingApiKeyStore.read(context, ExternalFormattingProvider.GEMINI))
             assertEquals("openai-test-value", TextFormattingApiKeyStore.read(context, ExternalFormattingProvider.OPENAI))
-            assertTrue(preferences.contains("openai_api_key"))
+            assertFalse(preferences.contains("openai_api_key"))
+            assertEquals("openai-test-value", secureStorage.readSecret(SecureCredentialStore.OPENAI_API_KEY))
+            assertNull(secureStorage.readSecret(SecureCredentialStore.GEMINI_API_KEY))
         } finally {
             preferences.edit().clear().commit()
+            secureStorage.removeSecret(SecureCredentialStore.GEMINI_API_KEY)
+            secureStorage.removeSecret(SecureCredentialStore.OPENAI_API_KEY)
         }
     }
 

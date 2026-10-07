@@ -87,7 +87,7 @@ internal fun McpSettingsScreen(
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            "僅支援 http / https；建議使用 https。HTTP 不會加密傳輸內容與 Bearer Token。",
+            "建議使用 HTTPS。HTTP 僅允許 localhost、127.0.0.1 或 ::1 的本機開發連線。Bearer Token 不會透過 HTTP 傳送；如需驗證請改用 HTTPS。",
             style = MaterialTheme.typography.bodySmall
         )
         OutlinedTextField(
@@ -104,7 +104,7 @@ internal fun McpSettingsScreen(
             enabled = loaded && !busy,
             modifier = Modifier.fillMaxWidth()
         )
-        Text("Token 儲存在 App 私有空間，不會輸出至 Logcat。", style = MaterialTheme.typography.bodySmall)
+        Text("Token 以 Android Keystore 加密儲存，不會備份或輸出至 Logcat。", style = MaterialTheme.typography.bodySmall)
         Button(
             onClick = { onSave(config, "MCP 設定已儲存。") },
             enabled = loaded && !busy,
@@ -114,14 +114,14 @@ internal fun McpSettingsScreen(
         }
         Button(
             onClick = onTestConnection,
-            enabled = loaded && !busy && config.serverUrl.isNotBlank(),
+            enabled = loaded && !busy && McpUrlValidator.isValid(config.serverUrl, config.bearerToken),
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(if (busy) "連線中…" else "測試連線")
         }
         Button(
             onClick = onRefresh,
-            enabled = loaded && !busy && McpUrlValidator.isValid(config.serverUrl),
+            enabled = loaded && !busy && McpUrlValidator.isValid(config.serverUrl, config.bearerToken),
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("立即重新整理 MCP")

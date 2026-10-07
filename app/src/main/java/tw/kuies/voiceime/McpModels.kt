@@ -85,10 +85,20 @@ internal object McpUrlValidator {
         val scheme = uri.scheme?.lowercase()
         if (scheme !in setOf("http", "https")) return null
         if (uri.host.isNullOrBlank() || uri.userInfo != null || uri.fragment != null) return null
+        if (uri.port != -1 && uri.port !in 1..65535) return null
+        if (scheme == "http" && !isLoopbackHost(uri.host)) return null
         return uri
     }
 
-    fun isValid(rawUrl: String): Boolean = parse(rawUrl) != null
+    fun isValid(rawUrl: String, bearerToken: String = ""): Boolean {
+        val uri = parse(rawUrl) ?: return false
+        return uri.scheme.equals("https", ignoreCase = true) || bearerToken.isBlank()
+    }
+
+    private fun isLoopbackHost(host: String): Boolean {
+        val normalized = host.lowercase().removeSurrounding("[", "]")
+        return normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1"
+    }
 }
 
 internal object McpContextCacheRules {

@@ -7,12 +7,32 @@ import org.junit.Test
 
 class McpContextPolicyTest {
     @Test
-    fun urlValidationAllowsOnlyHttpAndHttpsUrlsWithoutEmbeddedCredentials() {
+    fun urlValidationAllowsHttpsAndOnlyLoopbackHttpWithoutEmbeddedCredentials() {
         assertTrue(McpUrlValidator.isValid("https://mcp.example.com/mcp"))
+        assertTrue(McpUrlValidator.isValid("https://mcp.example.com/mcp", "test-token"))
+        assertTrue(McpUrlValidator.isValid("http://localhost:8080/mcp"))
         assertTrue(McpUrlValidator.isValid("http://127.0.0.1:8080/mcp"))
+        assertTrue(McpUrlValidator.isValid("http://[::1]:8080/mcp"))
+        assertFalse(McpUrlValidator.isValid("http://localhost:8080/mcp", "test-token"))
+        assertFalse(McpUrlValidator.isValid("http://127.0.0.1:8080/mcp", "test-token"))
+        assertFalse(McpUrlValidator.isValid("http://[::1]:8080/mcp", "test-token"))
+        assertFalse(McpUrlValidator.isValid("http://mcp.example.com/mcp"))
+        assertFalse(McpUrlValidator.isValid("http://192.168.1.10:8080/mcp"))
+        assertFalse(McpUrlValidator.isValid("http://2130706433:8080/mcp"))
         assertFalse(McpUrlValidator.isValid("file:///tmp/server"))
         assertFalse(McpUrlValidator.isValid("https://@mcp.example.com/mcp"))
+        assertFalse(McpUrlValidator.isValid("https://user:pass@mcp.example.com/mcp"))
         assertFalse(McpUrlValidator.isValid("https:///missing-host"))
+    }
+
+    @Test
+    fun mcpClientRejectsBearerTokenForHttpBeforeMakingARequest() {
+        try {
+            McpClient(McpConfig(serverUrl = "http://localhost:8080/mcp", bearerToken = "test-token"))
+            throw AssertionError("Expected an HTTP bearer token to be rejected")
+        } catch (exception: McpClientException) {
+            assertEquals(McpFailureKind.INVALID_URL, exception.kind)
+        }
     }
 
     @Test
