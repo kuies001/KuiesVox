@@ -26,8 +26,8 @@ android {
         applicationId = "tw.kuies.voiceime"
         minSdk = 26
         targetSdk = 37
-        versionCode = 4
-        versionName = "0.9.0"
+        versionCode = 5
+        versionName = "0.10.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

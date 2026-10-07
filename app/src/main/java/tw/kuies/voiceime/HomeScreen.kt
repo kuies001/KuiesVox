@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -95,15 +96,9 @@ internal fun HomeScreen(
         }
         Spacer(Modifier.height(2.dp))
 
-        AppUpdateFeatureCard(
-            currentVersionName = currentVersionName,
-            updateState = updateState,
-            onCheckForUpdates = onCheckForUpdates,
-            onDownloadUpdate = onDownloadUpdate,
-            onInstallUpdate = onInstallUpdate,
-            onOpenUnknownSourcesSettings = onOpenUnknownSourcesSettings,
-            onOpenReleases = onOpenReleases,
-            onOpenRelease = onOpenRelease
+        MicrophonePermissionReminderCard(
+            hasPermission = hasMicrophonePermission,
+            onRequestPermission = onRequestMicrophonePermission
         )
 
         HomeFeatureCard(
@@ -141,28 +136,6 @@ internal fun HomeScreen(
                 onClick = onOpenSmartFormatting,
                 modifier = Modifier.align(Alignment.End)
             )
-        }
-
-        HomeFeatureCard(
-            icon = R.drawable.ic_home_voice,
-            title = "語音",
-            subtitle = "麥克風與錄音權限",
-            accent = colors.secondary,
-            status = if (hasMicrophonePermission) "已授權" else "待授權"
-        ) {
-            StatusLine(
-                label = "麥克風權限",
-                value = if (hasMicrophonePermission) "已授權" else "未授權"
-            )
-            if (!hasMicrophonePermission) {
-                ActionButton(
-                    label = "授予麥克風權限",
-                    accent = colors.secondary,
-                    contentColor = colors.onSecondary,
-                    onClick = onRequestMicrophonePermission,
-                    modifier = Modifier.align(Alignment.End)
-                )
-            }
         }
 
         HomeFeatureCard(
@@ -229,6 +202,79 @@ internal fun HomeScreen(
                 onClick = onOpenMcp,
                 modifier = Modifier.align(Alignment.End)
             )
+        }
+
+        AppUpdateFeatureCard(
+            currentVersionName = currentVersionName,
+            updateState = updateState,
+            onCheckForUpdates = onCheckForUpdates,
+            onDownloadUpdate = onDownloadUpdate,
+            onInstallUpdate = onInstallUpdate,
+            onOpenUnknownSourcesSettings = onOpenUnknownSourcesSettings,
+            onOpenReleases = onOpenReleases,
+            onOpenRelease = onOpenRelease
+        )
+    }
+}
+
+@Composable
+private fun MicrophonePermissionReminderCard(
+    hasPermission: Boolean,
+    onRequestPermission: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val accent = if (hasPermission) colors.tertiary else colors.secondary
+    val cardColor = if (hasPermission) {
+        colors.surfaceVariant.copy(alpha = 0.38f)
+    } else {
+        colors.secondaryContainer.copy(alpha = 0.34f)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        border = BorderStroke(1.dp, accent.copy(alpha = if (hasPermission) 0.22f else 0.42f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_home_voice),
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "麥克風授權",
+                    modifier = Modifier.padding(start = 9.dp).weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = colors.onSurface
+                )
+                StatusPill(
+                    text = if (hasPermission) "已授權" else "未授權",
+                    accent = accent
+                )
+            }
+            if (!hasPermission) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "使用語音輸入前，請先授權麥克風",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = onRequestPermission,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text("前往授權", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
         }
     }
 }

@@ -62,7 +62,7 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
-    fun idleStateUsesLargeRoundMicrophoneButtonWithTwoLabels() {
+    fun idleStateUsesCompactRoundMicrophoneButtonWithTwoLabels() {
         var started = false
         val panel = VoiceImePanel(
             context = context,
@@ -72,7 +72,7 @@ class VoiceImePanelLayoutTest {
         )
 
         assertEquals(
-            (112 * context.resources.displayMetrics.density).toInt(),
+            (84 * context.resources.displayMetrics.density).toInt(),
             panel.idleMicButton.layoutParams.width
         )
         assertEquals(panel.idleMicButton.layoutParams.width, panel.idleMicButton.layoutParams.height)
@@ -160,7 +160,7 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
-    fun moreActionsStaySeparateAndClearRequiresConfirmation() {
+    fun bulkActionsAreVisibleDirectlyAndClearRequiresConfirmation() {
         var selections = 0
         var clears = 0
         val panel = VoiceImePanel(
@@ -172,30 +172,60 @@ class VoiceImePanelLayoutTest {
             onClearAll = { clears += 1 }
         )
 
-        assertEquals(View.GONE, panel.moreActionsPanel.visibility)
-        assertTrue(panel.moreButton.performClick())
-        assertEquals(View.VISIBLE, panel.moreActionsPanel.visibility)
+        assertEquals(View.VISIBLE, panel.bulkActionsRow.visibility)
+        assertTrue(panel.selectAllButton.isEnabled)
         assertTrue(panel.selectAllButton.performClick())
         assertEquals(1, selections)
-        assertEquals(View.GONE, panel.moreActionsPanel.visibility)
 
-        panel.moreButton.performClick()
         panel.clearAllButton.performClick()
-        assertEquals(View.GONE, panel.moreActionsPanel.visibility)
         assertEquals(View.VISIBLE, panel.clearConfirmationPanel.visibility)
         assertEquals(0, clears)
 
         panel.cancelClearAllButton.performClick()
         assertEquals(View.GONE, panel.clearConfirmationPanel.visibility)
-        panel.moreButton.performClick()
         panel.clearAllButton.performClick()
         panel.confirmClearAllButton.performClick()
         assertEquals(1, clears)
         assertEquals(View.GONE, panel.clearConfirmationPanel.visibility)
 
         panel.render(VoiceImeState.FORMATTING, null)
-        assertFalse(panel.moreButton.isEnabled)
-        assertEquals(View.GONE, panel.moreActionsPanel.visibility)
+        assertFalse(panel.clearAllButton.isEnabled)
+        assertEquals(View.VISIBLE, panel.bulkActionsRow.visibility)
+        assertEquals(View.GONE, panel.clearConfirmationPanel.visibility)
+    }
+
+    @Test
+    fun idlePanelFitsCompactHeightWithSmallerMicrophone() {
+        val panel = panel()
+        val maxHeight = (225 * context.resources.displayMetrics.density).toInt()
+        val panelHeight = measuredHeight(panel)
+
+        assertTrue("Panel height was ${panelHeight}px, max is $maxHeight px", panelHeight <= maxHeight)
+    }
+
+    @Test
+    fun idleAndRecordingStatesShareFixedInteractionAndPanelHeights() {
+        val panel = panel()
+        val preview = "最近輸入的預覽文字"
+        val expectedInteractionHeight =
+            (VOICE_IME_MAIN_INTERACTION_HEIGHT_DP * context.resources.displayMetrics.density).toInt()
+
+        panel.render(VoiceImeState.IDLE, preview)
+        val idlePanelHeight = measuredHeight(panel)
+
+        assertTrue(panel.mainInteractionContainer.layoutParams is LinearLayout.LayoutParams)
+        assertEquals(expectedInteractionHeight, panel.mainInteractionContainer.layoutParams.height)
+        assertEquals(expectedInteractionHeight, panel.mainInteractionContainer.measuredHeight)
+        assertEquals(View.VISIBLE, panel.idleActions.visibility)
+
+        panel.render(VoiceImeState.RECORDING, preview)
+        val recordingPanelHeight = measuredHeight(panel)
+
+        assertEquals(expectedInteractionHeight, panel.mainInteractionContainer.layoutParams.height)
+        assertEquals(expectedInteractionHeight, panel.mainInteractionContainer.measuredHeight)
+        assertEquals(View.GONE, panel.idleActions.visibility)
+        assertEquals(View.VISIBLE, panel.recordingActions.visibility)
+        assertEquals(idlePanelHeight, recordingPanelHeight)
     }
 
     @Test

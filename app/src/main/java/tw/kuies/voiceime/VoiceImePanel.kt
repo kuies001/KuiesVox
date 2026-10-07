@@ -9,6 +9,7 @@ import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -16,6 +17,8 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+
+internal const val VOICE_IME_MAIN_INTERACTION_HEIGHT_DP = 130
 
 internal class VoiceImePanel(
     context: Context,
@@ -40,19 +43,20 @@ internal class VoiceImePanel(
     internal val settingsButton = ImageButton(context)
     internal val backspaceButton = ImageButton(context)
     internal val enterButton = ImageButton(context)
-    internal val moreButton = LinearLayout(context)
-    internal val moreActionsPanel = LinearLayout(context)
+    internal val bulkActionsContainer = FrameLayout(context)
+    internal val bulkActionsRow = LinearLayout(context)
     internal val clearConfirmationPanel = LinearLayout(context)
     internal val selectAllButton = textView(context, sizeSp = 13f, color = TEXT)
     internal val clearAllButton = textView(context, sizeSp = 13f, color = PINK)
     internal val cancelClearAllButton = textView(context, sizeSp = 13f, color = TEXT_MUTED)
     internal val confirmClearAllButton = textView(context, sizeSp = 13f, color = PINK)
+    internal val mainInteractionContainer = FrameLayout(context)
     internal val idleActions = LinearLayout(context)
     internal val idleMicButton = ImageButton(context)
-    internal val idleTitle = textView(context, sizeSp = 16f, color = TEXT).apply {
+    internal val idleTitle = textView(context, sizeSp = 15f, color = TEXT).apply {
         setTypeface(typeface, Typeface.BOLD)
     }
-    internal val idleHint = textView(context, sizeSp = 12f, color = TEXT_MUTED)
+    internal val idleHint = textView(context, sizeSp = 11f, color = TEXT_MUTED)
     internal val recordingActions = LinearLayout(context)
     internal val busyActions = LinearLayout(context)
     internal val previewText = textView(
@@ -239,121 +243,60 @@ internal class VoiceImePanel(
         )
         root.addView(topRow)
 
-        moreButton.apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            isClickable = true
-            isFocusable = true
-            contentDescription = "更多功能"
-            background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
-            setPadding(dp(context, 10), 0, dp(context, 10), 0)
-            val icon = ImageView(context).apply {
-                setImageResource(R.drawable.ic_ime_more)
-                imageTintList = ColorStateList.valueOf(TEXT_MUTED)
-            }
-            addView(icon, LinearLayout.LayoutParams(dp(context, 18), dp(context, 18)))
-            addView(
-                textView(context, sizeSp = 12f, color = TEXT_MUTED).apply {
-                    text = "更多"
-                    setPadding(dp(context, 4), 0, 0, 0)
-                },
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-            )
-            setOnClickListener {
-                val wasExpanded = moreActionsPanel.visibility == View.VISIBLE ||
-                    clearConfirmationPanel.visibility == View.VISIBLE
-                moreActionsPanel.visibility = if (wasExpanded) View.GONE else View.VISIBLE
-                clearConfirmationPanel.visibility = View.GONE
-            }
-        }
-        val moreEntryRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            addView(
-                moreButton,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    dp(context, 32)
-                )
-            )
-        }
-        root.addView(
-            moreEntryRow,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(context, 36)
-            ).apply { topMargin = dp(context, 2) }
-        )
-
-        val moreActionsRow = LinearLayout(context).apply {
+        bulkActionsRow.apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(
-                moreActionButton(context, selectAllButton, "全選", TEXT) {
-                    moreActionsPanel.visibility = View.GONE
+                secondaryActionButton(context, selectAllButton, "全選", TEXT) {
+                    clearConfirmationPanel.visibility = View.GONE
+                    bulkActionsRow.visibility = View.VISIBLE
                     onSelectAll()
                 },
-                LinearLayout.LayoutParams(0, dp(context, 40), 1f).apply {
+                LinearLayout.LayoutParams(0, dp(context, 34), 1f).apply {
                     marginEnd = dp(context, 6)
                 }
             )
             addView(
-                moreActionButton(context, clearAllButton, "清除全部", PINK) {
-                    moreActionsPanel.visibility = View.GONE
+                secondaryActionButton(context, clearAllButton, "清除全部", PINK) {
+                    bulkActionsRow.visibility = View.GONE
                     clearConfirmationPanel.visibility = View.VISIBLE
                 },
-                LinearLayout.LayoutParams(0, dp(context, 40), 1f)
+                LinearLayout.LayoutParams(
+                    0,
+                    dp(context, 34),
+                    1f
+                )
             )
         }
-        moreActionsPanel.apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8))
-            background = rounded(
-                intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT),
-                dp(context, 18),
-                OUTLINE,
-                dp(context, 1)
-            )
-            addView(moreActionsRow)
-            visibility = View.GONE
-        }
-        root.addView(
-            moreActionsPanel,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(context, 2) }
-        )
-
         val confirmationLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
-            text = "確定清除目前輸入欄位的全部文字？"
-            maxLines = 2
+            text = "確定清除全部文字？"
+            maxLines = 1
         }
         val confirmationActions = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(
-                moreActionButton(context, cancelClearAllButton, "取消", TEXT_MUTED) {
+                secondaryActionButton(context, cancelClearAllButton, "取消", TEXT_MUTED) {
                     clearConfirmationPanel.visibility = View.GONE
+                    bulkActionsRow.visibility = View.VISIBLE
                 },
-                LinearLayout.LayoutParams(0, dp(context, 40), 1f).apply {
+                LinearLayout.LayoutParams(dp(context, 54), dp(context, 30)).apply {
                     marginEnd = dp(context, 6)
                 }
             )
             addView(
-                moreActionButton(context, confirmClearAllButton, "確認清除", PINK) {
+                secondaryActionButton(context, confirmClearAllButton, "清除", PINK) {
                     clearConfirmationPanel.visibility = View.GONE
+                    bulkActionsRow.visibility = View.VISIBLE
                     onClearAll()
                 },
-                LinearLayout.LayoutParams(0, dp(context, 40), 1f)
+                LinearLayout.LayoutParams(dp(context, 60), dp(context, 30))
             )
         }
         clearConfirmationPanel.apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 8))
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(context, 10), 0, dp(context, 6), 0)
             background = rounded(
                 intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT),
                 dp(context, 18),
@@ -362,19 +305,34 @@ internal class VoiceImePanel(
             )
             addView(
                 confirmationLabel,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(context, 7) }
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
             )
             addView(confirmationActions)
             visibility = View.GONE
         }
+        bulkActionsContainer.apply {
+            addView(
+                bulkActionsRow,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    Gravity.CENTER
+                )
+            )
+            addView(
+                clearConfirmationPanel,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    Gravity.CENTER
+                )
+            )
+        }
         root.addView(
-            clearConfirmationPanel,
+            bulkActionsContainer,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                dp(context, 36)
             ).apply { topMargin = dp(context, 2) }
         )
 
@@ -402,14 +360,14 @@ internal class VoiceImePanel(
                 contentDescription = "開始語音輸入"
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 background = circleRipple(context)
-                setPadding(dp(context, 32), dp(context, 32), dp(context, 32), dp(context, 32))
+                setPadding(dp(context, 23), dp(context, 23), dp(context, 23), dp(context, 23))
                 isClickable = true
                 isFocusable = true
                 setOnClickListener { onVoiceAction() }
             }
             addView(
                 idleMicButton,
-                LinearLayout.LayoutParams(dp(context, 112), dp(context, 112))
+                LinearLayout.LayoutParams(dp(context, 84), dp(context, 84))
             )
             idleTitle.apply {
                 text = "開始語音輸入"
@@ -420,7 +378,7 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(context, 9) }
+                ).apply { topMargin = dp(context, 6) }
             )
             idleHint.apply {
                 text = "點一下開始說話"
@@ -431,15 +389,16 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(context, 4) }
+                ).apply { topMargin = dp(context, 3) }
             )
         }
-        root.addView(
+        mainInteractionContainer.addView(
             idleActions,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(context, 9) }
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
         )
 
         recordingActions.apply {
@@ -470,12 +429,13 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(0, dp(context, 48), 0.8f)
             )
         }
-        root.addView(
+        mainInteractionContainer.addView(
             recordingActions,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(context, 9) }
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
         )
 
         busyActions.apply {
@@ -508,12 +468,20 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(dp(context, 84), dp(context, 42))
             )
         }
-        root.addView(
+        mainInteractionContainer.addView(
             busyActions,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+        )
+        root.addView(
+            mainInteractionContainer,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(context, 9) }
+                dp(context, VOICE_IME_MAIN_INTERACTION_HEIGHT_DP)
+            ).apply { topMargin = dp(context, 6) }
         )
 
         view = root
@@ -544,11 +512,14 @@ internal class VoiceImePanel(
             state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
         settingsButton.isEnabled = state == VoiceImeState.IDLE
         settingsButton.alpha = if (settingsButton.isEnabled) 1f else 0.5f
-        moreButton.isEnabled = state == VoiceImeState.IDLE
-        moreButton.alpha = if (moreButton.isEnabled) 1f else 0.5f
-        if (!moreButton.isEnabled) {
-            moreActionsPanel.visibility = View.GONE
+        val bulkActionsEnabled = state == VoiceImeState.IDLE
+        selectAllButton.isEnabled = bulkActionsEnabled
+        clearAllButton.isEnabled = bulkActionsEnabled
+        selectAllButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
+        clearAllButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
+        if (!bulkActionsEnabled) {
             clearConfirmationPanel.visibility = View.GONE
+            bulkActionsRow.visibility = View.VISIBLE
         }
         idleActions.visibility = if (state == VoiceImeState.IDLE || isTerminal) {
             View.VISIBLE
@@ -607,7 +578,7 @@ internal class VoiceImePanel(
         setOnClickListener { onClick() }
     }
 
-    private fun moreActionButton(
+    private fun secondaryActionButton(
         context: Context,
         button: TextView,
         label: String,
