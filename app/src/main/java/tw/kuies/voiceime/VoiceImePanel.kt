@@ -25,7 +25,7 @@ import java.util.Date
 import java.util.Locale
 
 internal const val VOICE_IME_MAIN_INTERACTION_HEIGHT_DP = 130
-internal const val VOICE_IME_PAGE_CONTENT_HEIGHT_DP = 216
+internal const val VOICE_IME_PAGE_CONTENT_HEIGHT_DP = 178
 
 internal class VoiceImePanel(
     context: Context,
@@ -53,26 +53,22 @@ internal class VoiceImePanel(
     private val onClearVoiceHistory: () -> Unit = {},
     private val onIsSensitiveEditor: () -> Boolean = { true }
 ) {
-    private val statusChip = LinearLayout(context)
-    private val statusDot = View(context)
-    internal val statusLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
-        maxLines = 1
-        ellipsize = android.text.TextUtils.TruncateAt.END
-    }
+    internal val statusIndicator = FrameLayout(context)
+    internal val statusDot = View(context)
+    internal val toolbarContainer = FrameLayout(context)
+    internal val topToolbarRow = LinearLayout(context)
     internal val switchButton = ImageButton(context)
     internal val settingsButton = ImageButton(context)
     internal val clipboardButton = ImageButton(context)
     internal val backspaceButton = ImageButton(context)
     internal val enterButton = ImageButton(context)
-    internal val bulkActionsContainer = FrameLayout(context)
-    internal val bulkActionsRow = LinearLayout(context)
     internal val clearConfirmationPanel = LinearLayout(context)
     internal val selectAllButton = textView(context, sizeSp = 13f, color = TEXT)
     internal val clearAllButton = textView(context, sizeSp = 13f, color = PINK)
     internal val cancelClearAllButton = textView(context, sizeSp = 13f, color = TEXT_MUTED)
     internal val confirmClearAllButton = textView(context, sizeSp = 13f, color = PINK)
-    private val moreButton = textView(context, sizeSp = 12f, color = LAVENDER_BRIGHT)
-    private val mainPanel = LinearLayout(context)
+    internal val moreButton = ImageButton(context)
+    internal val mainPanel = LinearLayout(context)
     private val morePanel = LinearLayout(context)
     private val historyPanel = LinearLayout(context)
     private val historyTitle = textView(context, sizeSp = 14f, color = TEXT).apply {
@@ -152,37 +148,34 @@ internal class VoiceImePanel(
             insets
         }
 
-        val topRow = LinearLayout(context).apply {
+        topToolbarRow.apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        statusChip.apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(context, 11), dp(context, 8), dp(context, 12), dp(context, 8))
-            addView(statusDot, LinearLayout.LayoutParams(dp(context, 8), dp(context, 8)))
+        statusIndicator.apply {
+            isFocusable = true
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             addView(
-                statusLabel,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginStart = dp(context, 7)
-                }
+                statusDot,
+                FrameLayout.LayoutParams(dp(context, 14), dp(context, 14), Gravity.CENTER)
             )
         }
-        topRow.addView(statusChip, LinearLayout.LayoutParams(0, dp(context, 36), 1f))
+        topToolbarRow.addView(
+            statusIndicator,
+            LinearLayout.LayoutParams(dp(context, 24), dp(context, 36)).apply {
+                marginEnd = dp(context, 2)
+            }
+        )
 
-        settingsButton.apply {
-            setImageResource(R.drawable.ic_ime_settings)
-            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
-            contentDescription = "Open KuiesVox settings"
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
-            setPadding(dp(context, 9), dp(context, 9), dp(context, 9), dp(context, 9))
-            setOnClickListener { onOpenSettings() }
+        toolbarTextActionButton(context, selectAllButton, "全選", TEXT, "全選輸入文字") {
+            clearConfirmationPanel.visibility = View.GONE
+            topToolbarRow.visibility = View.VISIBLE
+            onSelectAll()
         }
-        topRow.addView(
-            settingsButton,
-            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
-                marginEnd = dp(context, 6)
+        topToolbarRow.addView(
+            selectAllButton,
+            LinearLayout.LayoutParams(dp(context, 40), dp(context, 36)).apply {
+                marginEnd = dp(context, 1)
             }
         )
 
@@ -191,23 +184,43 @@ internal class VoiceImePanel(
             imageTintList = ColorStateList.valueOf(TEXT_MUTED)
             contentDescription = "剪貼簿歷史"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
-            setPadding(dp(context, 9), dp(context, 9), dp(context, 9), dp(context, 9))
+            background = toolbarRipple(dp(context, 10))
+            setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
             setOnClickListener { showClipboardHistoryPanel(onIsSensitiveEditor()) }
         }
-        topRow.addView(
+        topToolbarRow.addView(
             clipboardButton,
             LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
-                marginEnd = dp(context, 6)
+                marginEnd = dp(context, 1)
             }
         )
 
+        toolbarTextActionButton(context, clearAllButton, "清除", PINK, "清除全部文字") {
+            topToolbarRow.visibility = View.GONE
+            clearConfirmationPanel.visibility = View.VISIBLE
+        }
+        topToolbarRow.addView(
+            clearAllButton,
+            LinearLayout.LayoutParams(dp(context, 42), dp(context, 36)).apply {
+                marginEnd = dp(context, 1)
+            }
+        )
+
+        settingsButton.apply {
+            setImageResource(R.drawable.ic_ime_settings)
+            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
+            contentDescription = "設定"
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = toolbarRipple(dp(context, 10))
+            setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
+            setOnClickListener { onOpenSettings() }
+        }
         var backspacePointerActive = false
         var backspaceClickAllowed = false
         backspaceButton.apply {
             setImageResource(R.drawable.ic_ime_backspace)
             imageTintList = ColorStateList.valueOf(blend(TEXT_MUTED, PINK, 0.45f))
-            contentDescription = "退格 / 刪除"
+            contentDescription = "刪除"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
             setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8))
@@ -270,7 +283,7 @@ internal class VoiceImePanel(
         enterButton.apply {
             setImageResource(R.drawable.ic_ime_enter)
             imageTintList = ColorStateList.valueOf(blend(TEXT_MUTED, LAVENDER, 0.5f))
-            contentDescription = "Enter / 換行"
+            contentDescription = "換行"
             scaleType = ImageView.ScaleType.FIT_CENTER
             background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
             setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
@@ -280,49 +293,38 @@ internal class VoiceImePanel(
         switchButton.apply {
             setImageResource(R.drawable.ic_ime_keyboard)
             imageTintList = ColorStateList.valueOf(TEXT_MUTED)
-            contentDescription = "切換輸入法"
+            contentDescription = "切換鍵盤"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
-            setPadding(dp(context, 9), dp(context, 9), dp(context, 9), dp(context, 9))
+            background = toolbarRipple(dp(context, 10))
+            setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
             setOnClickListener { onSwitchInputMethod() }
         }
-        topRow.addView(
+        topToolbarRow.addView(
             switchButton,
+            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+                marginEnd = dp(context, 1)
+            }
+        )
+        topToolbarRow.addView(
+            settingsButton,
+            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+                marginEnd = dp(context, 1)
+            }
+        )
+        moreButton.apply {
+            setImageResource(R.drawable.ic_ime_more)
+            imageTintList = ColorStateList.valueOf(LAVENDER_BRIGHT)
+            contentDescription = "更多功能"
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = toolbarRipple(dp(context, 10))
+            setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
+            setOnClickListener { showMorePanel() }
+        }
+        topToolbarRow.addView(
+            moreButton,
             LinearLayout.LayoutParams(dp(context, 36), dp(context, 36))
         )
-        mainPanel.addView(topRow)
 
-        bulkActionsRow.apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(
-                secondaryActionButton(context, selectAllButton, "全選", TEXT) {
-                    clearConfirmationPanel.visibility = View.GONE
-                    bulkActionsRow.visibility = View.VISIBLE
-                    onSelectAll()
-                },
-                LinearLayout.LayoutParams(0, dp(context, 34), 1f).apply {
-                    marginEnd = dp(context, 6)
-                }
-            )
-            addView(
-                secondaryActionButton(context, clearAllButton, "清除全部", PINK) {
-                    bulkActionsRow.visibility = View.GONE
-                    clearConfirmationPanel.visibility = View.VISIBLE
-                },
-                LinearLayout.LayoutParams(
-                    0,
-                    dp(context, 34),
-                    1.15f
-                )
-            )
-            addView(
-                secondaryActionButton(context, moreButton, "更多", LAVENDER_BRIGHT) {
-                    showMorePanel()
-                },
-                LinearLayout.LayoutParams(0, dp(context, 34), 0.72f)
-            )
-        }
         val confirmationLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
             text = "確定清除全部文字？"
             maxLines = 1
@@ -333,7 +335,7 @@ internal class VoiceImePanel(
             addView(
                 secondaryActionButton(context, cancelClearAllButton, "取消", TEXT_MUTED) {
                     clearConfirmationPanel.visibility = View.GONE
-                    bulkActionsRow.visibility = View.VISIBLE
+                    topToolbarRow.visibility = View.VISIBLE
                 },
                 LinearLayout.LayoutParams(dp(context, 54), dp(context, 30)).apply {
                     marginEnd = dp(context, 6)
@@ -342,7 +344,7 @@ internal class VoiceImePanel(
             addView(
                 secondaryActionButton(context, confirmClearAllButton, "清除", PINK) {
                     clearConfirmationPanel.visibility = View.GONE
-                    bulkActionsRow.visibility = View.VISIBLE
+                    topToolbarRow.visibility = View.VISIBLE
                     onClearAll()
                 },
                 LinearLayout.LayoutParams(dp(context, 60), dp(context, 30))
@@ -365,9 +367,9 @@ internal class VoiceImePanel(
             addView(confirmationActions)
             visibility = View.GONE
         }
-        bulkActionsContainer.apply {
+        toolbarContainer.apply {
             addView(
-                bulkActionsRow,
+                topToolbarRow,
                 FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT,
@@ -378,17 +380,17 @@ internal class VoiceImePanel(
                 clearConfirmationPanel,
                 FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    dp(context, 36),
                     Gravity.CENTER
                 )
             )
         }
         mainPanel.addView(
-            bulkActionsContainer,
+            toolbarContainer,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(context, 36)
-            ).apply { topMargin = dp(context, 2) }
+            )
         )
 
         idleActions.apply {
@@ -988,18 +990,25 @@ internal class VoiceImePanel(
         holdToTalkRecording: Boolean = false
     ) {
         val accent = accentFor(state)
-        statusLabel.text = statusLabelOverride ?: state.label
-        statusLabel.setTextColor(accent)
         statusDot.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(accent)
         }
-        statusChip.background = rounded(
-            colors = intArrayOf(blend(SURFACE_VARIANT, accent, 0.18f), SURFACE_VARIANT),
-            radius = dp(statusChip.context, 50),
-            strokeColor = blend(OUTLINE, accent, 0.35f),
-            strokeWidth = dp(statusChip.context, 1)
-        )
+        val stateDescription = when (state) {
+            VoiceImeState.IDLE -> "待命"
+            VoiceImeState.RECORDING -> "錄音中"
+            VoiceImeState.TRANSCRIBING -> "語音辨識中"
+            VoiceImeState.FORMATTING -> "智慧整理中"
+            VoiceImeState.SUCCESS -> "辨識完成"
+            VoiceImeState.FORMATTING_FALLBACK -> "整理失敗，已保留辨識結果"
+            VoiceImeState.CANCELLED -> "已取消"
+            VoiceImeState.ERROR -> "發生錯誤"
+        }
+        statusIndicator.contentDescription = if (statusLabelOverride.isNullOrBlank()) {
+            stateDescription
+        } else {
+            "$stateDescription，$statusLabelOverride"
+        }
 
         val isTerminal = state == VoiceImeState.SUCCESS ||
             state == VoiceImeState.FORMATTING_FALLBACK ||
@@ -1015,7 +1024,7 @@ internal class VoiceImePanel(
         moreButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
         if (!bulkActionsEnabled) {
             clearConfirmationPanel.visibility = View.GONE
-            bulkActionsRow.visibility = View.VISIBLE
+            topToolbarRow.visibility = View.VISIBLE
         }
         idleHint.text = if (holdToTalkRecording) "放開即辨識" else "點一下開始說話"
         idleMicButton.isActivated = holdToTalkRecording
@@ -1204,13 +1213,41 @@ internal class VoiceImePanel(
         setOnClickListener { onClick() }
     }
 
+    private fun toolbarTextActionButton(
+        context: Context,
+        button: TextView,
+        label: String,
+        color: Int,
+        description: String,
+        onClick: () -> Unit
+    ) = button.apply {
+        text = label
+        contentDescription = description
+        textSize = 12f
+        gravity = Gravity.CENTER
+        maxLines = 1
+        setTextColor(color)
+        setTypeface(typeface, Typeface.BOLD)
+        setPadding(dp(context, 3), 0, dp(context, 3), 0)
+        isClickable = true
+        isFocusable = true
+        background = toolbarRipple(dp(context, 10))
+        setOnClickListener { onClick() }
+    }
+
+    private fun toolbarRipple(radius: Int) = RippleDrawable(
+        ColorStateList.valueOf(0x33FFFFFF),
+        null,
+        solid(Color.WHITE, radius)
+    )
+
     private fun accentFor(state: VoiceImeState): Int = when (state) {
-        VoiceImeState.IDLE -> TEXT_MUTED
+        VoiceImeState.IDLE -> MINT
         VoiceImeState.RECORDING -> CORAL
-        VoiceImeState.TRANSCRIBING -> BLUE
-        VoiceImeState.FORMATTING -> LAVENDER_BRIGHT
+        VoiceImeState.TRANSCRIBING -> AMBER
+        VoiceImeState.FORMATTING -> AMBER
         VoiceImeState.SUCCESS -> MINT
-        VoiceImeState.FORMATTING_FALLBACK -> PINK
+        VoiceImeState.FORMATTING_FALLBACK -> AMBER
         VoiceImeState.CANCELLED -> TEXT_MUTED
         VoiceImeState.ERROR -> ERROR
     }
@@ -1279,9 +1316,9 @@ internal class VoiceImePanel(
         val LAVENDER = Color.rgb(189, 186, 255)
         val LAVENDER_BRIGHT = Color.rgb(205, 201, 255)
         val MINT = Color.rgb(169, 228, 212)
+        val AMBER = Color.rgb(255, 192, 118)
         val PINK = Color.rgb(240, 187, 212)
         val CORAL = Color.rgb(232, 153, 161)
-        val BLUE = Color.rgb(158, 187, 255)
         val ERROR = Color.rgb(255, 142, 142)
         val BUTTON_TEXT = Color.rgb(37, 35, 66)
         val TEXT = Color.rgb(230, 234, 243)
