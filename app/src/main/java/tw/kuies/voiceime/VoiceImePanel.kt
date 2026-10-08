@@ -141,9 +141,9 @@ internal class VoiceImePanel(
                     WindowInsetsCompat.Type.systemGestures()
             )
             view.setPadding(
-                horizontalPadding + safeInsets.left,
+                maxOf(horizontalPadding, safeInsets.left),
                 topPadding,
-                horizontalPadding + safeInsets.right,
+                maxOf(horizontalPadding, safeInsets.right),
                 bottomPadding + safeInsets.bottom
             )
             insets
@@ -155,7 +155,7 @@ internal class VoiceImePanel(
         }
         topToolbarRow.apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL or Gravity.END
+            gravity = Gravity.CENTER_VERTICAL
         }
         statusIndicator.apply {
             isClickable = false
@@ -168,8 +168,8 @@ internal class VoiceImePanel(
         }
         topAreaRow.addView(
             statusIndicator,
-            LinearLayout.LayoutParams(dp(context, 48), dp(context, 36)).apply {
-                marginEnd = dp(context, 16)
+            LinearLayout.LayoutParams(dp(context, 40), dp(context, 36)).apply {
+                marginEnd = dp(context, 12)
             }
         )
 
@@ -295,7 +295,7 @@ internal class VoiceImePanel(
         }
         topToolbarRow.addView(
             clipboardButton,
-            LinearLayout.LayoutParams(dp(context, 28), dp(context, 36))
+            LinearLayout.LayoutParams(0, dp(context, 36), 1f)
         )
         topToolbarRow.addView(
             selectAllButton,
@@ -307,13 +307,13 @@ internal class VoiceImePanel(
         )
         topToolbarRow.addView(
             switchButton,
-            LinearLayout.LayoutParams(dp(context, 28), dp(context, 36))
+            LinearLayout.LayoutParams(0, dp(context, 36), 1f)
         )
         topToolbarRow.addView(
             settingsButton,
-            LinearLayout.LayoutParams(dp(context, 28), dp(context, 36))
+            LinearLayout.LayoutParams(0, dp(context, 36), 1f)
         )
-        topToolbarRow.addView(moreButton, LinearLayout.LayoutParams(dp(context, 28), dp(context, 36)))
+        topToolbarRow.addView(moreButton, LinearLayout.LayoutParams(0, dp(context, 36), 1f))
 
         val confirmationLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
             text = "確定清除全部文字？"
@@ -1229,7 +1229,7 @@ internal class VoiceImePanel(
         ellipsize = null
         setTextColor(color)
         setTypeface(typeface, Typeface.BOLD)
-        setPadding(0, 0, 0, 0)
+        setPadding(dp(context, 2), 0, dp(context, 2), 0)
         isClickable = true
         isFocusable = true
         background = toolbarRipple(dp(context, 10))
