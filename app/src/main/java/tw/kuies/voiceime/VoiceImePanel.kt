@@ -55,6 +55,7 @@ internal class VoiceImePanel(
 ) {
     internal val statusIndicator = FrameLayout(context)
     internal val statusDot = View(context)
+    internal val topAreaRow = LinearLayout(context)
     internal val toolbarContainer = FrameLayout(context)
     internal val topToolbarRow = LinearLayout(context)
     internal val switchButton = ImageButton(context)
@@ -148,9 +149,13 @@ internal class VoiceImePanel(
             insets
         }
 
-        topToolbarRow.apply {
+        topAreaRow.apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+        }
+        topToolbarRow.apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL or Gravity.END
         }
         statusIndicator.apply {
             isFocusable = true
@@ -160,10 +165,10 @@ internal class VoiceImePanel(
                 FrameLayout.LayoutParams(dp(context, 14), dp(context, 14), Gravity.CENTER)
             )
         }
-        topToolbarRow.addView(
+        topAreaRow.addView(
             statusIndicator,
             LinearLayout.LayoutParams(dp(context, 22), dp(context, 36)).apply {
-                marginEnd = dp(context, 2)
+                marginEnd = dp(context, 12)
             }
         )
 
@@ -172,13 +177,6 @@ internal class VoiceImePanel(
             topToolbarRow.visibility = View.VISIBLE
             onSelectAll()
         }
-        topToolbarRow.addView(
-            selectAllButton,
-            LinearLayout.LayoutParams(dp(context, 38), dp(context, 36)).apply {
-                marginEnd = dp(context, 1)
-            }
-        )
-
         clipboardButton.apply {
             setImageResource(R.drawable.ic_ime_clipboard)
             imageTintList = ColorStateList.valueOf(TEXT_MUTED)
@@ -188,24 +186,10 @@ internal class VoiceImePanel(
             setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
             setOnClickListener { showClipboardHistoryPanel(onIsSensitiveEditor()) }
         }
-        topToolbarRow.addView(
-            clipboardButton,
-            LinearLayout.LayoutParams(dp(context, 34), dp(context, 36)).apply {
-                marginEnd = dp(context, 1)
-            }
-        )
-
         toolbarTextActionButton(context, clearAllButton, "清除", PINK, "清除全部文字") {
             topToolbarRow.visibility = View.GONE
             clearConfirmationPanel.visibility = View.VISIBLE
         }
-        topToolbarRow.addView(
-            clearAllButton,
-            LinearLayout.LayoutParams(dp(context, 40), dp(context, 36)).apply {
-                marginEnd = dp(context, 1)
-            }
-        )
-
         settingsButton.apply {
             setImageResource(R.drawable.ic_ime_settings)
             imageTintList = ColorStateList.valueOf(TEXT_MUTED)
@@ -299,18 +283,6 @@ internal class VoiceImePanel(
             setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
             setOnClickListener { onSwitchInputMethod() }
         }
-        topToolbarRow.addView(
-            switchButton,
-            LinearLayout.LayoutParams(dp(context, 34), dp(context, 36)).apply {
-                marginEnd = dp(context, 1)
-            }
-        )
-        topToolbarRow.addView(
-            settingsButton,
-            LinearLayout.LayoutParams(dp(context, 34), dp(context, 36)).apply {
-                marginEnd = dp(context, 1)
-            }
-        )
         moreButton.apply {
             setImageResource(R.drawable.ic_ime_more)
             imageTintList = ColorStateList.valueOf(LAVENDER_BRIGHT)
@@ -321,9 +293,26 @@ internal class VoiceImePanel(
             setOnClickListener { showMorePanel() }
         }
         topToolbarRow.addView(
-            moreButton,
-            LinearLayout.LayoutParams(dp(context, 34), dp(context, 36))
+            clipboardButton,
+            LinearLayout.LayoutParams(dp(context, 34), dp(context, 36)).apply { marginEnd = dp(context, 1) }
         )
+        topToolbarRow.addView(
+            selectAllButton,
+            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply { marginEnd = dp(context, 1) }
+        )
+        topToolbarRow.addView(
+            clearAllButton,
+            LinearLayout.LayoutParams(dp(context, 38), dp(context, 36)).apply { marginEnd = dp(context, 1) }
+        )
+        topToolbarRow.addView(
+            switchButton,
+            LinearLayout.LayoutParams(dp(context, 32), dp(context, 36)).apply { marginEnd = dp(context, 1) }
+        )
+        topToolbarRow.addView(
+            settingsButton,
+            LinearLayout.LayoutParams(dp(context, 32), dp(context, 36)).apply { marginEnd = dp(context, 1) }
+        )
+        topToolbarRow.addView(moreButton, LinearLayout.LayoutParams(dp(context, 32), dp(context, 36)))
 
         val confirmationLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
             text = "確定清除全部文字？"
@@ -368,6 +357,12 @@ internal class VoiceImePanel(
             visibility = View.GONE
         }
         toolbarContainer.apply {
+            background = rounded(
+                intArrayOf(SURFACE, SURFACE),
+                dp(context, 18),
+                blend(OUTLINE, BACKGROUND, 0.35f),
+                dp(context, 1)
+            )
             addView(
                 topToolbarRow,
                 FrameLayout.LayoutParams(
@@ -385,8 +380,12 @@ internal class VoiceImePanel(
                 )
             )
         }
-        mainPanel.addView(
+        topAreaRow.addView(
             toolbarContainer,
+            LinearLayout.LayoutParams(0, dp(context, 36), 1f)
+        )
+        mainPanel.addView(
+            topAreaRow,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(context, 36)

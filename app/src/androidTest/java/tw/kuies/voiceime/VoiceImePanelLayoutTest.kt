@@ -23,25 +23,29 @@ class VoiceImePanelLayoutTest {
         get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
-    fun toolbarHasOneRowInTheRequiredOrderAndNoStatusText() {
+    fun statusAndSingleRowToolbarAreVisuallySeparatedInTheRequiredOrder() {
         val panel = panel()
         panel.setSwitchAvailable(true)
         val row = panel.topToolbarRow
 
-        assertEquals(7, row.childCount)
-        assertEquals(panel.statusIndicator, row.getChildAt(0))
+        assertEquals(2, panel.topAreaRow.childCount)
+        assertEquals(panel.statusIndicator, panel.topAreaRow.getChildAt(0))
+        assertEquals(panel.toolbarContainer, panel.topAreaRow.getChildAt(1))
+        assertEquals(6, row.childCount)
+        assertEquals(panel.clipboardButton, row.getChildAt(0))
         assertEquals(panel.selectAllButton, row.getChildAt(1))
-        assertEquals(panel.clipboardButton, row.getChildAt(2))
-        assertEquals(panel.clearAllButton, row.getChildAt(3))
-        assertEquals(panel.switchButton, row.getChildAt(4))
-        assertEquals(panel.settingsButton, row.getChildAt(5))
-        assertEquals(panel.moreButton, row.getChildAt(6))
+        assertEquals(panel.clearAllButton, row.getChildAt(2))
+        assertEquals(panel.switchButton, row.getChildAt(3))
+        assertEquals(panel.settingsButton, row.getChildAt(4))
+        assertEquals(panel.moreButton, row.getChildAt(5))
         assertEquals(2, panel.toolbarContainer.childCount)
         assertEquals(2, panel.mainPanel.childCount)
-        assertTrue(allTextViews(row).none { it.text in setOf("待命", "錄音中") })
+        assertEquals(2, allTextViews(row).size)
 
         layoutPanel(panel, widthDp = 320)
-        assertTrue(panel.moreButton.right <= row.width)
+        assertTrue(panel.statusIndicator.left < panel.toolbarContainer.left)
+        assertTrue(panel.statusIndicator.right < panel.toolbarContainer.left)
+        assertTrue(panel.moreButton.right == row.width)
         assertTrue(panel.moreButton.right > panel.settingsButton.right)
 
         val edgeGestureInset = (24 * context.resources.displayMetrics.density).toInt()
@@ -58,6 +62,7 @@ class VoiceImePanelLayoutTest {
         for (index in 0 until row.childCount - 1) {
             assertTrue(row.getChildAt(index).right <= row.getChildAt(index + 1).left)
         }
+        assertTrue(panel.statusIndicator.right < panel.toolbarContainer.left)
     }
 
     @Test
