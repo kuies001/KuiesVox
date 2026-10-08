@@ -321,35 +321,37 @@ internal class VoiceImePanel(
         )
         topToolbarRow.addView(moreButton, LinearLayout.LayoutParams(0, dp(context, 36), 1f))
 
-        val confirmationLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
-            text = "確定清除全部文字？"
-            maxLines = 1
+        listOf(confirmClearAllButton, cancelClearAllButton).forEach { button ->
+            button.textSize = 12f
+            button.setSingleLine(true)
+            button.ellipsize = null
+            button.setPadding(dp(context, 8), 0, dp(context, 8), 0)
         }
         val confirmationActions = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            gravity = Gravity.CENTER
+            addView(
+                secondaryActionButton(context, confirmClearAllButton, "確定清除全部", PINK) {
+                    clearConfirmationPanel.visibility = View.GONE
+                    topToolbarRow.visibility = View.VISIBLE
+                    onClearAll()
+                },
+                LinearLayout.LayoutParams(0, dp(context, 30), 2f).apply {
+                    marginEnd = dp(context, 6)
+                }
+            )
             addView(
                 secondaryActionButton(context, cancelClearAllButton, "取消", TEXT_MUTED) {
                     clearConfirmationPanel.visibility = View.GONE
                     topToolbarRow.visibility = View.VISIBLE
                 },
-                LinearLayout.LayoutParams(dp(context, 54), dp(context, 30)).apply {
-                    marginEnd = dp(context, 6)
-                }
-            )
-            addView(
-                secondaryActionButton(context, confirmClearAllButton, "清除", PINK) {
-                    clearConfirmationPanel.visibility = View.GONE
-                    topToolbarRow.visibility = View.VISIBLE
-                    onClearAll()
-                },
-                LinearLayout.LayoutParams(dp(context, 60), dp(context, 30))
+                LinearLayout.LayoutParams(0, dp(context, 30), 1f)
             )
         }
         clearConfirmationPanel.apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(context, 10), 0, dp(context, 6), 0)
+            gravity = Gravity.CENTER
+            setPadding(dp(context, 8), 0, dp(context, 8), 0)
             background = rounded(
                 intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT),
                 dp(context, 18),
@@ -357,10 +359,12 @@ internal class VoiceImePanel(
                 dp(context, 1)
             )
             addView(
-                confirmationLabel,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                confirmationActions,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT
+                )
             )
-            addView(confirmationActions)
             visibility = View.GONE
         }
         toolbarContainer.apply {
@@ -475,7 +479,7 @@ internal class VoiceImePanel(
                     solid(SURFACE_VARIANT, dp(context, 50)),
                     onCancel
                 ),
-                LinearLayout.LayoutParams(0, dp(context, 48), 0.8f)
+                LinearLayout.LayoutParams(0, dp(context, 48), 1f)
             )
         }
         voiceActionsContainer.addView(

@@ -4,9 +4,11 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.graphics.Insets
@@ -342,6 +344,39 @@ class VoiceImePanelLayoutTest {
         )
         assertEquals(0, clears)
 
+        val confirmationActions = panel.clearConfirmationPanel.getChildAt(0) as LinearLayout
+        assertEquals(2, confirmationActions.childCount)
+        assertEquals(panel.confirmClearAllButton, confirmationActions.getChildAt(0))
+        assertEquals(panel.cancelClearAllButton, confirmationActions.getChildAt(1))
+        assertEquals("確定清除全部", panel.confirmClearAllButton.text.toString())
+        assertEquals("取消", panel.cancelClearAllButton.text.toString())
+        assertEquals(Gravity.CENTER, panel.confirmClearAllButton.gravity)
+        assertEquals(Gravity.CENTER, panel.cancelClearAllButton.gravity)
+        assertEquals(1, panel.confirmClearAllButton.maxLines)
+        assertEquals(1, panel.cancelClearAllButton.maxLines)
+        assertEquals(null, panel.confirmClearAllButton.ellipsize)
+        assertEquals(null, panel.cancelClearAllButton.ellipsize)
+        assertEquals(panel.confirmClearAllButton.textSize, panel.cancelClearAllButton.textSize)
+        assertEquals(panel.confirmClearAllButton.paddingLeft, panel.cancelClearAllButton.paddingLeft)
+        assertEquals(panel.confirmClearAllButton.paddingRight, panel.cancelClearAllButton.paddingRight)
+        val confirmParams = panel.confirmClearAllButton.layoutParams as LinearLayout.LayoutParams
+        val cancelParams = panel.cancelClearAllButton.layoutParams as LinearLayout.LayoutParams
+        assertEquals(2f, confirmParams.weight)
+        assertEquals(1f, cancelParams.weight)
+        assertEquals(confirmParams.height, cancelParams.height)
+
+        layoutPanel(panel, widthDp = 320)
+        assertTrue(panel.confirmClearAllButton.width > panel.cancelClearAllButton.width)
+        assertEquals(panel.confirmClearAllButton.top, panel.cancelClearAllButton.top)
+        assertEquals(panel.confirmClearAllButton.bottom, panel.cancelClearAllButton.bottom)
+        assertCompleteToolbarLabel(panel.confirmClearAllButton, "確定清除全部")
+        assertCompleteToolbarLabel(panel.cancelClearAllButton, "取消")
+        val confirmBackground = (panel.confirmClearAllButton.background as RippleDrawable)
+            .getDrawable(0) as GradientDrawable
+        val cancelBackground = (panel.cancelClearAllButton.background as RippleDrawable)
+            .getDrawable(0) as GradientDrawable
+        assertEquals(confirmBackground.cornerRadius, cancelBackground.cornerRadius)
+
         panel.cancelClearAllButton.performClick()
         assertEquals(View.GONE, panel.clearConfirmationPanel.visibility)
         assertEquals(View.VISIBLE, panel.topToolbarRow.visibility)
@@ -354,6 +389,57 @@ class VoiceImePanelLayoutTest {
         assertFalse(panel.clearAllButton.isEnabled)
         assertEquals(View.VISIBLE, panel.topToolbarRow.visibility)
         assertEquals(View.GONE, panel.clearConfirmationPanel.visibility)
+    }
+
+    @Test
+    fun recordingStopAndCancelButtonsUseBalancedSharedStyle() {
+        val panel = panel()
+        panel.render(VoiceImeState.RECORDING)
+        layoutPanel(panel, widthDp = 360)
+
+        val stopButton = panel.recordingActions.getChildAt(0) as LinearLayout
+        val cancelButton = panel.recordingActions.getChildAt(1) as LinearLayout
+        val stopParams = stopButton.layoutParams as LinearLayout.LayoutParams
+        val cancelParams = cancelButton.layoutParams as LinearLayout.LayoutParams
+        assertEquals(1f, stopParams.weight)
+        assertEquals(stopParams.weight, cancelParams.weight)
+        assertEquals(stopParams.height, cancelParams.height)
+        assertEquals(stopButton.width, cancelButton.width)
+        assertEquals(Gravity.CENTER, stopButton.gravity)
+        assertEquals(Gravity.CENTER, cancelButton.gravity)
+        assertEquals(0, stopButton.paddingLeft)
+        assertEquals(0, cancelButton.paddingLeft)
+
+        val stopIcon = stopButton.getChildAt(0) as ImageView
+        val cancelIcon = cancelButton.getChildAt(0) as ImageView
+        assertEquals(stopIcon.layoutParams.width, cancelIcon.layoutParams.width)
+        assertEquals(stopIcon.layoutParams.height, cancelIcon.layoutParams.height)
+        assertEquals(
+            (18 * context.resources.displayMetrics.density).toInt(),
+            stopIcon.layoutParams.width
+        )
+        val stopLabel = stopButton.getChildAt(1) as TextView
+        val cancelLabel = cancelButton.getChildAt(1) as TextView
+        assertEquals("停止", stopLabel.text.toString())
+        assertEquals("取消", cancelLabel.text.toString())
+        assertEquals(stopLabel.textSize, cancelLabel.textSize)
+        assertEquals(
+            (7 * context.resources.displayMetrics.density).toInt(),
+            (stopLabel.layoutParams as LinearLayout.LayoutParams).marginStart
+        )
+        assertEquals(
+            (stopLabel.layoutParams as LinearLayout.LayoutParams).marginStart,
+            (cancelLabel.layoutParams as LinearLayout.LayoutParams).marginStart
+        )
+        val stopBackground = (stopButton.background as RippleDrawable)
+            .getDrawable(0) as GradientDrawable
+        val cancelBackground = (cancelButton.background as RippleDrawable)
+            .getDrawable(0) as GradientDrawable
+        assertEquals(stopBackground.cornerRadius, cancelBackground.cornerRadius)
+        assertEquals(
+            (48 * context.resources.displayMetrics.density).toInt(),
+            stopButton.height
+        )
     }
 
     @Test
