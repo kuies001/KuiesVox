@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.graphics.Insets
@@ -131,6 +132,64 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
+    fun imePanelUsesTheFullDisplayViewportWidthAcrossItsParents() {
+        val panel = panel()
+        panel.setSwitchAvailable(true)
+        val root = panel.view
+        val viewportWidth = context.resources.displayMetrics.widthPixels
+        val density = context.resources.displayMetrics.density
+        val host = FrameLayout(context)
+        host.addView(
+            root,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        host.measure(
+            View.MeasureSpec.makeMeasureSpec(viewportWidth, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        host.layout(0, 0, host.measuredWidth, host.measuredHeight)
+
+        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, root.layoutParams.width)
+        assertEquals(viewportWidth, host.measuredWidth)
+        assertEquals(viewportWidth, root.measuredWidth)
+        assertTrue(root.paddingLeft <= (16 * density).toInt())
+        assertTrue(root.paddingRight <= (16 * density).toInt())
+        assertTrue(root.width - root.paddingLeft - root.paddingRight >= viewportWidth - (32 * density).toInt())
+        assertEquals(root.width - root.paddingLeft - root.paddingRight, panel.mainPanel.width)
+        assertEquals(panel.mainPanel.width, panel.topAreaRow.width)
+
+        val statusParams = panel.statusIndicator.layoutParams as LinearLayout.LayoutParams
+        assertTrue(panel.statusIndicator.width <= (40 * density).toInt())
+        assertEquals(
+            panel.topAreaRow.width - panel.statusIndicator.width - statusParams.marginEnd,
+            panel.toolbarContainer.width
+        )
+        assertTrue(panel.toolbarContainer.width > (panel.topAreaRow.width * 0.7f))
+        assertEquals(panel.toolbarContainer.width, panel.topToolbarRow.width)
+        assertEquals(panel.topToolbarRow.width, panel.moreButton.right)
+        assertCompleteToolbarLabel(panel.selectAllButton, "全選")
+        assertCompleteToolbarLabel(panel.clearAllButton, "清除")
+
+        val interactionRow = panel.mainInteractionContainer.getChildAt(0) as LinearLayout
+        val voiceArea = interactionRow.getChildAt(0)
+        val sideActions = interactionRow.getChildAt(1) as LinearLayout
+        assertEquals(panel.mainPanel.width, panel.mainInteractionContainer.width)
+        assertEquals(panel.mainInteractionContainer.width, interactionRow.width)
+        assertEquals(interactionRow.width - sideActions.width, voiceArea.width)
+        val sideButtonRightInRoot = panel.mainPanel.left + panel.mainInteractionContainer.left +
+            interactionRow.left + sideActions.left + panel.backspaceButton.right
+        val sideButtonRightGap = root.width - sideButtonRightInRoot
+        assertTrue(
+            "Right action is ${sideButtonRightGap / density}dp from the viewport edge",
+            sideButtonRightGap <= (20 * density).toInt()
+        )
+    }
+
+    @Test
     fun clipboardButtonOpensClipboardHistoryDirectly() {
         var historyRequests = 0
         val panel = VoiceImePanel(
@@ -224,7 +283,7 @@ class VoiceImePanelLayoutTest {
         assertTrue(voiceArea.width > (240 * context.resources.displayMetrics.density).toInt())
         val sideActionParams = sideActions.layoutParams as LinearLayout.LayoutParams
         assertEquals((52 * context.resources.displayMetrics.density).toInt(), sideActionParams.width)
-        assertEquals((2 * context.resources.displayMetrics.density).toInt(), sideActionParams.marginEnd)
+        assertEquals(0, sideActionParams.marginEnd)
         assertEquals(sideActions, panel.backspaceButton.parent)
         assertEquals(sideActions, panel.enterButton.parent)
         assertEquals(0, sideActions.indexOfChild(panel.backspaceButton))
@@ -341,13 +400,15 @@ class VoiceImePanelLayoutTest {
         val originalLeftPadding = root.paddingLeft
         val originalRightPadding = root.paddingRight
         val navigationBarInset = (32 * context.resources.displayMetrics.density).toInt()
+        val navigationLeftInset = (20 * context.resources.displayMetrics.density).toInt()
+        val navigationRightInset = (18 * context.resources.displayMetrics.density).toInt()
         val systemGestureInset = (40 * context.resources.displayMetrics.density).toInt()
-        val leftGestureInset = (8 * context.resources.displayMetrics.density).toInt()
-        val rightGestureInset = (6 * context.resources.displayMetrics.density).toInt()
+        val leftGestureInset = (40 * context.resources.displayMetrics.density).toInt()
+        val rightGestureInset = (36 * context.resources.displayMetrics.density).toInt()
         val insets = WindowInsetsCompat.Builder()
             .setInsets(
                 WindowInsetsCompat.Type.navigationBars(),
-                Insets.of(0, 0, 0, navigationBarInset)
+                Insets.of(navigationLeftInset, 0, navigationRightInset, navigationBarInset)
             )
             .setInsets(
                 WindowInsetsCompat.Type.systemGestures(),
@@ -358,8 +419,8 @@ class VoiceImePanelLayoutTest {
         ViewCompat.dispatchApplyWindowInsets(root, insets)
 
         assertEquals(originalBottomPadding + systemGestureInset, root.paddingBottom)
-        assertEquals(maxOf(originalLeftPadding, leftGestureInset), root.paddingLeft)
-        assertEquals(maxOf(originalRightPadding, rightGestureInset), root.paddingRight)
+        assertEquals(maxOf(originalLeftPadding, navigationLeftInset), root.paddingLeft)
+        assertEquals(maxOf(originalRightPadding, navigationRightInset), root.paddingRight)
     }
 
     private fun panel() = VoiceImePanel(

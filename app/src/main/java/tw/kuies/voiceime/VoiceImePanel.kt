@@ -11,6 +11,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -127,6 +128,10 @@ internal class VoiceImePanel(
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(horizontalPadding, topPadding, horizontalPadding, bottomPadding)
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
             background = rounded(
                 colors = intArrayOf(BACKGROUND, BACKGROUND),
                 radius = dp(context, 24),
@@ -136,14 +141,15 @@ internal class VoiceImePanel(
         }
         mainPanel.orientation = LinearLayout.VERTICAL
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val navigationInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val safeInsets = insets.getInsets(
                 WindowInsetsCompat.Type.navigationBars() or
                     WindowInsetsCompat.Type.systemGestures()
             )
             view.setPadding(
-                maxOf(horizontalPadding, safeInsets.left),
+                maxOf(horizontalPadding, navigationInsets.left),
                 topPadding,
-                maxOf(horizontalPadding, safeInsets.right),
+                maxOf(horizontalPadding, navigationInsets.right),
                 bottomPadding + safeInsets.bottom
             )
             insets
@@ -522,7 +528,6 @@ internal class VoiceImePanel(
         sideActionColumn.apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(0, 0, dp(context, 4), 0)
             addView(
                 backspaceButton,
                 LinearLayout.LayoutParams(dp(context, 40), dp(context, 40))
@@ -542,9 +547,7 @@ internal class VoiceImePanel(
             )
             addView(
                 sideActionColumn,
-                LinearLayout.LayoutParams(dp(context, 52), LinearLayout.LayoutParams.MATCH_PARENT).apply {
-                    marginEnd = dp(context, 2)
-                }
+                LinearLayout.LayoutParams(dp(context, 52), LinearLayout.LayoutParams.MATCH_PARENT)
             )
         }
         mainInteractionContainer.addView(
