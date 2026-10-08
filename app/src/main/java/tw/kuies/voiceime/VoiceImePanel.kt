@@ -158,6 +158,7 @@ internal class VoiceImePanel(
             gravity = Gravity.CENTER_VERTICAL or Gravity.END
         }
         statusIndicator.apply {
+            isClickable = false
             isFocusable = true
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             addView(
@@ -167,8 +168,8 @@ internal class VoiceImePanel(
         }
         topAreaRow.addView(
             statusIndicator,
-            LinearLayout.LayoutParams(dp(context, 22), dp(context, 36)).apply {
-                marginEnd = dp(context, 12)
+            LinearLayout.LayoutParams(dp(context, 48), dp(context, 36)).apply {
+                marginEnd = dp(context, 16)
             }
         )
 
@@ -183,7 +184,7 @@ internal class VoiceImePanel(
             contentDescription = "剪貼簿歷史"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = toolbarRipple(dp(context, 10))
-            setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
+            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
             setOnClickListener { showClipboardHistoryPanel(onIsSensitiveEditor()) }
         }
         toolbarTextActionButton(context, clearAllButton, "清除", PINK, "清除全部文字") {
@@ -196,7 +197,7 @@ internal class VoiceImePanel(
             contentDescription = "設定"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = toolbarRipple(dp(context, 10))
-            setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
+            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
             setOnClickListener { onOpenSettings() }
         }
         var backspacePointerActive = false
@@ -280,7 +281,7 @@ internal class VoiceImePanel(
             contentDescription = "切換鍵盤"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = toolbarRipple(dp(context, 10))
-            setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
+            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
             setOnClickListener { onSwitchInputMethod() }
         }
         moreButton.apply {
@@ -289,30 +290,30 @@ internal class VoiceImePanel(
             contentDescription = "更多功能"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = toolbarRipple(dp(context, 10))
-            setPadding(dp(context, 7), dp(context, 7), dp(context, 7), dp(context, 7))
+            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
             setOnClickListener { showMorePanel() }
         }
         topToolbarRow.addView(
             clipboardButton,
-            LinearLayout.LayoutParams(dp(context, 34), dp(context, 36)).apply { marginEnd = dp(context, 1) }
+            LinearLayout.LayoutParams(dp(context, 28), dp(context, 36))
         )
         topToolbarRow.addView(
             selectAllButton,
-            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply { marginEnd = dp(context, 1) }
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(context, 36))
         )
         topToolbarRow.addView(
             clearAllButton,
-            LinearLayout.LayoutParams(dp(context, 38), dp(context, 36)).apply { marginEnd = dp(context, 1) }
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(context, 36))
         )
         topToolbarRow.addView(
             switchButton,
-            LinearLayout.LayoutParams(dp(context, 32), dp(context, 36)).apply { marginEnd = dp(context, 1) }
+            LinearLayout.LayoutParams(dp(context, 28), dp(context, 36))
         )
         topToolbarRow.addView(
             settingsButton,
-            LinearLayout.LayoutParams(dp(context, 32), dp(context, 36)).apply { marginEnd = dp(context, 1) }
+            LinearLayout.LayoutParams(dp(context, 28), dp(context, 36))
         )
-        topToolbarRow.addView(moreButton, LinearLayout.LayoutParams(dp(context, 32), dp(context, 36)))
+        topToolbarRow.addView(moreButton, LinearLayout.LayoutParams(dp(context, 28), dp(context, 36)))
 
         val confirmationLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
             text = "確定清除全部文字？"
@@ -1224,10 +1225,11 @@ internal class VoiceImePanel(
         contentDescription = description
         textSize = 12f
         gravity = Gravity.CENTER
-        maxLines = 1
+        setSingleLine(true)
+        ellipsize = null
         setTextColor(color)
         setTypeface(typeface, Typeface.BOLD)
-        setPadding(dp(context, 3), 0, dp(context, 3), 0)
+        setPadding(0, 0, 0, 0)
         isClickable = true
         isFocusable = true
         background = toolbarRipple(dp(context, 10))

@@ -41,12 +41,29 @@ class VoiceImePanelLayoutTest {
         assertEquals(2, panel.toolbarContainer.childCount)
         assertEquals(2, panel.mainPanel.childCount)
         assertEquals(2, allTextViews(row).size)
+        assertTrue(panel.toolbarContainer.background is GradientDrawable)
+        assertEquals(null, panel.statusIndicator.background)
+        assertFalse(panel.statusIndicator.isClickable)
+        val statusParams = panel.statusIndicator.layoutParams as LinearLayout.LayoutParams
+        assertEquals(
+            (48 * context.resources.displayMetrics.density).toInt(),
+            statusParams.width
+        )
+        assertEquals(
+            (16 * context.resources.displayMetrics.density).toInt(),
+            statusParams.marginEnd
+        )
 
         layoutPanel(panel, widthDp = 320)
         assertTrue(panel.statusIndicator.left < panel.toolbarContainer.left)
-        assertTrue(panel.statusIndicator.right < panel.toolbarContainer.left)
+        assertTrue(
+            panel.toolbarContainer.left - panel.statusIndicator.right >=
+                (16 * context.resources.displayMetrics.density).toInt()
+        )
         assertTrue(panel.moreButton.right == row.width)
         assertTrue(panel.moreButton.right > panel.settingsButton.right)
+        assertCompleteToolbarLabel(panel.selectAllButton, "全選")
+        assertCompleteToolbarLabel(panel.clearAllButton, "清除")
 
         val edgeGestureInset = (24 * context.resources.displayMetrics.density).toInt()
         val insets = WindowInsetsCompat.Builder()
@@ -62,7 +79,16 @@ class VoiceImePanelLayoutTest {
         for (index in 0 until row.childCount - 1) {
             assertTrue(row.getChildAt(index).right <= row.getChildAt(index + 1).left)
         }
-        assertTrue(panel.statusIndicator.right < panel.toolbarContainer.left)
+        for (index in 0 until row.childCount) {
+            assertTrue(row.getChildAt(index).left >= 0)
+            assertTrue(row.getChildAt(index).right <= row.width)
+        }
+        assertTrue(
+            panel.toolbarContainer.left - panel.statusIndicator.right >=
+                (16 * context.resources.displayMetrics.density).toInt()
+        )
+        assertCompleteToolbarLabel(panel.selectAllButton, "全選")
+        assertCompleteToolbarLabel(panel.clearAllButton, "清除")
     }
 
     @Test
@@ -237,7 +263,10 @@ class VoiceImePanelLayoutTest {
         panel.clearAllButton.performClick()
         assertEquals(View.GONE, panel.topToolbarRow.visibility)
         assertEquals(View.VISIBLE, panel.clearConfirmationPanel.visibility)
-        assertEquals(36, panel.clearConfirmationPanel.layoutParams.height)
+        assertEquals(
+            (36 * context.resources.displayMetrics.density).toInt(),
+            panel.clearConfirmationPanel.layoutParams.height
+        )
         assertEquals(0, clears)
 
         panel.cancelClearAllButton.performClick()
@@ -336,6 +365,15 @@ class VoiceImePanelLayoutTest {
         )
         panel.view.layout(0, 0, panel.view.measuredWidth, panel.view.measuredHeight)
         return panel.view.measuredHeight
+    }
+
+    private fun assertCompleteToolbarLabel(button: TextView, expected: String) {
+        assertEquals(expected, button.text.toString())
+        assertEquals(1, button.maxLines)
+        assertEquals(null, button.ellipsize)
+        assertEquals(1, button.layout.lineCount)
+        assertEquals(0, button.layout.getEllipsisCount(0))
+        assertTrue(button.layout.getLineWidth(0) <= button.measuredWidth)
     }
 
     private fun allTextViews(view: View): List<TextView> = buildList {
