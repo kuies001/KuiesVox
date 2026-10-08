@@ -43,6 +43,21 @@ class VoiceImePanelLayoutTest {
         layoutPanel(panel, widthDp = 320)
         assertTrue(panel.moreButton.right <= row.width)
         assertTrue(panel.moreButton.right > panel.settingsButton.right)
+
+        val edgeGestureInset = (24 * context.resources.displayMetrics.density).toInt()
+        val insets = WindowInsetsCompat.Builder()
+            .setInsets(
+                WindowInsetsCompat.Type.systemGestures(),
+                Insets.of(edgeGestureInset, 0, edgeGestureInset, 0)
+            )
+            .build()
+        ViewCompat.dispatchApplyWindowInsets(panel.view, insets)
+        layoutPanel(panel, widthDp = 320)
+
+        assertTrue(panel.moreButton.right <= row.width)
+        for (index in 0 until row.childCount - 1) {
+            assertTrue(row.getChildAt(index).right <= row.getChildAt(index + 1).left)
+        }
     }
 
     @Test

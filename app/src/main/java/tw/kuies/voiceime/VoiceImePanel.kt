@@ -162,7 +162,7 @@ internal class VoiceImePanel(
         }
         topToolbarRow.addView(
             statusIndicator,
-            LinearLayout.LayoutParams(dp(context, 24), dp(context, 36)).apply {
+            LinearLayout.LayoutParams(dp(context, 22), dp(context, 36)).apply {
                 marginEnd = dp(context, 2)
             }
         )
@@ -174,7 +174,7 @@ internal class VoiceImePanel(
         }
         topToolbarRow.addView(
             selectAllButton,
-            LinearLayout.LayoutParams(dp(context, 40), dp(context, 36)).apply {
+            LinearLayout.LayoutParams(dp(context, 38), dp(context, 36)).apply {
                 marginEnd = dp(context, 1)
             }
         )
@@ -190,7 +190,7 @@ internal class VoiceImePanel(
         }
         topToolbarRow.addView(
             clipboardButton,
-            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+            LinearLayout.LayoutParams(dp(context, 34), dp(context, 36)).apply {
                 marginEnd = dp(context, 1)
             }
         )
@@ -201,7 +201,7 @@ internal class VoiceImePanel(
         }
         topToolbarRow.addView(
             clearAllButton,
-            LinearLayout.LayoutParams(dp(context, 42), dp(context, 36)).apply {
+            LinearLayout.LayoutParams(dp(context, 40), dp(context, 36)).apply {
                 marginEnd = dp(context, 1)
             }
         )
@@ -301,13 +301,13 @@ internal class VoiceImePanel(
         }
         topToolbarRow.addView(
             switchButton,
-            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+            LinearLayout.LayoutParams(dp(context, 34), dp(context, 36)).apply {
                 marginEnd = dp(context, 1)
             }
         )
         topToolbarRow.addView(
             settingsButton,
-            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+            LinearLayout.LayoutParams(dp(context, 34), dp(context, 36)).apply {
                 marginEnd = dp(context, 1)
             }
         )
@@ -322,7 +322,7 @@ internal class VoiceImePanel(
         }
         topToolbarRow.addView(
             moreButton,
-            LinearLayout.LayoutParams(dp(context, 36), dp(context, 36))
+            LinearLayout.LayoutParams(dp(context, 34), dp(context, 36))
         )
 
         val confirmationLabel = textView(context, sizeSp = 12f, color = TEXT).apply {
