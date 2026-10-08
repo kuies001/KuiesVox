@@ -30,6 +30,13 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
 
+      - name: Check out release metadata from main for manual rebuilds
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: release-metadata
+
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
@@ -42,38 +49,44 @@ jobs:
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Validate tag, version and release notes
+      - name: Test changelog release-note extraction
+        shell: pwsh
+        env:
+          RELEASE_METADATA_ROOT: ${{ github.event_name == 'workflow_dispatch' && 'release-metadata' || '.' }}
+        run: |
+          $testScript = Join-Path $env:RELEASE_METADATA_ROOT ".github/scripts/Test-ChangelogReleaseNotes.ps1"
+          & $testScript
+
+      - name: Validate tag, version and extract changelog
         id: release-metadata
-        shell: bash
+        shell: pwsh
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+          RELEASE_METADATA_ROOT: ${{ github.event_name == 'workflow_dispatch' && 'release-metadata' || '.' }}
         run: |
-          set -euo pipefail
-          if [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            major="${BASH_REMATCH[1]}"
-          else
-            echo "::error::Release tag must use vX.Y.Z, for example v0.10.0."
-            exit 1
-          fi
-          version="${RELEASE_TAG#v}"
-          notes="RELEASE_NOTES_${RELEASE_TAG}.md"
-          if [[ ! -s "$notes" ]]; then
-            echo "::error::Required release notes file is missing or empty: $notes"
-            exit 1
-          fi
-          if ! grep -Fq "versionName = \"$version\"" app/build.gradle.kts; then
-            echo "::error::The tagged version does not match app/build.gradle.kts."
-            exit 1
-          fi
-          if [[ "$major" == "0" ]]; then
-            prerelease=true
-          else
-            prerelease=false
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "notes=$notes" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          $ErrorActionPreference = "Stop"
+          $releaseTag = $env:RELEASE_TAG
+          if ($releaseTag -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+            throw "Release tag must use vX.Y.Z, for example v0.13.0."
+          }
+          $major = $Matches[1]
+          $version = $releaseTag.Substring(1)
+          $gradleText = [System.IO.File]::ReadAllText("app/build.gradle.kts", [System.Text.UTF8Encoding]::new($false, $true))
+          $versionPattern = '(?m)^\s*versionName\s*=\s*"' + [regex]::Escape($version) + '"\s*$'
+          if ($gradleText -notmatch $versionPattern) {
+            throw "The tagged version does not match app/build.gradle.kts."
+          }
+          $metadataRoot = $env:RELEASE_METADATA_ROOT
+          $changelogPath = Join-Path $metadataRoot "CHANGELOG.md"
+          $extractorPath = Join-Path $metadataRoot ".github/scripts/Extract-ChangelogReleaseNotes.ps1"
+          $notesPath = Join-Path $env:RUNNER_TEMP ("release-notes-" + $releaseTag + ".md")
+          & $extractorPath -Version $version -ChangelogPath $changelogPath -OutputPath $notesPath
+          if (-not [System.IO.File]::Exists($notesPath) -or (Get-Item -LiteralPath $notesPath).Length -eq 0) {
+            throw "No non-empty CHANGELOG.md section was extracted for $version."
+          }
+          $prerelease = if ($major -eq "0") { "true" } else { "false" }
+          $output = @("version=$version", "tag=$releaseTag", "notes=$notesPath", "prerelease=$prerelease") -join "`n"
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, $output + "`n", [System.Text.UTF8Encoding]::new($false))
 
       - name: Validate release signing secrets
         shell: bash

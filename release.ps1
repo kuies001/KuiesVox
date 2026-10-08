@@ -12,8 +12,7 @@ $scriptExitCode = 1
 $releaseCommitted = $false
 $backupReady = $false
 $fileBackups = @{}
-$releaseNotesPath = $null
-$generatedReleaseNotes = $false
+$releaseNotesTempPath = $null
 
 function Resolve-RepositoryPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -159,28 +158,6 @@ function Update-ReadmeVersion {
     Write-Utf8Document -Path $Path -Text $updated -HasBom $document.HasBom
 }
 
-function New-ReleaseNotesTemplate {
-    param([Parameter(Mandatory = $true)][string]$Path)
-
-    $lines = @(
-        "# KuiesVox v$Version",
-        "",
-        "## 新功能",
-        "",
-        "## 改進",
-        "",
-        "## 修正",
-        "",
-        "## 已知限制",
-        ""
-    )
-    [System.IO.File]::WriteAllText(
-        (Resolve-RepositoryPath -Path $Path),
-        ($lines -join "`n"),
-        [System.Text.UTF8Encoding]::new($false)
-    )
-}
-
 function Invoke-SecurityScan {
     $paths = Invoke-Git -GitArguments @("ls-files", "--cached", "--others", "--exclude-standard") -Capture
     $pathList = @($paths -split "`r?`n" | Where-Object { $_ })
@@ -222,13 +199,8 @@ function Invoke-SecurityScan {
 }
 
 function Restore-ReleaseInputs {
-    param([switch]$KeepGeneratedReleaseNotes)
-
     if (-not $backupReady) { return }
     foreach ($path in $fileBackups.Keys) {
-        if ($KeepGeneratedReleaseNotes -and $generatedReleaseNotes -and $path -eq $releaseNotesPath) {
-            continue
-        }
         $fullPath = Join-Path $repositoryRoot $path
         $savedBytes = $fileBackups[$path]
         if ($null -eq $savedBytes) {
@@ -239,7 +211,7 @@ function Restore-ReleaseInputs {
             [System.IO.File]::WriteAllBytes($fullPath, $savedBytes)
         }
     }
-    Write-Host "Cleanup restored the original README, Gradle version file and any pre-existing Release Notes."
+    Write-Host "Cleanup restored the original README and Gradle version file."
 }
 
 Push-Location $repositoryRoot
@@ -270,9 +242,8 @@ try {
         $normalizedPath = $changePath.Replace("\", "/")
         $isReleaseChange =
             $normalizedPath -match '(?i)^app/(?!build/)' -or
-            $normalizedPath -match '(?i)^(README\.md|build\.gradle\.kts|settings\.gradle\.kts|gradle\.properties)$' -or
-            $normalizedPath -match '(?i)^gradle/' -or
-            $normalizedPath -match ('(?i)^RELEASE_NOTES_v' + [regex]::Escape($Version) + '\.md$')
+            $normalizedPath -match '(?i)^(README\.md|CHANGELOG\.md|build\.gradle\.kts|settings\.gradle\.kts|gradle\.properties)$' -or
+            $normalizedPath -match '(?i)^gradle/'
         if (-not $isReleaseChange) {
             throw "Unrelated uncommitted change '$changePath' found. Commit or move it before releasing; existing changes were left untouched."
         }
@@ -301,8 +272,8 @@ try {
 
     $gradlePath = "app/build.gradle.kts"
     $readmePath = "README.md"
-    $releaseNotesPath = "RELEASE_NOTES_$tag.md"
-    foreach ($path in @($gradlePath, $readmePath, $releaseNotesPath)) {
+    $changelogPath = "CHANGELOG.md"
+    foreach ($path in @($gradlePath, $readmePath)) {
         $fullPath = Join-Path $repositoryRoot $path
         $fileBackups[$path] = if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
             [System.IO.File]::ReadAllBytes($fullPath)
@@ -311,6 +282,13 @@ try {
         }
     }
     $backupReady = $true
+
+    $extractorPath = Join-Path $repositoryRoot ".github\scripts\Extract-ChangelogReleaseNotes.ps1"
+    $releaseNotesTempPath = Join-Path ([System.IO.Path]::GetTempPath()) ("kuiesvox-release-notes-$([guid]::NewGuid().ToString('N')).md")
+    & $extractorPath -Version $Version -ChangelogPath (Join-Path $repositoryRoot $changelogPath) -OutputPath $releaseNotesTempPath
+    if (-not (Test-Path -LiteralPath $releaseNotesTempPath -PathType Leaf) -or (Get-Item -LiteralPath $releaseNotesTempPath).Length -eq 0) {
+        throw "Could not extract non-empty release notes for $Version from CHANGELOG.md."
+    }
 
     $gradleText = (Read-Utf8Document -Path $gradlePath).Text
     $currentVersionMatch = [regex]::Match($gradleText, '(?m)^\s*versionName\s*=\s*"([^"]+)"\s*$')
@@ -330,26 +308,12 @@ try {
 
     $versionChange = Update-GradleVersion -Path $gradlePath -NewVersion $Version -NewVersionCode $newVersionCode
     Update-ReadmeVersion -Path $readmePath -NewVersion $Version
-    if (-not (Test-Path -LiteralPath (Resolve-RepositoryPath -Path $releaseNotesPath) -PathType Leaf)) {
-        New-ReleaseNotesTemplate -Path $releaseNotesPath
-        $generatedReleaseNotes = $true
-        Write-Host "Created a Release Notes template with no assumed feature claims: $releaseNotesPath"
-    }
-    $releaseNotesText = [System.IO.File]::ReadAllText((Resolve-RepositoryPath -Path $releaseNotesPath), [System.Text.Encoding]::UTF8)
-    $releaseNotesText = $releaseNotesText.TrimStart([char]0xFEFF)
-    $releaseNotesContent = @($releaseNotesText -split '\r?\n' | Where-Object {
-        $line = $_.Trim()
-        $line -and $line -notmatch '^#{1,6}\s' -and $line -notmatch '^<!--.*-->$'
-    })
-    if (-not $DryRun -and $releaseNotesContent.Count -eq 0) {
-        throw "Release Notes $releaseNotesPath has no feature text yet. Fill the generated template from actual changes, then rerun; no commit, push or tag was created."
-    }
 
     Write-Host "Release tag: $tag"
     Write-Host "versionName: $($versionChange.CurrentVersion) -> $Version"
     Write-Host "versionCode: $($versionChange.CurrentVersionCode) -> $newVersionCode"
     Write-Host "README version block: updated"
-    Write-Host "Release Notes: $releaseNotesPath"
+    Write-Host "Release notes extracted from CHANGELOG.md section $Version."
     Invoke-Git -GitArguments @("diff", "--check")
     Invoke-SecurityScan
 
@@ -389,15 +353,11 @@ try {
         }
         Invoke-Git -GitArguments @("diff", "--stat")
         Invoke-Git -GitArguments @("diff", "--", $gradlePath, $readmePath)
-        if ($generatedReleaseNotes) {
-            Write-Host "New Release Notes template preview:"
-            Get-Content -LiteralPath (Resolve-RepositoryPath -Path $releaseNotesPath) -Raw -Encoding UTF8
-        } else {
-            Write-Host "Release Notes already exists and was preserved: $releaseNotesPath"
-        }
+        Write-Host "Release notes preview extracted from CHANGELOG.md:"
+        Get-Content -LiteralPath $releaseNotesTempPath -Raw -Encoding UTF8
         Write-Host "The original files will be restored when DryRun exits."
     } else {
-        $stagePaths = @($releaseChangePaths) + @($gradlePath, $readmePath, $releaseNotesPath) | Select-Object -Unique
+        $stagePaths = @($releaseChangePaths) + @($gradlePath, $readmePath, $changelogPath) | Select-Object -Unique
         $addArguments = @("add", "--") + @($stagePaths)
         Invoke-Git -GitArguments $addArguments
         Invoke-Git -GitArguments @("diff", "--cached", "--check")
@@ -432,9 +392,17 @@ try {
         }
     } elseif ($backupReady -and -not $releaseCommitted -and $scriptExitCode -ne 0) {
         try {
-            Restore-ReleaseInputs -KeepGeneratedReleaseNotes
+            Restore-ReleaseInputs
         } catch {
             [Console]::Error.WriteLine("Release cleanup failed: $($_.Exception.Message)")
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($releaseNotesTempPath) -and (Test-Path -LiteralPath $releaseNotesTempPath -PathType Leaf)) {
+        try {
+            Remove-Item -LiteralPath $releaseNotesTempPath -Force
+        } catch {
+            Write-Warning "Could not remove temporary release notes file '$releaseNotesTempPath': $($_.Exception.Message)"
+            $scriptExitCode = 1
         }
     }
     Pop-Location

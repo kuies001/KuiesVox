@@ -6,6 +6,10 @@ KuiesVox 是 Android 語音輸入法。
 目前版本：v0.12.0 Beta（測試版）
 <!-- KUIESVOX_VERSION_END -->
 
+## 版本與下載
+
+查看[版本更新紀錄](CHANGELOG.md)，或前往 [GitHub Releases](https://github.com/kuies001/KuiesVox/releases) 下載 APK。
+
 ## 功能
 
 - 使用 Groq Whisper 語音辨識，可選 Whisper Large V3 或 Whisper Large V3 Turbo。
@@ -59,24 +63,4 @@ API Key 由使用者自行申請並儲存在 App 私有設定中，不包含在 
 
 Debug APK 預設輸出於 `app/build/outputs/apk/debug/app-debug.apk`。正式 Release APK 由 GitHub Actions 建置並以 `KuiesVox-vX.Y.Z.apk` 命名。
 
-## 發版流程
-
-開發者完成變更並確認工作目錄乾淨後，執行：
-
-```powershell
-.\release.ps1 X.Y.Z
-```
-
-例如：
-
-```powershell
-.\release.ps1 0.10.0
-```
-
-也可以先執行 `.\release.ps1 0.9.0 -DryRun`，預覽版本與 README 更新並執行驗證；DryRun 不會 commit、push 或建立 tag。
-
-正式發版流程會更新版本、README 與 Release Notes，執行檢查、測試及 Release build，然後 commit、push `main`、建立並 push `vX.Y.Z` tag。GitHub Actions 收到 tag 後會建置及簽署 APK、產生 SHA-256，並以對應的 `RELEASE_NOTES_vX.Y.Z.md` 建立 GitHub Release。
-
-若對應版本的 Release Notes 不存在，腳本會建立空白範本並停止；填入實際變更內容後再執行，避免發布空白或臆測的更新說明。未提交的 Android app 與 Gradle 相關變更會一併納入發版 commit；其他路徑的未提交變更會讓腳本停止並保留原狀。
-
-啟用正式簽署前，請在 GitHub repository 的 Actions secrets 設定 `KUIESVOX_KEYSTORE_BASE64`、`KUIESVOX_KEY_ALIAS`、`KUIESVOX_KEY_PASSWORD` 與 `KUIESVOX_STORE_PASSWORD`。簽署金鑰和密碼只放在 GitHub Secrets，不要提交到 repository。
+發版指令、DryRun 與簽署設定請參閱[發版流程說明](.github/RELEASING.md)。
