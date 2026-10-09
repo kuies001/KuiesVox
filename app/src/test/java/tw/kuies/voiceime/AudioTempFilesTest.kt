@@ -50,20 +50,21 @@ class AudioTempFilesTest {
             assertTrue(inUse.exists())
             assertTrue(foreign.exists())
         } finally {
-            dir.deleteRecursively()
+            if (dir.isDirectory) dir.deleteRecursively()
         }
     }
 
     @Test
     fun directoriesNamedLikeRecordingsAreNeverSelected() {
         val dir = File(System.getProperty("java.io.tmpdir"), "kuiesvox-audio-dir-test")
+        dir.mkdirs()
         val nested = File(dir, "voice-dir.wav").apply { mkdirs() }
         try {
             nested.setLastModified(1_000L)
 
             assertTrue(AudioTempFiles.expiredFiles(listOf(nested), 9_000L, 4_000L).isEmpty())
         } finally {
-            dir.deleteRecursively()
+            if (dir.isDirectory) dir.deleteRecursively()
         }
     }
 }
