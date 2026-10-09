@@ -7,6 +7,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AudioTempFilesTest {
+    /** 唯一目錄名：debug 與 release 兩個 variant 會平行跑，不能共用同一個路徑。 */
+    private fun uniqueDir(name: String): File {
+        val dir = File(System.getProperty("java.io.tmpdir"), "$name-${System.nanoTime()}")
+        dir.mkdirs()
+        return dir
+    }
+
     @Test
     fun onlyThisAppsRecordingFilesAreRecognised() {
         assertTrue(AudioTempFiles.isTempRecordingFile("voice-1234.wav"))
@@ -21,8 +28,7 @@ class AudioTempFilesTest {
 
     @Test
     fun onlyStaleRecordingsAreSelectedAndOthersSurviveTheSweep() {
-        val dir = File(System.getProperty("java.io.tmpdir"), "kuiesvox-audio-sweep-test")
-        dir.mkdirs()
+        val dir = uniqueDir("kuiesvox-audio-sweep-test")
         try {
             val stale = File(dir, "voice-stale.wav").apply {
                 writeText("audio")
@@ -56,8 +62,7 @@ class AudioTempFilesTest {
 
     @Test
     fun directoriesNamedLikeRecordingsAreNeverSelected() {
-        val dir = File(System.getProperty("java.io.tmpdir"), "kuiesvox-audio-dir-test")
-        dir.mkdirs()
+        val dir = uniqueDir("kuiesvox-audio-dir-test")
         val nested = File(dir, "voice-dir.wav").apply { mkdirs() }
         try {
             nested.setLastModified(1_000L)
@@ -70,8 +75,7 @@ class AudioTempFilesTest {
 
     @Test
     fun aRecordingStillInUseIsNeverSwept() {
-        val dir = File(System.getProperty("java.io.tmpdir"), "kuiesvox-audio-inuse-test")
-        dir.mkdirs()
+        val dir = uniqueDir("kuiesvox-audio-inuse-test")
         try {
             val inUse = File(dir, "voice-active.wav").apply {
                 writeText("audio")
@@ -97,8 +101,7 @@ class AudioTempFilesTest {
 
     @Test
     fun abnormalTimestampsAreNotTreatedAsStale() {
-        val dir = File(System.getProperty("java.io.tmpdir"), "kuiesvox-audio-clock-test")
-        dir.mkdirs()
+        val dir = uniqueDir("kuiesvox-audio-clock-test")
         try {
             val unknown = File(dir, "voice-unknown.wav").apply {
                 writeText("audio")
