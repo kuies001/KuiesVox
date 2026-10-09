@@ -375,6 +375,21 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
         }
     }
 
+    fun setGlossaryTermContextPhrases(entry: PersonalGlossaryTerm, phrases: List<String>) {
+        PersonalGlossaryRepository.setCommonPhrases(applicationContext, entry.id, phrases) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                result.onSuccess {
+                    glossaryTerms = it
+                    glossaryStatus = "詞彙語境已更新。"
+                }.onFailure { exception ->
+                    Log.w(MAIN_ACTIVITY_TAG, "Personal glossary context save failed: ${exception.javaClass.simpleName}")
+                    glossaryStatus = "詞彙語境儲存失敗，請稍後再試。"
+                }
+            }
+        }
+    }
+
     fun deleteGlossaryTerm(entry: PersonalGlossaryTerm) {
         PersonalGlossaryRepository.delete(applicationContext, entry.id) { result ->
             mainHandler.post {
@@ -639,6 +654,7 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
             onAddGlossaryTerms = ::addGlossaryTerms,
             onImportDefaultGlossary = ::importDefaultGlossary,
             onSetGlossaryTermEnabled = ::setGlossaryTermEnabled,
+            onSetGlossaryTermContextPhrases = ::setGlossaryTermContextPhrases,
             onDeleteGlossaryTerm = ::deleteGlossaryTerm,
             onAddCorrectionRules = ::addCorrectionRules,
             onImportDefaultCorrectionRules = ::importDefaultCorrectionRules,

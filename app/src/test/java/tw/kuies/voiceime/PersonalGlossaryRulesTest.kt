@@ -35,6 +35,19 @@ class PersonalGlossaryRulesTest {
     }
 
     @Test
+    fun commonPhrasesAreOptionalTrimmedDeduplicatedAndBounded() {
+        val entries = PersonalGlossaryRules.add(emptyList(), listOf("住手")).entries
+        val updated = PersonalGlossaryRules.setCommonPhrases(
+            entries,
+            entries.single().id,
+            listOf(" 你給我住手 ", "你給我住手", "快住手", "住手不要動", "四", "五", "六")
+        )
+
+        assertEquals(listOf("你給我住手", "快住手", "住手不要動", "四", "五"), updated.single().commonPhrases)
+        assertTrue(entries.single().commonPhrases.isEmpty())
+    }
+
+    @Test
     fun promptIncludesOnlyEnabledTermsAndIsNullWhenNoneAreEnabled() {
         val entries = listOf(
             PersonalGlossaryTerm("1", "DeepSeek", true),
@@ -48,6 +61,38 @@ class PersonalGlossaryRulesTest {
         assertFalse(prompt.contains("OpenCode"))
         assertNull(GlossaryPromptBuilder.build(entries.map { it.copy(enabled = false) }))
         assertNull(GlossaryPromptBuilder.build(emptyList()))
+    }
+
+    @Test
+    fun whisperPromptIncludesOptionalContextWithoutTurningItIntoGlobalReplacement() {
+        val entry = PersonalGlossaryTerm(
+            "1",
+            "住手",
+            true,
+            commonPhrases = listOf("你給我住手", "快住手", "住手不要動")
+        )
+
+        val prompt = requireNotNull(GlossaryPromptBuilder.build(listOf(entry)))
+
+        assertTrue(prompt.contains("住手"))
+        assertTrue(prompt.contains("你給我住手"))
+        assertTrue(prompt.contains("快住手"))
+        assertTrue(prompt.contains("語境"))
+        assertFalse(prompt.contains("助手"))
+    }
+
+    @Test
+    fun overlongGlossaryEntryIsBoundedSoLaterTermsCanFit() {
+        val entries = listOf(
+            PersonalGlossaryTerm("long", "詞".repeat(200), true),
+            PersonalGlossaryTerm("useful", "OpenCode", true)
+        )
+
+        val prompt = requireNotNull(GlossaryPromptBuilder.build(entries))
+
+        assertTrue(prompt.contains("OpenCode"))
+        assertTrue(prompt.length < entries.first().term.length)
+        assertTrue(prompt.toByteArray(StandardCharsets.UTF_8).size <= GlossaryPromptBuilder.MAX_PROMPT_UTF8_BYTES)
     }
 
     @Test

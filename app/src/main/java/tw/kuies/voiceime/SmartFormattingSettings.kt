@@ -150,7 +150,8 @@ internal data class SmartFormattingSettings(
     val geminiCustomModelId: String = "",
     val openAiFormattingModel: String = DEFAULT_OPENAI_MODEL,
     val openAiCustomModelId: String = "",
-    val terminalPeriodMode: TerminalPeriodMode = TerminalPeriodMode.AUTO
+    val terminalPeriodMode: TerminalPeriodMode = TerminalPeriodMode.AUTO,
+    val contextualCorrectionEnabled: Boolean = DEFAULT_CONTEXTUAL_CORRECTION_ENABLED
 ) {
     val model: String
         get() = modelFor(provider)
@@ -173,6 +174,7 @@ internal data class SmartFormattingSettings(
         const val DEFAULT_THRESHOLD = 40
         const val MIN_THRESHOLD = 0
         const val MAX_THRESHOLD = 500
+        const val DEFAULT_CONTEXTUAL_CORRECTION_ENABLED = true
         const val DEFAULT_SPEECH_MODEL = "whisper-large-v3-turbo"
         const val DEFAULT_GROQ_MODEL = "qwen/qwen3.8-27b"
         const val DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
@@ -219,4 +221,14 @@ internal object SmartFormattingPolicy {
         } else {
             SmartFormattingResolution(formattedText, usedFallback = false)
         }
+}
+
+internal object ContextualCorrectionPolicy {
+    fun shouldUse(
+        enabled: Boolean,
+        smartFormattingEnabled: Boolean,
+        providerAvailable: Boolean,
+        apiKeyAvailable: Boolean,
+        sensitiveEditor: Boolean
+    ): Boolean = enabled && smartFormattingEnabled && providerAvailable && apiKeyAvailable && !sensitiveEditor
 }

@@ -26,6 +26,20 @@ class GroqTextFormattingClientTest {
     }
 
     @Test
+    fun payloadUsesContextualSystemPromptInTheExistingSingleRequest() {
+        val glossary = listOf(PersonalGlossaryTerm("1", "住手", true, listOf("你給我住手")))
+        val rule = TextCorrectionRule("rule-1", "助手", "住手", true)
+        val prompt = TranscriptFormattingPrompt.buildSystemPrompt(true, glossary, listOf(rule))
+        val payload = GroqTextFormattingClient.buildPayload("qwen/qwen3.8-27b", "你給我助手", prompt)
+        val messages = payload.getJSONArray("messages")
+
+        assertEquals(2, messages.length())
+        assertTrue(messages.getJSONObject(0).getString("content").contains("你給我住手"))
+        assertTrue(messages.getJSONObject(0).getString("content").contains("最高優先權"))
+        assertEquals("你給我助手", messages.getJSONObject(1).getString("content"))
+    }
+
+    @Test
     fun payloadUsesPlainTextCorrectionParametersWithoutToolsOrJsonMode() {
         val payload = GroqTextFormattingClient.buildPayload("qwen/qwen3.8-27b", "逐字稿")
 

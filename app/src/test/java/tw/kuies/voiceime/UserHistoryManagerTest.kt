@@ -223,8 +223,8 @@ class UserHistoryManagerTest {
     fun voiceHistoryStoresRawAndFinalTextAfterSuccessfulCommit() {
         val manager = VoiceHistoryManager(MemoryVoiceDao(), now = { 123L })
 
-        assertTrue(manager.record("raw transcript", "final text", true, false, false))
-        assertEquals(VoiceHistoryEntity(1, 123L, "raw transcript", "final text"), manager.list().single())
+        assertTrue(manager.record("你給我助手", "你給我住手。", true, false, false))
+        assertEquals(VoiceHistoryEntity(1, 123L, "你給我助手", "你給我住手。"), manager.list().single())
     }
 
     @Test

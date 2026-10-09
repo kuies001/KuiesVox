@@ -7,6 +7,7 @@ internal interface TextFormattingProvider {
         apiKey: String,
         model: String,
         transcript: String,
+        systemPrompt: String,
         onResult: (TextFormattingResult) -> Unit
     ): Call
 }
@@ -16,9 +17,10 @@ internal class GroqTextFormattingProvider : TextFormattingProvider {
         apiKey: String,
         model: String,
         transcript: String,
+        systemPrompt: String,
         onResult: (TextFormattingResult) -> Unit
     ): Call {
-        val call = GroqTextFormattingClient.createCall(apiKey, model, transcript)
+        val call = GroqTextFormattingClient.createCall(apiKey, model, transcript, systemPrompt)
         GroqTextFormattingClient.enqueue(call, onResult)
         return call
     }

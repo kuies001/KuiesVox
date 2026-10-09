@@ -24,7 +24,6 @@ import android.view.inputmethod.InputConnection
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
-import okhttp3.Call
 
 class VoiceImeService : InputMethodService() {
 
@@ -60,7 +59,7 @@ class VoiceImeService : InputMethodService() {
     private var recordingThread: Thread? = null
     private var activeAudioFile: File? = null
     private var holdToTalkRecording = false
-    private var activeRequestCall: Call? = null
+    private val activeRequestCall = ActiveRequestCall()
     private var voicePanel: VoiceImePanel? = null
     private var statusResetRunnable: Runnable? = null
     private var statusRevision = 0L
@@ -747,8 +746,7 @@ class VoiceImeService : InputMethodService() {
         holdToTalkRecording = false
         requestGate.invalidate()
         activeOperationId = 0L
-        activeRequestCall?.cancel()
-        activeRequestCall = null
+        activeRequestCall.cancel()
         activeRawTranscript = null
         transitionStatus(VoiceImeState.CANCELLED)
         stopRecorderAndJoin()
@@ -825,6 +823,10 @@ class VoiceImeService : InputMethodService() {
 
     private fun loadGlossaryAndTranscribe(file: File, operationId: Long, apiKey: String) {
         if (!isOperationCurrent(operationId)) return
+        if (isCurrentEditorSensitive()) {
+            enqueueTranscription(file, operationId, apiKey, emptyList(), emptyList())
+            return
+        }
         try {
             PersonalGlossaryRepository.load(applicationContext) { result ->
                 mainHandler.post {
@@ -892,14 +894,20 @@ class VoiceImeService : InputMethodService() {
                             settings.speechModel,
                             settings.speechLanguageMode.groqLanguageCode
                         )
-                        activeRequestCall = call
+                        activeRequestCall.attach(call)
                         GroqTranscriptionClient.enqueue(call) { result ->
                             mainHandler.post {
                                 if (!isOperationCurrent(operationId)) return@post
-                                activeRequestCall = null
+                                activeRequestCall.clear()
                                 when (result) {
                                     is GroqTranscriptionResult.Success -> {
-                                        loadCorrectionRulesAndCommit(file, operationId, result.text, apiKey)
+                                        loadCorrectionRulesAndCommit(
+                                            file,
+                                            operationId,
+                                            result.text,
+                                            apiKey,
+                                            localGlossary
+                                        )
                                     }
                                     is GroqTranscriptionResult.Failure -> {
                                         val status = result.httpStatus?.let { ", http_status=$it" }.orEmpty()
@@ -934,14 +942,20 @@ class VoiceImeService : InputMethodService() {
                 fallbackSettings.speechModel,
                 fallbackSettings.speechLanguageMode.groqLanguageCode
             )
-            activeRequestCall = fallbackCall
+            activeRequestCall.attach(fallbackCall)
             GroqTranscriptionClient.enqueue(fallbackCall) { result ->
                 mainHandler.post {
                     if (!isOperationCurrent(operationId)) return@post
-                    activeRequestCall = null
+                    activeRequestCall.clear()
                     when (result) {
                         is GroqTranscriptionResult.Success ->
-                            loadCorrectionRulesAndCommit(file, operationId, result.text, apiKey)
+                            loadCorrectionRulesAndCommit(
+                                file,
+                                operationId,
+                                result.text,
+                                apiKey,
+                                localGlossary
+                            )
                         is GroqTranscriptionResult.Failure ->
                             finishWithError(operationId, "transcription_${result.type}", result.httpStatus)
                     }
@@ -954,7 +968,8 @@ class VoiceImeService : InputMethodService() {
         file: File,
         operationId: Long,
         originalText: String,
-        apiKey: String
+        apiKey: String,
+        localGlossary: List<PersonalGlossaryTerm>
     ) {
         if (!isOperationCurrent(operationId)) return
         activeRawTranscript = originalText
@@ -969,12 +984,12 @@ class VoiceImeService : InputMethodService() {
                         )
                         emptyList()
                     }
-                    processCorrectedText(file, operationId, originalText, rules, apiKey)
+                    processCorrectedText(file, operationId, originalText, rules, apiKey, localGlossary)
                 }
             }
         } catch (exception: Exception) {
             Log.w(TAG, "Text correction rules unavailable; using original text: ${exception.javaClass.simpleName}")
-            processCorrectedText(file, operationId, originalText, emptyList(), apiKey)
+            processCorrectedText(file, operationId, originalText, emptyList(), apiKey, localGlossary)
         }
     }
 
@@ -983,14 +998,18 @@ class VoiceImeService : InputMethodService() {
         operationId: Long,
         originalText: String,
         rules: List<TextCorrectionRule>,
-        apiKey: String
+        apiKey: String,
+        localGlossary: List<PersonalGlossaryTerm>
     ) {
         var postProcessedText = originalText
+        var correctionPlan = TextCorrectionPlan(emptyMap())
         try {
             val correctionApplied = requestGate.runIfCurrent(operationId) {
                 if (serviceDestroyed || activeOperationId != operationId) return@runIfCurrent
                 postProcessedText = try {
-                    TextPostProcessor.process(originalText, rules)
+                    TextPostProcessor.processWithPlan(originalText.trim(), rules).also { result ->
+                        correctionPlan = result.correctionPlan
+                    }.text
                 } catch (exception: Exception) {
                     Log.w(TAG, "Text post-processing failed; using original text: ${exception.javaClass.simpleName}")
                     originalText
@@ -1037,6 +1056,14 @@ class VoiceImeService : InputMethodService() {
                                 )
                                 return@post
                             }
+                            val sensitiveEditor = isCurrentEditorSensitive()
+                            val useContextualCorrection = ContextualCorrectionPolicy.shouldUse(
+                                enabled = settings.contextualCorrectionEnabled,
+                                smartFormattingEnabled = settings.enabled,
+                                providerAvailable = true,
+                                apiKeyAvailable = apiKey.isNotBlank(),
+                                sensitiveEditor = sensitiveEditor
+                            )
                             formatTranscript(
                                 file,
                                 operationId,
@@ -1044,6 +1071,15 @@ class VoiceImeService : InputMethodService() {
                                 decision.text,
                                 decision.model,
                                 provider,
+                                rules,
+                                correctionPlan,
+                                TranscriptFormattingPrompt.buildSystemPrompt(
+                                    contextualCorrectionEnabled = useContextualCorrection,
+                                    glossary = if (useContextualCorrection) localGlossary else emptyList(),
+                                    correctionRules = if (sensitiveEditor) emptyList() else rules.filter {
+                                        it.id in correctionPlan.matchedOccurrences
+                                    }
+                                ),
                                 settings.terminalPeriodMode
                             )
                         }
@@ -1065,14 +1101,17 @@ class VoiceImeService : InputMethodService() {
         originalText: String,
         model: String,
         provider: TextFormattingProvider,
+        correctionRules: List<TextCorrectionRule>,
+        correctionPlan: TextCorrectionPlan,
+        systemPrompt: String,
         terminalPeriodMode: TerminalPeriodMode
     ) {
         if (!isOperationCurrent(operationId)) return
         try {
-            val call = provider.format(apiKey, model, originalText) { result ->
+            val call = provider.format(apiKey, model, originalText, systemPrompt) { result ->
                 mainHandler.post {
                     if (!isOperationCurrent(operationId)) return@post
-                    activeRequestCall = null
+                    activeRequestCall.clear()
                     when (result) {
                         is TextFormattingResult.Success -> {
                             val resolution = SmartFormattingPolicy.resolve(originalText, result.text)
@@ -1082,10 +1121,25 @@ class VoiceImeService : InputMethodService() {
                                     terminalPeriodMode = terminalPeriodMode
                                 )
                             } else {
+                                val protectedText = TextPostProcessor.enforceCorrectionPlan(
+                                    resolution.text,
+                                    correctionRules,
+                                    correctionPlan
+                                )
+                                if (protectedText.isBlank()) {
+                                    commitFormattingFallback(
+                                        file,
+                                        operationId,
+                                        originalText,
+                                        "empty_after_correction",
+                                        terminalPeriodMode = terminalPeriodMode
+                                    )
+                                    return@post
+                                }
                                 commitTranscriptText(
                                     file,
                                     operationId,
-                                    resolution.text,
+                                    protectedText,
                                     VoiceImeState.SUCCESS,
                                     terminalPeriodMode = terminalPeriodMode
                                 )
@@ -1112,9 +1166,9 @@ class VoiceImeService : InputMethodService() {
                     }
                 }
             }
-            activeRequestCall = call
+            activeRequestCall.attach(call)
         } catch (exception: Exception) {
-            Log.w(TAG, "Groq text formatting setup failed: ${exception.javaClass.simpleName}")
+            Log.w(TAG, "Text formatting setup failed: ${exception.javaClass.simpleName}")
             commitFormattingFallback(
                 file, operationId, originalText, "request_setup_failed",
                 terminalPeriodMode = terminalPeriodMode
@@ -1200,7 +1254,7 @@ class VoiceImeService : InputMethodService() {
         if (!isOperationCurrent(operationId)) return
         requestGate.invalidate()
         activeOperationId = 0L
-        activeRequestCall = null
+        activeRequestCall.clear()
         activeAudioFile = null
         activeRawTranscript = null
         recordingFailure = null
@@ -1219,8 +1273,7 @@ class VoiceImeService : InputMethodService() {
         Log.e(TAG, "Voice operation failed: $errorType$status")
         requestGate.invalidate()
         activeOperationId = 0L
-        activeRequestCall?.cancel()
-        activeRequestCall = null
+        activeRequestCall.cancel()
         activeRawTranscript = null
         stopRecorderAndJoin()
         deleteAudioFile(activeAudioFile)
@@ -1318,8 +1371,7 @@ class VoiceImeService : InputMethodService() {
         backspaceRepeater.stop()
         requestGate.invalidate()
         activeOperationId = 0L
-        activeRequestCall?.cancel()
-        activeRequestCall = null
+        activeRequestCall.cancel()
         statusResetRunnable?.let { mainHandler.removeCallbacks(it) }
         statusResetRunnable = null
         stopRecorderAndJoin()

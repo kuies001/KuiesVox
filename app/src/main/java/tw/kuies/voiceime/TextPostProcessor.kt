@@ -1,25 +1,26 @@
 package tw.kuies.voiceime
 
 internal object TextPostProcessor {
-    fun process(text: String, rules: List<TextCorrectionRule>): String {
-        var correctedText = text
-        rules.asSequence()
-            .filter { it.enabled }
-            .sortedByDescending { it.sourceText.trim().length }
-            .forEach { rule ->
-                try {
-                    val source = rule.sourceText.trim()
-                    if (source.isNotEmpty()) {
-                        correctedText = correctedText.replace(
-                            oldValue = source,
-                            newValue = rule.replacementText,
-                            ignoreCase = true
-                        )
-                    }
-                } catch (_: Exception) {
-                    Unit
-                }
-            }
-        return PronounPreferenceProcessor.apply(correctedText, DefaultPronounPreferences.rules)
+    fun process(text: String, rules: List<TextCorrectionRule>): String =
+        processWithPlan(text, rules).text
+
+    fun processWithPlan(text: String, rules: List<TextCorrectionRule>): TextPostProcessingResult {
+        val correction = TextCorrectionRules.apply(text, rules)
+        val postProcessed = PronounPreferenceProcessor.apply(
+            correction.text,
+            DefaultPronounPreferences.rules
+        )
+        return TextPostProcessingResult(postProcessed, correction.plan)
     }
+
+    fun enforceCorrectionPlan(
+        formattedText: String,
+        rules: List<TextCorrectionRule>,
+        plan: TextCorrectionPlan
+    ): String = TextCorrectionRules.applyPlan(formattedText, rules, plan)
 }
+
+internal data class TextPostProcessingResult(
+    val text: String,
+    val correctionPlan: TextCorrectionPlan
+)

@@ -22,20 +22,29 @@ internal object GroqTextFormattingClient {
     private const val MAX_COMPLETION_TOKENS = 2048
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    fun createCall(apiKey: String, model: String, userText: String): Call {
+    fun createCall(
+        apiKey: String,
+        model: String,
+        userText: String,
+        systemPrompt: String = TranscriptFormattingPrompt.SYSTEM_PROMPT
+    ): Call {
         require(apiKey.isNotBlank())
         require(model.isNotBlank())
         val request = Request.Builder()
             .url(ENDPOINT)
             .header("Authorization", "Bearer ${apiKey.trim()}")
-            .post(buildPayload(model, userText).toString().toRequestBody(jsonMediaType))
+            .post(buildPayload(model, userText, systemPrompt).toString().toRequestBody(jsonMediaType))
             .build()
         return GroqHttpClient.client.newCall(request)
     }
 
-    internal fun buildPayload(model: String, userText: String): JSONObject {
+    internal fun buildPayload(
+        model: String,
+        userText: String,
+        systemPrompt: String = TranscriptFormattingPrompt.SYSTEM_PROMPT
+    ): JSONObject {
         val messages = JSONArray()
-            .put(JSONObject().put("role", "system").put("content", TranscriptFormattingPrompt.SYSTEM_PROMPT))
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
             .put(JSONObject().put("role", "user").put("content", userText))
         return JSONObject()
             .put("model", model.trim())

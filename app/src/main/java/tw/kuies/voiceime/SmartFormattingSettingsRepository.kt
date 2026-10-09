@@ -18,6 +18,7 @@ internal object SmartFormattingSettingsRepository {
     private const val OPENAI_MODEL_KEY = "openai_formatting_model"
     private const val OPENAI_CUSTOM_MODEL_KEY = "openai_custom_model_id"
     private const val TERMINAL_PERIOD_MODE_KEY = "terminal_period_mode"
+    private const val CONTEXTUAL_CORRECTION_ENABLED_KEY = "contextual_correction_enabled"
 
     fun loadAsync(context: Context, callback: (Result<SmartFormattingSettings>) -> Unit) {
         val appContext = context.applicationContext
@@ -68,6 +69,10 @@ internal object SmartFormattingSettingsRepository {
                 openAiCustomModelId = preferences.getString(OPENAI_CUSTOM_MODEL_KEY, "").orEmpty(),
                 terminalPeriodMode = TerminalPeriodMode.fromStoredValue(
                     preferences.getString(TERMINAL_PERIOD_MODE_KEY, null)
+                ),
+                contextualCorrectionEnabled = preferences.getBoolean(
+                    CONTEXTUAL_CORRECTION_ENABLED_KEY,
+                    SmartFormattingSettings.DEFAULT_CONTEXTUAL_CORRECTION_ENABLED
                 )
             )
         )
@@ -90,6 +95,7 @@ internal object SmartFormattingSettingsRepository {
             .putString(OPENAI_MODEL_KEY, normalized.openAiFormattingModel)
             .putString(OPENAI_CUSTOM_MODEL_KEY, normalized.openAiCustomModelId)
             .putString(TERMINAL_PERIOD_MODE_KEY, normalized.terminalPeriodMode.storageValue)
+            .putBoolean(CONTEXTUAL_CORRECTION_ENABLED_KEY, normalized.contextualCorrectionEnabled)
             .commit()
         if (!saved) throw IOException("Smart formatting settings could not be persisted")
     }

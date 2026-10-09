@@ -1,5 +1,7 @@
 package tw.kuies.voiceime
 
+import okhttp3.Call
+
 internal enum class VoiceImeState(val label: String) {
     IDLE("待命"),
     RECORDING("錄音中…"),
@@ -60,5 +62,25 @@ internal class VoiceImeRequestGate {
         if (!isCurrent(requestId)) return false
         action()
         return true
+    }
+}
+
+internal class ActiveRequestCall {
+    private val lock = Any()
+    private var activeCall: Call? = null
+
+    fun attach(call: Call) {
+        synchronized(lock) { activeCall = call }
+    }
+
+    fun clear() {
+        synchronized(lock) { activeCall = null }
+    }
+
+    fun cancel() {
+        val call = synchronized(lock) {
+            activeCall.also { activeCall = null }
+        }
+        call?.cancel()
     }
 }

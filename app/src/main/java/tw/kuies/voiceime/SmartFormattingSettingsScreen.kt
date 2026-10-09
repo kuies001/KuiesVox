@@ -83,7 +83,7 @@ internal fun SmartFormattingSettingsScreen(
         TextButton(onClick = onBack) { Text("返回") }
         Text("智慧整理", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "逐字稿會先套用本機詞庫與修正规則，再依下方 Provider 設定整理。",
+            "語音辨識會參考個人詞庫；文字整理會套用本機修正规則，再依下方已串接的 Provider 設定整理。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -98,6 +98,35 @@ internal fun SmartFormattingSettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(checked = draft.enabled, onCheckedChange = { draft = draft.copy(enabled = it) }, enabled = loaded)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text("上下文智慧糾錯", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "依照句子語意與個人詞庫，修正明顯的同音字、近音字及辨識錯誤。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (!draft.enabled) {
+                    Text(
+                        "需要啟用智慧整理才能使用；目前不會執行上下文智慧糾錯。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+            }
+            Switch(
+                checked = draft.contextualCorrectionEnabled,
+                onCheckedChange = { draft = draft.copy(contextualCorrectionEnabled = it) },
+                enabled = loaded
+            )
         }
         OutlinedTextField(
             value = thresholdText,

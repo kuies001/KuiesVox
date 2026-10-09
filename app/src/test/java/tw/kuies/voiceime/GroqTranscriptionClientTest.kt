@@ -2,6 +2,12 @@ package tw.kuies.voiceime
 
 import java.io.File
 import okio.Buffer
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -52,6 +58,22 @@ class GroqTranscriptionClientTest {
         assertTrue(chinese.contains("\r\nzh\r\n"))
         assertTrue(english.contains("name=\"language\""))
         assertTrue(english.contains("\r\nen\r\n"))
+    }
+
+    @Test
+    fun asrResponseRetainsOriginalWhitespaceForRawHistory() {
+        val response = Response.Builder()
+            .request(Request.Builder().url("https://api.groq.com/test").build())
+            .protocol(Protocol.HTTP_1_1)
+            .code(200)
+            .message("OK")
+            .body("{\"text\":\" 你給我助手 \\n\"}".toResponseBody("application/json".toMediaType()))
+            .build()
+
+        val result = GroqTranscriptionClient.parseResponse(response)
+
+        assertTrue(result is GroqTranscriptionResult.Success)
+        assertEquals(" 你給我助手 \n", (result as GroqTranscriptionResult.Success).text)
     }
 
     private fun serializedRequestBody(

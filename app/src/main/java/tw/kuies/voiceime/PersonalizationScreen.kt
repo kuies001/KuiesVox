@@ -51,6 +51,7 @@ internal fun PersonalizationScreen(
     onAddGlossaryTerms: (List<String>) -> Unit,
     onImportDefaultGlossary: () -> Unit,
     onSetGlossaryTermEnabled: (PersonalGlossaryTerm, Boolean) -> Unit,
+    onSetGlossaryTermContextPhrases: (PersonalGlossaryTerm, List<String>) -> Unit,
     onDeleteGlossaryTerm: (PersonalGlossaryTerm) -> Unit,
     onAddCorrectionRules: (List<Pair<String, String>>) -> Unit,
     onImportDefaultCorrectionRules: () -> Unit,
@@ -64,6 +65,8 @@ internal fun PersonalizationScreen(
     var correctionSearch by remember { mutableStateOf("") }
     var glossaryInput by remember { mutableStateOf("") }
     var glossaryBatchInput by remember { mutableStateOf("") }
+    var contextEntry by remember { mutableStateOf<PersonalGlossaryTerm?>(null) }
+    var contextPhrasesInput by remember { mutableStateOf("") }
     var correctionSourceInput by remember { mutableStateOf("") }
     var correctionReplacementInput by remember { mutableStateOf("") }
     var correctionBatchInput by remember { mutableStateOf("") }
@@ -102,6 +105,10 @@ internal fun PersonalizationScreen(
                 onBatchImport = { dialog = EditorDialog.BATCH_GLOSSARY },
                 onImportDefaults = onImportDefaultGlossary,
                 onToggle = onSetGlossaryTermEnabled,
+                onEditContext = { entry ->
+                    contextEntry = entry
+                    contextPhrasesInput = entry.commonPhrases.joinToString("\n")
+                },
                 onDelete = onDeleteGlossaryTerm
             )
         } else {
@@ -240,6 +247,40 @@ internal fun PersonalizationScreen(
 
         EditorDialog.NONE -> Unit
     }
+
+    contextEntry?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { contextEntry = null },
+            title = { Text("「${entry.term}」的常見語句") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("選填；每行一個語句，最多 5 行。只作辨識語境參考，不會強迫替換其他句子中的詞。")
+                    OutlinedTextField(
+                        value = contextPhrasesInput,
+                        onValueChange = { contextPhrasesInput = it },
+                        label = { Text("常見語句") },
+                        minLines = 3,
+                        maxLines = 6
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onSetGlossaryTermContextPhrases(
+                            entry,
+                            contextPhrasesInput.lineSequence().toList()
+                        )
+                        contextEntry = null
+                    },
+                    enabled = glossaryLoaded
+                ) { Text("儲存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { contextEntry = null }) { Text("取消") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -253,6 +294,7 @@ private fun GlossaryTab(
     onBatchImport: () -> Unit,
     onImportDefaults: () -> Unit,
     onToggle: (PersonalGlossaryTerm, Boolean) -> Unit,
+    onEditContext: (PersonalGlossaryTerm) -> Unit,
     onDelete: (PersonalGlossaryTerm) -> Unit
 ) {
     val filteredTerms = remember(terms, search) {
@@ -308,12 +350,17 @@ private fun GlossaryTab(
                             .padding(vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            entry.term,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(entry.term, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (entry.commonPhrases.isNotEmpty()) {
+                                Text(
+                                    "${entry.commonPhrases.size} 個語境句",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        TextButton(onClick = { onEditContext(entry) }) { Text("語句") }
                         Switch(
                             checked = entry.enabled,
                             onCheckedChange = { onToggle(entry, it) }

@@ -1,5 +1,7 @@
 package tw.kuies.voiceime
 
+import java.lang.reflect.Proxy
+import okhttp3.Call
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -53,6 +55,26 @@ class VoiceImeFlowTest {
 
         assertFalse(committed)
         assertEquals(0, commitCount)
+    }
+
+    @Test
+    fun activeHttpRequestIsCancelledAndTheCallTimeoutRemainsBounded() {
+        var cancelCount = 0
+        val call = Proxy.newProxyInstance(
+            Call::class.java.classLoader,
+            arrayOf(Call::class.java)
+        ) { _, method, _ ->
+            if (method.name == "cancel") cancelCount++
+            null
+        } as Call
+        val slot = ActiveRequestCall()
+
+        slot.attach(call)
+        slot.cancel()
+        slot.cancel()
+
+        assertEquals(1, cancelCount)
+        assertEquals(90L, GroqHttpClient.CALL_TIMEOUT_SECONDS)
     }
 
     @Test

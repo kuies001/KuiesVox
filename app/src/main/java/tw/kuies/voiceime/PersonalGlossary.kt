@@ -6,7 +6,8 @@ import java.util.UUID
 internal data class PersonalGlossaryTerm(
     val id: String,
     val term: String,
-    val enabled: Boolean
+    val enabled: Boolean,
+    val commonPhrases: List<String> = emptyList()
 )
 
 internal data class PersonalGlossaryAddResult(
@@ -46,10 +47,35 @@ internal object PersonalGlossaryRules {
         if (entry.id == id) entry.copy(enabled = enabled) else entry
     }
 
+    fun setCommonPhrases(
+        entries: List<PersonalGlossaryTerm>,
+        id: String,
+        rawPhrases: List<String>
+    ): List<PersonalGlossaryTerm> {
+        val phrases = rawPhrases.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinctBy(::keyFor)
+            .take(MAX_COMMON_PHRASES)
+            .map(::limitCodePoints)
+            .toList()
+        return entries.map { entry ->
+            if (entry.id == id) entry.copy(commonPhrases = phrases) else entry
+        }
+    }
+
     fun delete(
         entries: List<PersonalGlossaryTerm>,
         id: String
     ): List<PersonalGlossaryTerm> = entries.filterNot { it.id == id }
 
     fun keyFor(term: String): String = term.trim().lowercase(Locale.ROOT)
+
+    private fun limitCodePoints(value: String): String {
+        val end = value.offsetByCodePoints(0, minOf(value.codePointCount(0, value.length), MAX_PHRASE_CODE_POINTS))
+        return value.substring(0, end)
+    }
+
+    const val MAX_COMMON_PHRASES = 5
+    const val MAX_PHRASE_CODE_POINTS = 80
 }

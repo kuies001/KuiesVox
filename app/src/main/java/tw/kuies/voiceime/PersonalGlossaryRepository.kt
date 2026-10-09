@@ -56,6 +56,17 @@ internal object PersonalGlossaryRepository {
         }
     }
 
+    fun setCommonPhrases(
+        context: Context,
+        id: String,
+        phrases: List<String>,
+        callback: (Result<List<PersonalGlossaryTerm>>) -> Unit
+    ) {
+        update(context, callback) { entries ->
+            PersonalGlossaryRules.setCommonPhrases(entries, id, phrases)
+        }
+    }
+
     fun delete(
         context: Context,
         id: String,
@@ -119,7 +130,23 @@ internal object PersonalGlossaryRepository {
             entries += PersonalGlossaryTerm(
                 id = id,
                 term = term,
-                enabled = jsonEntry.optBoolean("enabled", true)
+                enabled = jsonEntry.optBoolean("enabled", true),
+                commonPhrases = jsonEntry.optJSONArray("commonPhrases")?.let { phrases ->
+                    buildList {
+                        for (phraseIndex in 0 until phrases.length()) {
+                            phrases.optString(phraseIndex).trim()
+                                .takeIf(String::isNotEmpty)?.let(::add)
+                        }
+                    }.distinctBy(PersonalGlossaryRules::keyFor)
+                        .take(PersonalGlossaryRules.MAX_COMMON_PHRASES)
+                        .map { phrase ->
+                            val end = phrase.offsetByCodePoints(
+                                0,
+                                minOf(phrase.codePointCount(0, phrase.length), PersonalGlossaryRules.MAX_PHRASE_CODE_POINTS)
+                            )
+                            phrase.substring(0, end)
+                        }
+                }.orEmpty()
             )
         }
 
@@ -138,6 +165,7 @@ internal object PersonalGlossaryRepository {
                     .put("id", entry.id)
                     .put("term", entry.term)
                     .put("enabled", entry.enabled)
+                    .put("commonPhrases", JSONArray(entry.commonPhrases))
             )
         }
 

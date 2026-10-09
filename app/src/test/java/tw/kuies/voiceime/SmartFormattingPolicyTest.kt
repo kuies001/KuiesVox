@@ -70,6 +70,16 @@ class SmartFormattingPolicyTest {
     }
 
     @Test
+    fun contextualCorrectionRequiresSmartFormattingProviderKeyAndSafeEditor() {
+        assertFalse(ContextualCorrectionPolicy.shouldUse(true, false, true, true, false))
+        assertFalse(ContextualCorrectionPolicy.shouldUse(true, true, false, true, false))
+        assertFalse(ContextualCorrectionPolicy.shouldUse(true, true, true, false, false))
+        assertFalse(ContextualCorrectionPolicy.shouldUse(true, true, true, true, true))
+        assertFalse(ContextualCorrectionPolicy.shouldUse(false, true, true, true, false))
+        assertTrue(ContextualCorrectionPolicy.shouldUse(true, true, true, true, false))
+    }
+
+    @Test
     fun successfulFormattingUsesFormattedText() {
         val resolution = SmartFormattingPolicy.resolve("原始文字", "整理後文字")
 

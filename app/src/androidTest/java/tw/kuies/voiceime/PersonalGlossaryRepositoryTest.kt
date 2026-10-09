@@ -49,6 +49,37 @@ class PersonalGlossaryRepositoryTest {
         }
     }
 
+    @Test
+    fun legacyEntriesLoadWithoutContextAndNewContextPersists() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences("personal_glossary", Context.MODE_PRIVATE)
+        assertTrue(preferences.edit()
+            .putString("entries_v1", "[{\"id\":\"legacy\",\"term\":\"住手\",\"enabled\":true}]")
+            .remove("default_data_version")
+            .commit())
+
+        try {
+            val legacy = awaitResult { callback -> PersonalGlossaryRepository.load(context, callback) }
+            assertEquals("住手", legacy.single().term)
+            assertTrue(legacy.single().commonPhrases.isEmpty())
+
+            val updated = awaitResult { callback ->
+                PersonalGlossaryRepository.setCommonPhrases(
+                    context,
+                    legacy.single().id,
+                    listOf("你給我住手", "快住手"),
+                    callback
+                )
+            }
+            assertEquals(listOf("你給我住手", "快住手"), updated.single().commonPhrases)
+
+            val reloaded = awaitResult { callback -> PersonalGlossaryRepository.load(context, callback) }
+            assertEquals(listOf("你給我住手", "快住手"), reloaded.single().commonPhrases)
+        } finally {
+            assertTrue(preferences.edit().remove("entries_v1").remove("default_data_version").commit())
+        }
+    }
+
     private fun <T> awaitResult(register: ((Result<T>) -> Unit) -> Unit): T {
         val latch = CountDownLatch(1)
         var result: Result<T>? = null

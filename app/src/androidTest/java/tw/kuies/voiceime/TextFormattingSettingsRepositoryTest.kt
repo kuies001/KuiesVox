@@ -65,6 +65,29 @@ class TextFormattingSettingsRepositoryTest {
     }
 
     @Test
+    fun newContextSettingDefaultsOnAndDoesNotOverwriteExistingFormattingToggle() {
+        val context = isolatedPreferencesContext()
+        val preferences = context.getSharedPreferences("smart_formatting_settings", Context.MODE_PRIVATE)
+        preferences.edit().clear().putBoolean("smart_formatting_enabled", false).commit()
+        try {
+            val legacy = SmartFormattingSettingsRepository.loadSync(context)
+            assertFalse(legacy.enabled)
+            assertTrue(legacy.contextualCorrectionEnabled)
+
+            SmartFormattingSettingsRepository.saveSync(
+                context,
+                legacy.copy(contextualCorrectionEnabled = false)
+            )
+            val reloaded = SmartFormattingSettingsRepository.loadSync(context)
+
+            assertFalse(reloaded.enabled)
+            assertFalse(reloaded.contextualCorrectionEnabled)
+        } finally {
+            preferences.edit().clear().commit()
+        }
+    }
+
+    @Test
     fun providerApiKeysAreIndependentAndClearingOneKeepsTheOther() {
         val context = isolatedPreferencesContext()
         val preferences = context.getSharedPreferences("text_formatting_api_keys", Context.MODE_PRIVATE)

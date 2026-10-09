@@ -90,7 +90,7 @@ internal object GroqTranscriptionClient {
         })
     }
 
-    private fun parseResponse(response: Response): GroqTranscriptionResult {
+    internal fun parseResponse(response: Response): GroqTranscriptionResult {
         if (!response.isSuccessful) {
             return GroqTranscriptionResult.Failure("http_error", response.code)
         }
@@ -109,8 +109,8 @@ internal object GroqTranscriptionClient {
             if (json.has("error")) {
                 GroqTranscriptionResult.Failure("groq_error", response.code)
             } else {
-                val text = json.optString("text").trim()
-                if (text.isEmpty()) {
+                val text = json.optString("text")
+                if (text.isBlank()) {
                     GroqTranscriptionResult.Failure("empty_text")
                 } else {
                     GroqTranscriptionResult.Success(text)
