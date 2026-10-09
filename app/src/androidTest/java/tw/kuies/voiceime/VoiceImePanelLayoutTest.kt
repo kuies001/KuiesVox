@@ -245,9 +245,9 @@ class VoiceImePanelLayoutTest {
         )
         safeHeights += measuredHeight(safePanel)
         assertTrue(safePanel.snippetListScrollView.measuredHeight > 0)
-        val categoryButton = allTextViews(safePanel.savedSnippetsPanel)
-            .first { it.text.toString() == "分類" }
-        assertTrue(categoryButton.performClick())
+        val firstSnippetTitle = allTextViews(safePanel.savedSnippetsPanel)
+            .first { it.text.toString() == "第一則" }
+        assertTrue((firstSnippetTitle.parent as View).performClick())
         safeHeights += measuredHeight(safePanel)
 
         assertTrue(heights.all { it == heights.first() })
@@ -279,11 +279,6 @@ class VoiceImePanelLayoutTest {
             assertTrue(snippetAddButton.performClick())
         }
 
-        val categoryButton = allTextViews(panel.savedSnippetsPanel)
-            .first { it.text.toString() == "分類" }
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            assertTrue(categoryButton.performClick())
-        }
         val editButton = allTextViews(panel.savedSnippetsPanel)
             .first { it.text.toString() == "編輯" }
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
@@ -292,7 +287,6 @@ class VoiceImePanelLayoutTest {
         assertEquals(
             listOf(
                 SavedSnippetManagerAction.NEW to null,
-                SavedSnippetManagerAction.CATEGORIES to null,
                 SavedSnippetManagerAction.EDIT to "snippet-1"
             ),
             managementRequests
@@ -300,10 +294,9 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
-    fun savedSnippetTapOnlyInsertsAndMarksUsage() {
+    fun savedSnippetTapOnlyInsertsWithoutOtherSideEffects() {
         val snippet = SavedSnippet("snippet-1", "範例", "多行文字\n保留完整內容", "general", false, 1, 1, null)
         val inserted = mutableListOf<SavedSnippet>()
-        val usedIds = mutableListOf<String>()
         var voiceActions = 0
         var clipboardHistoryReads = 0
         var voiceHistoryReads = 0
@@ -322,7 +315,6 @@ class VoiceImePanelLayoutTest {
                 inserted += it
                 true
             },
-            onMarkSavedSnippetUsed = { usedIds += it },
             onIsSensitiveEditor = { false }
         )
         panel.showSavedSnippetsPanel(isSensitiveEditor = false)
@@ -337,7 +329,6 @@ class VoiceImePanelLayoutTest {
         }
 
         assertEquals(listOf(snippet), inserted)
-        assertEquals(listOf(snippet.id), usedIds)
         assertEquals(0, voiceActions)
         assertEquals(0, clipboardHistoryReads)
         assertEquals(0, voiceHistoryReads)
@@ -698,7 +689,7 @@ class VoiceImePanelLayoutTest {
         val labels = listOf("剪貼簿歷史", "語音辨識歷史", "快捷短語", "格式指令")
 
         val rows = labels.map { entryLabel ->
-            val row = findViewByDescription(panel.view, entryLabel)
+            val row = findMoreEntryRow(panel.view, entryLabel)
             assertTrue("missing More entry: $entryLabel", row != null)
             val entry = row as LinearLayout
             assertEquals(entryLabel, entry.contentDescription?.toString())
@@ -863,6 +854,17 @@ class VoiceImePanelLayoutTest {
                 exit.left >= panel.idleMicButton.right
             )
         }
+    }
+
+    /** 更多頁項目是 LinearLayout 列；工具列的剪貼簿 ImageButton 用的是同一個 contentDescription。 */
+    private fun findMoreEntryRow(view: View, label: String): View? {
+        if (view is LinearLayout && view.contentDescription?.toString() == label) return view
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                findMoreEntryRow(view.getChildAt(index), label)?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun findViewByDescription(view: View, description: String): View? {
