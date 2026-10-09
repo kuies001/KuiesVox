@@ -35,6 +35,9 @@ internal const val VOICE_IME_PAGE_CONTENT_HEIGHT_DP = 178
 internal const val VOICE_IME_MORE_ENTRY_ICON_DP = 20
 internal const val VOICE_IME_MORE_ENTRY_ICON_GAP_DP = 12
 private const val MORE_ENTRY_HORIZONTAL_PADDING_DP = 12
+private const val IDLE_HINT_MAX_LINES = 2
+private const val NORMAL_HINT_TEXT_SP = 11f
+private const val FORMAT_MODE_HINT_TEXT_SP = 12f
 
 internal class VoiceImePanel(
     context: Context,
@@ -158,7 +161,12 @@ internal class VoiceImePanel(
     internal val idleTitle = textView(context, sizeSp = 15f, color = TEXT).apply {
         setTypeface(typeface, Typeface.BOLD)
     }
-    internal val idleHint = textView(context, sizeSp = 11f, color = TEXT_MUTED)
+    internal val idleHint = textView(context, sizeSp = NORMAL_HINT_TEXT_SP, color = TEXT_MUTED).apply {
+        gravity = Gravity.CENTER
+        setSingleLine(false)
+        maxLines = IDLE_HINT_MAX_LINES
+        ellipsize = null
+    }
     internal val recordingActions = LinearLayout(context)
     internal val busyActions = LinearLayout(context)
     private val mainInteractionRow = LinearLayout(context)
@@ -1807,11 +1815,21 @@ internal class VoiceImePanel(
         formatModeExitButton.visibility = if (
             formatCommandMode && (state == VoiceImeState.IDLE || isTerminal)
         ) View.VISIBLE else View.GONE
-        idleTitle.text = if (formatCommandMode) "格式指令模式" else "開始語音輸入"
-        idleHint.text = when {
-            holdToTalkRecording -> "放開即辨識"
-            formatCommandMode -> FormatCommandPrompt.FORMAT_COMMAND_HINT
-            else -> "點一下開始說話"
+        // 格式指令模式的提示必須完整顯示。互動區固定為 130dp，若同時保留 15sp 標題與
+        // 可能換行的提示就會被裁掉，所以格式模式把模式名稱與範例合成單一置中標籤，
+        // 最多 2 行，並且不動麥克風、Delete、Enter 與音量回饋的配置。
+        if (formatCommandMode) {
+            idleTitle.visibility = View.GONE
+            idleHint.textSize = FORMAT_MODE_HINT_TEXT_SP
+            idleHint.setTextColor(TEXT)
+            idleHint.text = "${FormatCommandPrompt.FORMAT_COMMAND_MODE_LABEL}　" +
+                FormatCommandPrompt.FORMAT_COMMAND_HINT
+        } else {
+            idleTitle.visibility = View.VISIBLE
+            idleTitle.text = "開始語音輸入"
+            idleHint.textSize = NORMAL_HINT_TEXT_SP
+            idleHint.setTextColor(TEXT_MUTED)
+            idleHint.text = if (holdToTalkRecording) "放開即辨識" else "點一下開始說話"
         }
         idleMicButton.isActivated = holdToTalkRecording
         idleMicButton.alpha = if (holdToTalkRecording) 0.9f else 1f

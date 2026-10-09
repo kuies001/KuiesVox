@@ -1659,13 +1659,33 @@ class VoiceImeService : InputMethodService() {
                     return
                 }
                 if (!transitionStatus(VoiceImeState.FORMATTING)) return
+                // 格式指令模式是使用者手動啟動的，因此不受智慧整理總開關與短文字門檻限制，
+                // 但仍遵守台灣用字／智慧標點設定與敏感欄位政策。
+                val useTaiwanWording = TextEnhancementPolicy.shouldUse(
+                    featureEnabled = snapshot.settings.taiwanWordingEnabled,
+                    smartFormattingEnabled = true,
+                    providerAvailable = true,
+                    apiKeyAvailable = apiKey.isNotBlank(),
+                    sensitiveEditor = snapshot.sensitiveEditor
+                )
+                val useSmartPunctuation = TextEnhancementPolicy.shouldUse(
+                    featureEnabled = snapshot.settings.smartPunctuationEnabled,
+                    smartFormattingEnabled = true,
+                    providerAvailable = true,
+                    apiKeyAvailable = apiKey.isNotBlank(),
+                    sensitiveEditor = snapshot.sensitiveEditor
+                )
                 runFormatCommand(
                     file,
                     operationId,
                     apiKey,
                     snapshot.settings.model,
                     provider,
-                    originalText,
+                    FormatCommandPrompt.buildSystemPrompt(useTaiwanWording, useSmartPunctuation),
+                    FormatCommandPrompt.buildUserMessage(
+                        FormatCommandPrompt.formatInstructionFor(originalText),
+                        originalText
+                    ),
                     interpretation.recordsVoiceHistory()
                 )
             }
@@ -1687,7 +1707,8 @@ class VoiceImeService : InputMethodService() {
         apiKey: String,
         model: String,
         provider: TextFormattingProvider,
-        originalText: String,
+        systemPrompt: String,
+        userMessage: String,
         recordVoiceHistory: Boolean
     ) {
         if (!isVoiceOperationTargetCurrent(operationId)) return
@@ -1695,8 +1716,8 @@ class VoiceImeService : InputMethodService() {
             val call = provider.format(
                 apiKey,
                 model,
-                originalText,
-                FormatCommandPrompt.SYSTEM_PROMPT
+                userMessage,
+                systemPrompt
             ) { result ->
                 mainHandler.post {
                     if (!isVoiceOperationTargetCurrent(operationId)) return@post

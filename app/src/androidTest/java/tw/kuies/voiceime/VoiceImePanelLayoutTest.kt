@@ -736,14 +736,22 @@ class VoiceImePanelLayoutTest {
         assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
 
         panel.render(VoiceImeState.IDLE, formatCommandMode = true)
-        assertEquals("格式指令模式", panel.idleTitle.text)
-        assertEquals(FormatCommandPrompt.FORMAT_COMMAND_HINT, panel.idleHint.text)
+        assertEquals(View.GONE, panel.idleTitle.visibility)
+        assertEquals(
+            "${FormatCommandPrompt.FORMAT_COMMAND_MODE_LABEL}　${FormatCommandPrompt.FORMAT_COMMAND_HINT}",
+            panel.idleHint.text.toString()
+        )
+        assertEquals(2, panel.idleHint.maxLines)
+        assertEquals(null, panel.idleHint.ellipsize)
+        assertEquals(Gravity.CENTER, panel.idleHint.gravity)
         assertEquals(View.VISIBLE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
         assertEquals(normalHeight, measuredHeight(panel))
 
         panel.render(VoiceImeState.IDLE)
+        assertEquals(View.VISIBLE, panel.idleTitle.visibility)
         assertEquals("開始語音輸入", panel.idleTitle.text)
-        assertEquals("點一下開始說話", panel.idleHint.text)
+        assertEquals("點一下開始說話", panel.idleHint.text.toString())
+        assertEquals(2, panel.idleHint.maxLines)
         assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
 
         panel.render(VoiceImeState.IDLE, formatCommandMode = true)
@@ -788,6 +796,35 @@ class VoiceImePanelLayoutTest {
             (VOICE_IME_PAGE_CONTENT_HEIGHT_DP * context.resources.displayMetrics.density).toInt(),
             panel.mainPanel.layoutParams.height
         )
+    }
+
+    @Test
+    fun formatCommandHintIsNotTruncatedByTheFixedInteractionHeight() {
+        val panel = panel()
+        val interactionHeight =
+            (VOICE_IME_MAIN_INTERACTION_HEIGHT_DP * context.resources.displayMetrics.density).toInt()
+
+        listOf(320, 360).forEach { widthDp ->
+            layoutPanel(panel, widthDp = widthDp)
+            panel.render(VoiceImeState.IDLE, formatCommandMode = true)
+            layoutPanel(panel, widthDp = widthDp)
+
+            assertEquals(
+                "interaction height must stay fixed at ${widthDp}dp wide",
+                interactionHeight,
+                panel.mainInteractionContainer.measuredHeight
+            )
+            assertTrue(
+                "idle column must fit the fixed interaction area at ${widthDp}dp: " +
+                    "column=${panel.idleActions.measuredHeight}px limit=${interactionHeight}px",
+                panel.idleActions.measuredHeight <= interactionHeight
+            )
+            assertTrue(
+                "hint must not exceed two lines at ${widthDp}dp wide",
+                panel.idleHint.layout.lineCount in 1..2
+            )
+            assertEquals(null, panel.idleHint.ellipsize)
+        }
     }
 
     private fun findViewByDescription(view: View, description: String): View? {
