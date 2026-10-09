@@ -68,6 +68,7 @@ internal fun HomeScreen(
     onOpenPersonalization: () -> Unit,
     onOpenSavedSnippets: () -> Unit,
     onOpenMcp: () -> Unit,
+    onOpenHistoryPrivacy: () -> Unit,
     onCheckForUpdates: () -> Unit,
     onDownloadUpdate: (GitHubRelease, SemanticVersion, GitHubReleaseAsset) -> Unit,
     onInstallUpdate: (GitHubRelease, Long) -> Unit,
@@ -241,6 +242,27 @@ internal fun HomeScreen(
                 accent = colors.primary,
                 contentColor = colors.onPrimary,
                 onClick = onOpenMcp,
+                modifier = Modifier.align(Alignment.End)
+            )
+        }
+
+        HomeFeatureCard(
+            icon = R.drawable.ic_home_privacy,
+            title = "隱私與歷史紀錄",
+            subtitle = "決定是否儲存語音與剪貼簿歷史",
+            accent = colors.primary,
+            status = "可調整"
+        ) {
+            Text(
+                "關閉後停止新增歷史紀錄，既有紀錄不會自動刪除。",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.onSurfaceVariant
+            )
+            ActionButton(
+                label = "設定隱私",
+                accent = colors.primary,
+                contentColor = colors.onPrimary,
+                onClick = onOpenHistoryPrivacy,
                 modifier = Modifier.align(Alignment.End)
             )
         }

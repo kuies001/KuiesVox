@@ -95,7 +95,8 @@ private enum class SettingsDestination {
     APP_PROFILES,
     PERSONALIZATION,
     SAVED_SNIPPETS,
-    MCP
+    MCP,
+    HISTORY_PRIVACY
 }
 
 @Composable
@@ -712,6 +713,7 @@ private fun VoiceImeSettingsApp(
                 destination = SettingsDestination.SAVED_SNIPPETS
             },
             onOpenMcp = { destination = SettingsDestination.MCP },
+            onOpenHistoryPrivacy = { destination = SettingsDestination.HISTORY_PRIVACY },
             onCheckForUpdates = appUpdateController::checkForUpdates,
             onDownloadUpdate = { release, version, apk ->
                 appUpdateController.download(release, version, apk)
@@ -879,6 +881,11 @@ private fun VoiceImeSettingsApp(
                 savedSnippetRequestId = null
                 savedSnippetLaunch?.let { onClearSavedSnippetLaunch(it.requestId) }
             }
+        )
+
+        SettingsDestination.HISTORY_PRIVACY -> HistoryPrivacyScreen(
+            onBack = { destination = SettingsDestination.HOME },
+            modifier = modifier
         )
 
         SettingsDestination.MCP -> McpSettingsScreen(

@@ -363,7 +363,11 @@ internal object UserHistoryRepository {
         isSensitiveEditor: Boolean,
         callback: (Result<Boolean>) -> Unit = {}
     ) {
-        if (!ClipboardHistoryPolicy.canStore(text, isSensitiveEditor)) {
+        if (!HistoryCapturePolicy.shouldRecordClipboard(
+                HistorySettingsRepository.loadSync(context),
+                isSensitiveEditor
+            ) || !ClipboardHistoryPolicy.canStore(text, isSensitiveEditor)
+        ) {
             callback(Result.success(false))
             return
         }
@@ -413,7 +417,10 @@ internal object UserHistoryRepository {
         isSensitiveEditor: Boolean,
         callback: (Result<Boolean>) -> Unit = {}
     ) {
-        if (!VoiceHistoryPolicy.canStore(
+        if (!HistoryCapturePolicy.shouldRecordVoice(
+                HistorySettingsRepository.loadSync(context),
+                isSensitiveEditor
+            ) || !VoiceHistoryPolicy.canStore(
                 rawText,
                 finalText,
                 successfulCommit,
