@@ -139,6 +139,7 @@ internal class VoiceImePanel(
         }
     }
     internal val mainInteractionContainer = FrameLayout(context)
+    internal val audioLevelIndicator = AudioLevelIndicatorView(context)
     internal val idleActions = LinearLayout(context)
     internal val idleMicButton = ImageButton(context)
     internal val idleTitle = textView(context, sizeSp = 15f, color = TEXT).apply {
@@ -522,6 +523,13 @@ internal class VoiceImePanel(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
             )
+        )
+        audioLevelIndicator.visibility = View.GONE
+        voiceActionsContainer.addView(
+            audioLevelIndicator,
+            FrameLayout.LayoutParams(dp(context, 46), dp(context, 34), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+                topMargin = dp(context, 3)
+            }
         )
 
         busyActions.apply {
@@ -1480,9 +1488,32 @@ internal class VoiceImePanel(
         recordingActions.visibility = if (
             state == VoiceImeState.RECORDING && !holdToTalkRecording
         ) View.VISIBLE else View.GONE
+        val showAudioLevel = state == VoiceImeState.RECORDING
+        audioLevelIndicator.visibility = if (showAudioLevel) View.VISIBLE else View.GONE
+        if (showAudioLevel) {
+            val params = audioLevelIndicator.layoutParams as FrameLayout.LayoutParams
+            if (holdToTalkRecording) {
+                params.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                params.marginStart = dp(audioLevelIndicator.context, 8)
+                params.topMargin = 0
+            } else {
+                params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                params.marginStart = 0
+                params.topMargin = dp(audioLevelIndicator.context, 3)
+            }
+            audioLevelIndicator.layoutParams = params
+        } else {
+            audioLevelIndicator.setLevel(0f)
+        }
         val isBusy = state == VoiceImeState.TRANSCRIBING || state == VoiceImeState.FORMATTING
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
         busyLabel.text = state.label
+    }
+
+    internal fun updateAudioLevel(level: Float) {
+        if (audioLevelIndicator.visibility == View.VISIBLE) {
+            audioLevelIndicator.setLevel(level)
+        }
     }
 
     internal fun cancelHoldToTalkGesture() {

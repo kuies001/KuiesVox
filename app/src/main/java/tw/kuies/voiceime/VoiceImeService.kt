@@ -32,6 +32,9 @@ class VoiceImeService : InputMethodService() {
         private const val SAMPLE_RATE = 16_000
         private const val CHANNEL_COUNT = 1
         private const val BYTES_PER_SAMPLE = 2
+        private const val AUDIO_LEVEL_UPDATE_INTERVAL_MS = 40L
+        private const val AUDIO_LEVEL_PCM_CHUNK_BYTES =
+            SAMPLE_RATE * CHANNEL_COUNT * BYTES_PER_SAMPLE / 25
         private const val TERMINAL_STATUS_DURATION_MS = 1_500L
     }
 
@@ -59,6 +62,9 @@ class VoiceImeService : InputMethodService() {
     private var recordingThread: Thread? = null
     private var activeAudioFile: File? = null
     private var holdToTalkRecording = false
+    private val audioLevelMonitor = AudioLevelMonitor()
+    private var audioLevelUpdateRunnable: Runnable? = null
+    private var audioLevelUpdateOperationId = 0L
     private val activeRequestCall = ActiveRequestCall()
     private var voicePanel: VoiceImePanel? = null
     private var statusResetRunnable: Runnable? = null
@@ -252,6 +258,11 @@ class VoiceImeService : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         voicePanel?.cancelHoldToTalkGesture()
+        if (stateMachine.state == VoiceImeState.RECORDING) {
+            cancelCurrentOperation()
+        } else {
+            stopAudioLevelFeedback()
+        }
         backspaceRepeater.stop()
         unregisterClipboardListener()
         super.onFinishInputView(finishingInput)
@@ -835,6 +846,7 @@ class VoiceImeService : InputMethodService() {
                 VoiceImeState.RECORDING,
                 if (isHoldToTalk) "放開即辨識" else null
             )
+            startAudioLevelUpdates(operationId)
             recordingThread = Thread(
                 { capturePcmWav(recorder, file, bufferSize, operationId) },
                 "VoiceImeAudioRecorder"
@@ -870,10 +882,20 @@ class VoiceImeService : InputMethodService() {
                 val buffer = ByteArray(bufferSize)
                 var dataSize = 0L
                 while (isOperationCurrent(operationId) && stateMachine.state == VoiceImeState.RECORDING) {
-                    val bytesRead = recorder.read(buffer, 0, buffer.size)
+                    // Read 40 ms frames for the meter; every returned byte is still written unchanged to the WAV.
+                    val bytesRead = recorder.read(
+                        buffer,
+                        0,
+                        minOf(buffer.size, AUDIO_LEVEL_PCM_CHUNK_BYTES)
+                    )
                     if (bytesRead > 0) {
                         output.write(buffer, 0, bytesRead)
                         dataSize += bytesRead
+                        if (stateMachine.state == VoiceImeState.RECORDING &&
+                            isOperationCurrent(operationId)
+                        ) {
+                            audioLevelMonitor.observe(operationId, buffer, bytesRead)
+                        }
                     } else if (!isOperationCurrent(operationId) ||
                         stateMachine.state != VoiceImeState.RECORDING
                     ) {
@@ -890,6 +912,7 @@ class VoiceImeService : InputMethodService() {
         }
 
         if (failure != null) {
+            audioLevelMonitor.stop()
             recordingFailure = failure
             Log.e(TAG, "Recording failed: ${failure.javaClass.simpleName}")
             mainHandler.post {
@@ -1564,6 +1587,7 @@ class VoiceImeService : InputMethodService() {
 
     private fun transitionStatus(next: VoiceImeState, labelOverride: String? = null): Boolean {
         if (!stateMachine.transitionTo(next)) return false
+        if (next != VoiceImeState.RECORDING) stopAudioLevelFeedback()
         statusLabelOverride = labelOverride
         statusRevision += 1
         statusResetRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -1609,6 +1633,38 @@ class VoiceImeService : InputMethodService() {
         )
     }
 
+    private fun startAudioLevelUpdates(operationId: Long) {
+        stopAudioLevelFeedback()
+        audioLevelMonitor.start(operationId)
+        audioLevelUpdateOperationId = operationId
+        voicePanel?.updateAudioLevel(0f)
+
+        val update = object : Runnable {
+            override fun run() {
+                if (audioLevelUpdateOperationId != operationId) return
+                if (serviceDestroyed || activeOperationId != operationId ||
+                    stateMachine.state != VoiceImeState.RECORDING ||
+                    !audioLevelMonitor.isActive(operationId)
+                ) {
+                    stopAudioLevelFeedback()
+                    return
+                }
+                voicePanel?.updateAudioLevel(audioLevelMonitor.levelFor(operationId))
+                mainHandler.postDelayed(this, AUDIO_LEVEL_UPDATE_INTERVAL_MS)
+            }
+        }
+        audioLevelUpdateRunnable = update
+        mainHandler.post(update)
+    }
+
+    private fun stopAudioLevelFeedback() {
+        audioLevelUpdateRunnable?.let(mainHandler::removeCallbacks)
+        audioLevelUpdateRunnable = null
+        audioLevelUpdateOperationId = 0L
+        audioLevelMonitor.stop()
+        voicePanel?.updateAudioLevel(0f)
+    }
+
     private fun writeWavHeader(output: RandomAccessFile, pcmDataSize: Long) {
         output.writeBytes("RIFF")
         writeIntLittleEndian(output, 36L + pcmDataSize)
@@ -1638,6 +1694,7 @@ class VoiceImeService : InputMethodService() {
         voicePanel?.disposeHoldToTalkGesture()
         serviceDestroyed = true
         holdToTalkRecording = false
+        stopAudioLevelFeedback()
         unregisterClipboardListener()
         backspaceRepeater.stop()
         requestGate.invalidate()

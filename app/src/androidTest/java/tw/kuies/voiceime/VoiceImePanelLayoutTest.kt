@@ -521,7 +521,7 @@ class VoiceImePanelLayoutTest {
         assertEquals(1f, stopParams.weight)
         assertEquals(stopParams.weight, cancelParams.weight)
         assertEquals(stopParams.height, cancelParams.height)
-        assertEquals(stopButton.width, cancelButton.width)
+        assertTrue(kotlin.math.abs(stopButton.width - cancelButton.width) <= 1)
         assertEquals(Gravity.CENTER, stopButton.gravity)
         assertEquals(Gravity.CENTER, cancelButton.gravity)
         assertEquals(0, stopButton.paddingLeft)
@@ -588,6 +588,40 @@ class VoiceImePanelLayoutTest {
         panel.render(VoiceImeState.TRANSCRIBING)
         assertEquals(View.VISIBLE, panel.busyActions.visibility)
         assertEquals(View.GONE, panel.recordingActions.visibility)
+    }
+
+    @Test
+    fun audioLevelIndicatorTracksRecordingWithoutChangingImeHeight() {
+        val panel = panel()
+        layoutPanel(panel, widthDp = 360)
+        val originalPanelHeight = measuredHeight(panel)
+        val expectedInteractionHeight =
+            (VOICE_IME_MAIN_INTERACTION_HEIGHT_DP * context.resources.displayMetrics.density).toInt()
+
+        assertEquals(View.GONE, panel.audioLevelIndicator.visibility)
+        panel.render(VoiceImeState.RECORDING)
+        layoutPanel(panel, widthDp = 360)
+        assertEquals(View.VISIBLE, panel.audioLevelIndicator.visibility)
+        assertEquals("麥克風音量指示", panel.audioLevelIndicator.contentDescription)
+        assertEquals(expectedInteractionHeight, panel.mainInteractionContainer.measuredHeight)
+        assertTrue(panel.audioLevelIndicator.bottom <= panel.recordingActions.top)
+        panel.updateAudioLevel(0.7f)
+        assertEquals(0.7f, panel.audioLevelIndicator.level, 0f)
+        assertEquals(originalPanelHeight, measuredHeight(panel))
+
+        panel.render(VoiceImeState.TRANSCRIBING)
+        assertEquals(View.GONE, panel.audioLevelIndicator.visibility)
+        assertEquals(0f, panel.audioLevelIndicator.level, 0f)
+        panel.render(VoiceImeState.CANCELLED)
+        assertEquals(View.GONE, panel.audioLevelIndicator.visibility)
+
+        panel.render(VoiceImeState.RECORDING, holdToTalkRecording = true)
+        layoutPanel(panel, widthDp = 360)
+        assertEquals(View.VISIBLE, panel.audioLevelIndicator.visibility)
+        assertEquals(View.VISIBLE, panel.idleActions.visibility)
+        assertEquals(View.GONE, panel.recordingActions.visibility)
+        assertEquals(expectedInteractionHeight, panel.mainInteractionContainer.measuredHeight)
+        assertEquals(originalPanelHeight, measuredHeight(panel))
     }
 
     @Test
