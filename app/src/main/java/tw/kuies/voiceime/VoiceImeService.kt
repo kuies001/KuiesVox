@@ -110,6 +110,7 @@ class VoiceImeService : InputMethodService() {
     )
 
     override fun onCreateInputView(): View {
+        sweepStaleAudioTempFiles()
         val panel = VoiceImePanel(
             context = this,
             onVoiceAction = {
@@ -157,6 +158,19 @@ class VoiceImeService : InputMethodService() {
         panel.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
         renderStatus()
         return panel.view
+    }
+
+    /**
+     * 啟動時清掉上次異常結束（程序被殺）留下的過期錄音暫存檔。
+     * 只處理 app 私有 cacheDir 內、本 App 命名且已明顯過期的檔案，進行中的錄音不會被選中。
+     */
+    private fun sweepStaleAudioTempFiles() {
+        runCatching {
+            val files = cacheDir.listFiles()?.toList().orEmpty()
+            AudioTempFiles.expiredFiles(files, System.currentTimeMillis()).forEach { file ->
+                if (!file.delete()) Log.w(TAG, "Stale WAV cleanup failed")
+            }
+        }
     }
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
