@@ -157,7 +157,14 @@ internal class AppUpdateController(
 
     fun install(release: GitHubRelease, downloadId: Long) {
         val integrity = activeIntegrity
-        if (integrity !is ApkIntegrityResult.Verified) {
+        // 驗證結果必須對應這次下載，且檔名要與該 Release 的版本一致，避免用舊結果安裝其他檔案。
+        val expectedFileName = SemanticVersion.parse(release.tagName)
+            ?.let { AppUpdateManager.apkFileNameFor(it) }
+        if (integrity !is ApkIntegrityResult.Verified ||
+            integrity.downloadId != downloadId ||
+            expectedFileName == null ||
+            integrity.fileName != expectedFileName
+        ) {
             onStateChanged(
                 AppUpdateState.Error(AppUpdateManager.CHECKSUM_ERROR_MESSAGE, release.htmlUrl)
             )

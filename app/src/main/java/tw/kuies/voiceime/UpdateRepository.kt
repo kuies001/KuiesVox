@@ -56,14 +56,29 @@ internal class UpdateRepository(
         const val GENERIC_UPDATE_ERROR = "目前無法檢查更新，請稍後再試。"
         const val NO_APK_ERROR = "此版本沒有可直接安裝的 APK，請前往 GitHub Releases 查看。"
 
-        /** 只接受與 APK 同名、且位於官方 Release 下載路徑的 checksum 資產。 */
+        /**
+         * Release 發布的 checksum 資產命名是 `<APK 去掉 .apk>.sha256`：
+         * `KuiesVox-v0.14.0.apk` → `KuiesVox-v0.14.0.sha256`（與 `release.yml` 的 `sha256sum` 輸出同名）。
+         */
+        internal fun checksumAssetNameFor(apkName: String): String? {
+            if (!apkName.endsWith(APK_SUFFIX, ignoreCase = true)) return null
+            return apkName.dropLast(APK_SUFFIX.length) + CHECKSUM_SUFFIX
+        }
+
+        /** 只接受與 APK 同版本、且位於官方 Release 下載路徑的 checksum 資產。 */
         internal fun selectChecksumAsset(
             assets: List<GitHubReleaseAsset>,
             apkName: String
-        ): GitHubReleaseAsset? = assets.firstOrNull { asset ->
-            asset.name.equals("$apkName.sha256", ignoreCase = true) &&
-                GitHubReleaseConfig.officialAssetUrlOrNull(asset.browserDownloadUrl) != null
+        ): GitHubReleaseAsset? {
+            val expectedName = checksumAssetNameFor(apkName) ?: return null
+            return assets.firstOrNull { asset ->
+                asset.name.equals(expectedName, ignoreCase = true) &&
+                    GitHubReleaseConfig.officialAssetUrlOrNull(asset.browserDownloadUrl) != null
+            }
         }
+
+        private const val APK_SUFFIX = ".apk"
+        private const val CHECKSUM_SUFFIX = ".sha256"
 
         internal fun selectKuiesVoxApk(assets: List<GitHubReleaseAsset>): GitHubReleaseAsset? {
             val apks = assets.filter { asset ->

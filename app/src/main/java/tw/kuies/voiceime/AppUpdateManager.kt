@@ -10,8 +10,12 @@ import java.io.IOException
 import java.io.InputStream
 
 internal sealed interface ApkIntegrityResult {
-    /** 通過 checksum 與大小驗證，才允許交給系統安裝器。 */
-    data class Verified(val fileName: String, val sha256: String) : ApkIntegrityResult
+    /** 通過 checksum 與大小驗證，才允許交給系統安裝器；downloadId 綁定被驗證的那次下載。 */
+    data class Verified(
+        val downloadId: Long,
+        val fileName: String,
+        val sha256: String
+    ) : ApkIntegrityResult
 
     data object ChecksumMissing : ApkIntegrityResult
     data object ChecksumInvalid : ApkIntegrityResult
@@ -79,8 +83,10 @@ internal class AppUpdateManager(
 
     @Suppress("DEPRECATION")
     fun requestInstall(downloadId: Long, integrity: ApkIntegrityResult): InstallRequestResult {
-        // 未通過完整性驗證的檔案不得交給系統安裝器。
-        if (integrity !is ApkIntegrityResult.Verified) return InstallRequestResult.Failed
+        // 未通過完整性驗證、或驗證結果屬於另一次下載的檔案，都不得交給系統安裝器。
+        if (integrity !is ApkIntegrityResult.Verified || integrity.downloadId != downloadId) {
+            return InstallRequestResult.Failed
+        }
         if (!appContext.packageManager.canRequestPackageInstalls()) {
             return InstallRequestResult.PermissionRequired
         }
@@ -122,7 +128,11 @@ internal class AppUpdateManager(
             null
         } ?: return ApkIntegrityResult.ReadFailed
         if (!checksum.matchesDigest(actualDigest)) return ApkIntegrityResult.DigestMismatch
-        return ApkIntegrityResult.Verified(apkFileName, actualDigest)
+        return ApkIntegrityResult.Verified(
+            downloadId = downloadId,
+            fileName = apkFileName,
+            sha256 = actualDigest
+        )
     }
 
     /** 驗證失敗時移除已下載的檔案，避免留下來源不明的 APK。 */

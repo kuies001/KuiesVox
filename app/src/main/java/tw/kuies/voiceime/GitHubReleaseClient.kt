@@ -1,9 +1,11 @@
 package tw.kuies.voiceime
 
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.ResponseBody
 import org.json.JSONArray
 
 internal data class GitHubReleaseAsset(
@@ -81,12 +83,26 @@ internal class GitHubReleaseClient(
             if (responseBody.contentLength() > checksumResponseLimitBytes) {
                 throw IOException("Checksum asset is unexpectedly large.")
             }
-            val text = responseBody.string()
-            if (text.length > checksumResponseLimitBytes) {
-                throw IOException("Checksum asset is unexpectedly large.")
-            }
-            return text
+            return readBoundedUtf8(responseBody)
         }
+    }
+
+    /** 逐段讀取並在超過上限時中止，避免無界限讀取（contentLength 可能是 -1）。 */
+    private fun readBoundedUtf8(responseBody: ResponseBody): String {
+        val output = ByteArrayOutputStream()
+        val chunk = ByteArray(256)
+        responseBody.byteStream().use { stream ->
+            while (true) {
+                val read = stream.read(chunk)
+                if (read < 0) break
+                if (read == 0) continue
+                if (output.size() + read > checksumResponseLimitBytes) {
+                    throw IOException("Checksum asset is unexpectedly large.")
+                }
+                output.write(chunk, 0, read)
+            }
+        }
+        return output.toByteArray().toString(Charsets.UTF_8)
     }
 
     internal fun parseReleaseList(json: String): List<GitHubRelease> {
