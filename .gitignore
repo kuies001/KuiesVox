@@ -56,3 +56,6 @@ keystore.properties
 .DS_Store
 Thumbs.db
 desktop.ini
+
+.qwen/
+gha-creds-*.json
