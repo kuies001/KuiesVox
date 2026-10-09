@@ -63,7 +63,9 @@ internal class VoiceImePanel(
     private val onDeleteSavedSnippets: (Set<String>) -> Unit = {},
     private val onClearSavedSnippets: () -> Unit = {},
     private val onManageSavedSnippets: (SavedSnippetManagerAction, String?) -> Unit = { _, _ -> },
-    private val onIsSensitiveEditor: () -> Boolean = { true }
+    private val onIsSensitiveEditor: () -> Boolean = { true },
+    private val onEnterFormatCommandMode: () -> Unit = {},
+    private val onExitFormatCommandMode: () -> Unit = {}
 ) {
     internal val statusIndicator = FrameLayout(context)
     internal val statusDot = View(context)
@@ -160,6 +162,8 @@ internal class VoiceImePanel(
     private val voiceActionsContainer = FrameLayout(context)
     private val sideActionColumn = LinearLayout(context)
     private val busyLabel = textView(context, sizeSp = 13f, color = TEXT)
+    private val formatModeExitButton = textView(context, sizeSp = 11f, color = TEXT_MUTED)
+    private val moreEntries = LinearLayout(context)
 
     val view: View
 
@@ -496,6 +500,31 @@ internal class VoiceImePanel(
             )
         )
 
+        formatModeExitButton.apply {
+            text = "返回一般模式"
+            contentDescription = "返回一般模式"
+            gravity = Gravity.CENTER
+            setTextColor(TEXT_MUTED)
+            setPadding(dp(context, 10), 0, dp(context, 10), 0)
+            isClickable = true
+            isFocusable = true
+            visibility = View.GONE
+            background = RippleDrawable(
+                ColorStateList.valueOf(0x33FFFFFF),
+                solid(SURFACE, dp(context, 14)),
+                null
+            )
+            setOnClickListener { onExitFormatCommandMode() }
+        }
+        voiceActionsContainer.addView(
+            formatModeExitButton,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                dp(context, 22),
+                Gravity.TOP or Gravity.END
+            ).apply { topMargin = dp(context, 1) }
+        )
+
         recordingActions.apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -771,29 +800,35 @@ internal class VoiceImePanel(
             subpanelHeader(context, "更多功能"),
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 42))
         )
-        morePanel.addView(
+        moreEntries.orientation = LinearLayout.VERTICAL
+        moreEntries.addView(
             historyNavigationButton(context, "剪貼簿歷史") {
                 showClipboardHistoryPanel(onIsSensitiveEditor())
             },
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 38)).apply {
-                topMargin = dp(context, 5)
-            }
+            moreEntryParams(context)
         )
-        morePanel.addView(
+        moreEntries.addView(
             historyNavigationButton(context, "語音辨識歷史") {
                 showVoiceHistoryPanel(onIsSensitiveEditor())
             },
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 38)).apply {
-                topMargin = dp(context, 5)
-            }
+            moreEntryParams(context)
         )
-        morePanel.addView(
+        moreEntries.addView(
             historyNavigationButton(context, "快捷短語") {
                 showSavedSnippetsPanel(onIsSensitiveEditor())
             },
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 38)).apply {
-                topMargin = dp(context, 5)
-            }
+            moreEntryParams(context)
+        )
+        moreEntries.addView(
+            formatCommandButton(context) { onEnterFormatCommandMode() },
+            moreEntryParams(context)
+        )
+        morePanel.addView(
+            ScrollView(context).apply {
+                isFillViewport = true
+                addView(moreEntries)
+            },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
         )
 
         historyPanel.orientation = LinearLayout.VERTICAL
@@ -894,10 +929,6 @@ internal class VoiceImePanel(
             }
         )
 
-        morePanel.addView(
-            View(context),
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-        )
         root.addView(
             morePanel,
             LinearLayout.LayoutParams(
@@ -1513,6 +1544,46 @@ internal class VoiceImePanel(
             onClick()
         }
 
+    private fun moreEntryParams(context: Context): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 38)).apply {
+            topMargin = dp(context, 5)
+        }
+
+    private fun formatCommandButton(context: Context, onClick: () -> Unit): View {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
+            isFocusable = true
+            contentDescription = "格式指令"
+            setPadding(dp(context, 12), 0, dp(context, 12), 0)
+            background = RippleDrawable(
+                ColorStateList.valueOf(0x33FFFFFF),
+                solid(SURFACE, dp(context, 14)),
+                null
+            )
+            setOnClickListener { onClick() }
+        }
+        row.addView(
+            ImageView(context).apply {
+                setImageResource(R.drawable.ic_ime_format_command)
+                imageTintList = ColorStateList.valueOf(LAVENDER_BRIGHT)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            },
+            LinearLayout.LayoutParams(dp(context, 16), dp(context, 16)).apply {
+                marginEnd = dp(context, 8)
+            }
+        )
+        row.addView(
+            textView(context, sizeSp = 14f, color = TEXT).apply {
+                text = "格式指令"
+                setTypeface(typeface, Typeface.BOLD)
+            },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        return row
+    }
+
     private fun renderHistoryRows() {
         if (!isShowingClipboardHistory() && !isShowingVoiceHistory()) return
         historyRows.removeAllViews()
@@ -1688,8 +1759,12 @@ internal class VoiceImePanel(
     fun render(
         state: VoiceImeState,
         statusLabelOverride: String? = null,
-        holdToTalkRecording: Boolean = false
+        holdToTalkRecording: Boolean = false,
+        formatCommandMode: Boolean = false
     ) {
+        val isTerminal = state == VoiceImeState.SUCCESS ||
+            state == VoiceImeState.FORMATTING_FALLBACK ||
+            state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
         val accent = accentFor(state)
         statusDot.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
@@ -1711,9 +1786,6 @@ internal class VoiceImePanel(
             "$stateDescription，$statusLabelOverride"
         }
 
-        val isTerminal = state == VoiceImeState.SUCCESS ||
-            state == VoiceImeState.FORMATTING_FALLBACK ||
-            state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
         settingsButton.isEnabled = state == VoiceImeState.IDLE
         settingsButton.alpha = if (settingsButton.isEnabled) 1f else 0.5f
         val bulkActionsEnabled = state == VoiceImeState.IDLE
@@ -1726,8 +1798,18 @@ internal class VoiceImePanel(
         if (!bulkActionsEnabled) {
             clearConfirmationPanel.visibility = View.GONE
             topToolbarRow.visibility = View.VISIBLE
+        } else if (clearConfirmationPanel.visibility != View.VISIBLE) {
+            topToolbarRow.visibility = View.VISIBLE
         }
-        idleHint.text = if (holdToTalkRecording) "放開即辨識" else "點一下開始說話"
+        formatModeExitButton.visibility = if (
+            formatCommandMode && (state == VoiceImeState.IDLE || isTerminal)
+        ) View.VISIBLE else View.GONE
+        idleTitle.text = if (formatCommandMode) "格式指令模式" else "開始語音輸入"
+        idleHint.text = when {
+            holdToTalkRecording -> "放開即辨識"
+            formatCommandMode -> FormatCommandPrompt.FORMAT_COMMAND_HINT
+            else -> "點一下開始說話"
+        }
         idleMicButton.isActivated = holdToTalkRecording
         idleMicButton.alpha = if (holdToTalkRecording) 0.9f else 1f
         idleMicButton.background = if (holdToTalkRecording) {
@@ -1764,7 +1846,7 @@ internal class VoiceImePanel(
         }
         val isBusy = state == VoiceImeState.TRANSCRIBING || state == VoiceImeState.FORMATTING
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
-        busyLabel.text = state.label
+        busyLabel.text = if (formatCommandMode && isBusy) "正在處理格式指令…" else state.label
     }
 
     internal fun updateAudioLevel(level: Float) {

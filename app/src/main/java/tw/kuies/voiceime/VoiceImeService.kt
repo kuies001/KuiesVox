@@ -90,6 +90,10 @@ class VoiceImeService : InputMethodService() {
     private var profileCacheProfiles: List<AppVoiceProfile> = emptyList()
     @Volatile
     private var activeRawTranscript: String? = null
+
+    /** 使用者手動啟動的格式指令模式；每次處理結束後自動回到 NORMAL。 */
+    @Volatile
+    private var inputMode = VoiceInputMode.NORMAL
     private val clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
         mainHandler.post { captureCurrentClipboard() }
     }
@@ -145,7 +149,9 @@ class VoiceImeService : InputMethodService() {
             onDeleteSavedSnippets = ::deleteSavedSnippets,
             onClearSavedSnippets = ::clearSavedSnippets,
             onManageSavedSnippets = ::openSavedSnippetManager,
-            onIsSensitiveEditor = ::isCurrentEditorSensitive
+            onIsSensitiveEditor = ::isCurrentEditorSensitive,
+            onEnterFormatCommandMode = ::enterFormatCommandMode,
+            onExitFormatCommandMode = ::exitFormatCommandMode
         )
         voicePanel = panel
         panel.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
@@ -181,6 +187,7 @@ class VoiceImeService : InputMethodService() {
     override fun onFinishInput() {
         voicePanel?.resetSavedSnippetTransientState()
         if (activeOperationId != 0L) cancelCurrentOperation()
+        inputMode = VoiceInputMode.NORMAL
         editorSessionId += 1
         unregisterClipboardListener()
         currentEditorInfo = null
@@ -259,6 +266,7 @@ class VoiceImeService : InputMethodService() {
     override fun onFinishInputView(finishingInput: Boolean) {
         voicePanel?.resetSavedSnippetTransientState()
         voicePanel?.cancelHoldToTalkGesture()
+        inputMode = VoiceInputMode.NORMAL
         if (stateMachine.state == VoiceImeState.RECORDING) {
             cancelCurrentOperation()
         } else {
@@ -967,6 +975,7 @@ class VoiceImeService : InputMethodService() {
         activeVoiceOperationSnapshot = null
         activeRequestCall.cancel()
         activeRawTranscript = null
+        inputMode = VoiceInputMode.NORMAL
         transitionStatus(VoiceImeState.CANCELLED)
         stopRecorderAndJoin()
         recordingFailure = null
@@ -1082,7 +1091,8 @@ class VoiceImeService : InputMethodService() {
             imeOptions = editorInfo?.imeOptions ?: 0,
             sensitiveEditor = sensitive,
             settings = resolved.settings,
-            formattingStyle = resolved.formattingStyle
+            formattingStyle = resolved.formattingStyle,
+            inputMode = inputMode
         )
     }
 
@@ -1260,6 +1270,10 @@ class VoiceImeService : InputMethodService() {
     ) {
         if (!isVoiceOperationTargetCurrent(operationId)) return
         activeRawTranscript = originalText
+        if (activeVoiceOperationSnapshot?.inputMode == VoiceInputMode.FORMAT_COMMAND) {
+            processFormatCommand(file, operationId, originalText, apiKey)
+            return
+        }
         try {
             TextCorrectionRuleRepository.load(applicationContext) { result ->
                 mainHandler.post {
@@ -1577,6 +1591,7 @@ class VoiceImeService : InputMethodService() {
         activeRawTranscript = null
         recordingFailure = null
         deleteAudioFile(file)
+        inputMode = VoiceInputMode.NORMAL
         transitionStatus(terminalState, statusLabel)
     }
 
@@ -1598,6 +1613,7 @@ class VoiceImeService : InputMethodService() {
         deleteAudioFile(activeAudioFile)
         activeAudioFile = null
         recordingFailure = null
+        inputMode = VoiceInputMode.NORMAL
         transitionStatus(VoiceImeState.ERROR)
     }
 
@@ -1605,6 +1621,148 @@ class VoiceImeService : InputMethodService() {
         if (file?.exists() == true && !file.delete()) {
             Log.w(TAG, "Temporary WAV cleanup failed")
         }
+    }
+
+    /**
+     * 格式指令模式：第一層先處理本機確定性指令，其餘才交給 AI 格式整理。
+     * 一律只插入純文字，不執行任何操作，也不會替換既有文字。
+     */
+    private fun processFormatCommand(
+        file: File,
+        operationId: Long,
+        originalText: String,
+        apiKey: String
+    ) {
+        val snapshot = activeVoiceOperationSnapshot ?: return
+        when (FormatCommandInterpreter.interpret(originalText)) {
+            is FormatCommandInterpretation.Newline ->
+                commitFormatCommandText(file, operationId, "\n", "已插入換行")
+
+            is FormatCommandInterpretation.BlankLine ->
+                commitFormatCommandText(file, operationId, blankLineInsertionText(snapshot), "已插入空行")
+
+            is FormatCommandInterpretation.Unsupported -> {
+                Log.w(TAG, "Format command rejected as unsupported")
+                failFormatCommand(operationId, "不支援的格式指令，未插入任何文字")
+            }
+
+            is FormatCommandInterpretation.UseAi -> {
+                val provider = TextFormattingProviderRegistry.forProvider(snapshot.settings.provider)
+                if (provider == null || apiKey.isBlank()) {
+                    failFormatCommand(operationId, "格式指令需要可用的 Provider 與 API Key，未插入任何文字")
+                    return
+                }
+                if (!transitionStatus(VoiceImeState.FORMATTING)) return
+                runFormatCommand(file, operationId, apiKey, snapshot.settings.model, provider, originalText)
+            }
+        }
+    }
+
+    private fun blankLineInsertionText(snapshot: VoiceOperationSnapshot): String {
+        val canInspect = !snapshot.sensitiveEditor && canInspectEditorText(currentEditorInfo)
+        if (!canInspect) return BlankLineInsertion.newlinesFor(null, null, canInspect = false)
+        val connection = snapshot.inputConnection
+        val before = runCatching { connection?.getTextBeforeCursor(4, 0)?.toString() }.getOrNull()
+        val after = runCatching { connection?.getTextAfterCursor(4, 0)?.toString() }.getOrNull()
+        return BlankLineInsertion.newlinesFor(before, after, canInspect = true)
+    }
+
+    private fun runFormatCommand(
+        file: File,
+        operationId: Long,
+        apiKey: String,
+        model: String,
+        provider: TextFormattingProvider,
+        originalText: String
+    ) {
+        if (!isVoiceOperationTargetCurrent(operationId)) return
+        try {
+            val call = provider.format(
+                apiKey,
+                model,
+                originalText,
+                FormatCommandPrompt.SYSTEM_PROMPT
+            ) { result ->
+                mainHandler.post {
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
+                    activeRequestCall.clear()
+                    when (result) {
+                        is TextFormattingResult.Success -> {
+                            val formatted = result.text.trim()
+                            if (formatted.isEmpty()) {
+                                Log.w(TAG, "Format command produced no insertable text")
+                                failFormatCommand(operationId, "無法解讀這個格式指令，未插入任何文字")
+                            } else {
+                                commitFormatCommandText(file, operationId, formatted, "已插入格式指令結果")
+                            }
+                        }
+                        is TextFormattingResult.Failure -> {
+                            val status = result.httpStatus?.let { ", http_status=$it" }.orEmpty()
+                            Log.w(TAG, "Format command request failed: ${result.type}$status")
+                            failFormatCommand(operationId, "格式指令處理失敗，未插入任何文字")
+                        }
+                    }
+                }
+            }
+            activeRequestCall.attach(call)
+        } catch (exception: Exception) {
+            Log.w(TAG, "Format command setup failed: ${exception.javaClass.simpleName}")
+            failFormatCommand(operationId, "格式指令處理失敗，未插入任何文字")
+        }
+    }
+
+    /** 格式指令結果不寫入語音歷史，避免出現只有換行的項目。 */
+    private fun commitFormatCommandText(
+        file: File,
+        operationId: Long,
+        text: String,
+        statusLabel: String
+    ) {
+        try {
+            requestGate.runIfCurrent(operationId) {
+                if (!isVoiceOperationTargetCurrent(operationId)) return@runIfCurrent
+                val snapshot = activeVoiceOperationSnapshot
+                if (snapshot == null || !isOperationTargetCurrent(snapshot)) {
+                    finishWithError(operationId, "editor_target_changed")
+                    return@runIfCurrent
+                }
+                if (text.isEmpty()) {
+                    finishSuccessfully(operationId, file, VoiceImeState.SUCCESS, "已有空行")
+                    return@runIfCurrent
+                }
+                val committed = try {
+                    snapshot.inputConnection?.commitText(text, 1) == true
+                } catch (exception: Exception) {
+                    Log.e(TAG, "Format command delivery failed: ${exception.javaClass.simpleName}")
+                    false
+                }
+                if (committed) {
+                    finishSuccessfully(operationId, file, VoiceImeState.SUCCESS, statusLabel)
+                } else {
+                    finishWithError(operationId, "input_connection_unavailable")
+                }
+            }
+        } catch (exception: Exception) {
+            Log.e(TAG, "Format command delivery failed: ${exception.javaClass.simpleName}")
+            finishWithError(operationId, "result_delivery_failed")
+        }
+    }
+
+    private fun failFormatCommand(operationId: Long, statusLabel: String) {
+        if (!isOperationCurrent(operationId)) return
+        holdToTalkRecording = false
+        Log.w(TAG, "Format command finished without inserting text")
+        requestGate.invalidate()
+        activeOperationId = 0L
+        activeVoiceOperationSnapshot = null
+        activeRequestCall.cancel()
+        activeRawTranscript = null
+        inputMode = VoiceInputMode.NORMAL
+        stopRecorderAndJoin()
+        deleteAudioFile(activeAudioFile)
+        activeAudioFile = null
+        recordingFailure = null
+        transitionStatus(VoiceImeState.ERROR, statusLabel)
     }
 
     private fun isOperationCurrent(operationId: Long): Boolean =
@@ -1655,8 +1813,27 @@ class VoiceImeService : InputMethodService() {
         voicePanel?.render(
             stateMachine.state,
             statusLabelOverride,
-            holdToTalkRecording
+            holdToTalkRecording,
+            inputMode == VoiceInputMode.FORMAT_COMMAND
         )
+    }
+
+    private fun enterFormatCommandMode() {
+        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE) return
+        inputMode = VoiceInputMode.FORMAT_COMMAND
+        voicePanel?.showMainPanel()
+        renderStatus()
+    }
+
+    private fun exitFormatCommandMode() {
+        if (serviceDestroyed) return
+        val state = stateMachine.state
+        val canExit = state == VoiceImeState.IDLE || state == VoiceImeState.SUCCESS ||
+            state == VoiceImeState.FORMATTING_FALLBACK ||
+            state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
+        if (!canExit) return
+        inputMode = VoiceInputMode.NORMAL
+        renderStatus()
     }
 
     private fun startAudioLevelUpdates(operationId: Long) {
@@ -1745,7 +1922,8 @@ private data class VoiceOperationSnapshot(
     val imeOptions: Int,
     val sensitiveEditor: Boolean,
     val settings: SmartFormattingSettings,
-    val formattingStyle: TextFormattingStyle
+    val formattingStyle: TextFormattingStyle,
+    val inputMode: VoiceInputMode
 )
 
 private data class EditorFieldDetails(

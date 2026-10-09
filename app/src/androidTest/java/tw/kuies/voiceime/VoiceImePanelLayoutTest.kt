@@ -660,6 +660,111 @@ class VoiceImePanelLayoutTest {
         assertEquals(maxOf(originalRightPadding, navigationRightInset), root.paddingRight)
     }
 
+    @Test
+    fun formatCommandEntryIsOfferedInTheMorePageAndReturnsToTheMainArea() {
+        var entered = 0
+        val holder = arrayOfNulls<VoiceImePanel>(1)
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {},
+            onEnterFormatCommandMode = {
+                entered += 1
+                holder[0]?.showMainPanel()
+            }
+        )
+        holder[0] = panel
+        val originalHeight = measuredHeight(panel)
+
+        assertTrue(panel.moreButton.performClick())
+        val entry = findViewByDescription(panel.view, "格式指令")
+        assertTrue("the More page must offer the format command entry", entry != null)
+        assertTrue(entry!!.performClick())
+
+        assertEquals(1, entered)
+        assertEquals(View.VISIBLE, panel.mainPanel.visibility)
+        assertEquals(originalHeight, measuredHeight(panel))
+    }
+
+    @Test
+    fun formatCommandModeShowsAModeHintAndAnExplicitExitControlWithoutChangingHeight() {
+        var exited = 0
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {},
+            onExitFormatCommandMode = { exited += 1 }
+        )
+        val normalHeight = measuredHeight(panel)
+        assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
+
+        panel.render(VoiceImeState.IDLE, formatCommandMode = true)
+        assertEquals("格式指令模式", panel.idleTitle.text)
+        assertEquals(FormatCommandPrompt.FORMAT_COMMAND_HINT, panel.idleHint.text)
+        assertEquals(View.VISIBLE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
+        assertEquals(normalHeight, measuredHeight(panel))
+
+        panel.render(VoiceImeState.IDLE)
+        assertEquals("開始語音輸入", panel.idleTitle.text)
+        assertEquals("點一下開始說話", panel.idleHint.text)
+        assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
+
+        panel.render(VoiceImeState.IDLE, formatCommandMode = true)
+        assertTrue(findViewByDescription(panel.view, "返回一般模式")?.performClick() == true)
+        assertEquals(1, exited)
+    }
+
+    @Test
+    fun formatCommandModeKeepsTheExitControlOutOfRecordingAndProcessing() {
+        val panel = panel()
+
+        panel.render(VoiceImeState.RECORDING, formatCommandMode = true)
+        assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
+        assertEquals(View.VISIBLE, panel.recordingActions.visibility)
+        assertEquals(View.VISIBLE, panel.audioLevelIndicator.visibility)
+
+        panel.render(VoiceImeState.TRANSCRIBING, formatCommandMode = true)
+        assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
+        assertEquals(View.VISIBLE, panel.busyActions.visibility)
+        assertTrue(
+            allTextViews(panel.busyActions).any { it.text == "正在處理格式指令…" }
+        )
+
+        panel.render(VoiceImeState.SUCCESS, formatCommandMode = true)
+        assertEquals(View.VISIBLE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
+
+        panel.render(VoiceImeState.ERROR, formatCommandMode = false)
+        assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
+    }
+
+    @Test
+    fun morePageStillKeepsTheSharedPanelHeightWithTheNewEntry() {
+        val panel = panel()
+        layoutPanel(panel, widthDp = 360)
+
+        assertTrue(panel.moreButton.performClick())
+        layoutPanel(panel, widthDp = 360)
+
+        val maxHeight = (205 * context.resources.displayMetrics.density).toInt()
+        assertTrue("Panel height was ${panel.view.measuredHeight}px, max is $maxHeight px", panel.view.measuredHeight <= maxHeight)
+        assertEquals(
+            (VOICE_IME_PAGE_CONTENT_HEIGHT_DP * context.resources.displayMetrics.density).toInt(),
+            panel.mainPanel.layoutParams.height
+        )
+    }
+
+    private fun findViewByDescription(view: View, description: String): View? {
+        if (view.contentDescription?.toString() == description) return view
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                findViewByDescription(view.getChildAt(index), description)?.let { return it }
+            }
+        }
+        return null
+    }
+
     private fun panel() = VoiceImePanel(
         context = context,
         onVoiceAction = {},
