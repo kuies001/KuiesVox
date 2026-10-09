@@ -688,6 +688,41 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
+    fun morePageEntriesShareOneIconAndLabelLayout() {
+        val panel = panel()
+        assertTrue(panel.moreButton.performClick())
+
+        val density = context.resources.displayMetrics.density
+        val expectedIcon = (VOICE_IME_MORE_ENTRY_ICON_DP * density).toInt()
+        val expectedGap = (VOICE_IME_MORE_ENTRY_ICON_GAP_DP * density).toInt()
+        val labels = listOf("剪貼簿歷史", "語音辨識歷史", "快捷短語", "格式指令")
+
+        val rows = labels.map { entryLabel ->
+            val row = findViewByDescription(panel.view, entryLabel)
+            assertTrue("missing More entry: $entryLabel", row != null)
+            val entry = row as LinearLayout
+            assertEquals(entryLabel, entry.contentDescription?.toString())
+            assertEquals(2, entry.childCount)
+
+            val icon = entry.getChildAt(0) as ImageView
+            val iconParams = icon.layoutParams as LinearLayout.LayoutParams
+            assertEquals("$entryLabel icon size", expectedIcon, iconParams.width)
+            assertEquals("$entryLabel icon size", expectedIcon, iconParams.height)
+            assertEquals("$entryLabel icon gap", expectedGap, iconParams.marginEnd)
+            assertTrue("$entryLabel must draw an icon", icon.drawable != null)
+
+            val text = entry.getChildAt(1) as TextView
+            assertEquals(entryLabel, text.text.toString())
+            entry
+        }
+
+        assertEquals(4, rows.size)
+        assertEquals("row heights must match", 1, rows.map { it.layoutParams.height }.distinct().size)
+        assertEquals("row padding must match", 1, rows.map { it.paddingLeft }.distinct().size)
+        assertEquals("row padding must match", 1, rows.map { it.paddingRight }.distinct().size)
+    }
+
+    @Test
     fun formatCommandModeShowsAModeHintAndAnExplicitExitControlWithoutChangingHeight() {
         var exited = 0
         val panel = VoiceImePanel(

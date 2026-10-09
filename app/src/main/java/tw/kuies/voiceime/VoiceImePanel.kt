@@ -32,6 +32,9 @@ import java.util.Locale
 
 internal const val VOICE_IME_MAIN_INTERACTION_HEIGHT_DP = 130
 internal const val VOICE_IME_PAGE_CONTENT_HEIGHT_DP = 178
+internal const val VOICE_IME_MORE_ENTRY_ICON_DP = 20
+internal const val VOICE_IME_MORE_ENTRY_ICON_GAP_DP = 12
+private const val MORE_ENTRY_HORIZONTAL_PADDING_DP = 12
 
 internal class VoiceImePanel(
     context: Context,
@@ -802,25 +805,27 @@ internal class VoiceImePanel(
         )
         moreEntries.orientation = LinearLayout.VERTICAL
         moreEntries.addView(
-            historyNavigationButton(context, "剪貼簿歷史") {
+            moreEntry(context, R.drawable.ic_ime_clipboard, "剪貼簿歷史") {
                 showClipboardHistoryPanel(onIsSensitiveEditor())
             },
             moreEntryParams(context)
         )
         moreEntries.addView(
-            historyNavigationButton(context, "語音辨識歷史") {
+            moreEntry(context, R.drawable.ic_ime_history, "語音辨識歷史") {
                 showVoiceHistoryPanel(onIsSensitiveEditor())
             },
             moreEntryParams(context)
         )
         moreEntries.addView(
-            historyNavigationButton(context, "快捷短語") {
+            moreEntry(context, R.drawable.ic_ime_bookmark, "快捷短語") {
                 showSavedSnippetsPanel(onIsSensitiveEditor())
             },
             moreEntryParams(context)
         )
         moreEntries.addView(
-            formatCommandButton(context) { onEnterFormatCommandMode() },
+            moreEntry(context, R.drawable.ic_ime_format_command, "格式指令") {
+                onEnterFormatCommandMode()
+            },
             moreEntryParams(context)
         )
         morePanel.addView(
@@ -1539,24 +1544,15 @@ internal class VoiceImePanel(
         )
     }
 
-    private fun historyNavigationButton(context: Context, label: String, onClick: () -> Unit): View =
-        secondaryActionButton(context, textView(context, sizeSp = 14f, color = TEXT), label, TEXT) {
-            onClick()
-        }
-
-    private fun moreEntryParams(context: Context): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 38)).apply {
-            topMargin = dp(context, 5)
-        }
-
-    private fun formatCommandButton(context: Context, onClick: () -> Unit): View {
+    /** 「更多」頁面的四個項目共用同一個「左側 Icon + 右側文字」版型。 */
+    private fun moreEntry(context: Context, iconRes: Int, label: String, onClick: () -> Unit): View {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             isClickable = true
             isFocusable = true
-            contentDescription = "格式指令"
-            setPadding(dp(context, 12), 0, dp(context, 12), 0)
+            contentDescription = label
+            setPadding(dp(context, MORE_ENTRY_HORIZONTAL_PADDING_DP), 0, dp(context, MORE_ENTRY_HORIZONTAL_PADDING_DP), 0)
             background = RippleDrawable(
                 ColorStateList.valueOf(0x33FFFFFF),
                 solid(SURFACE, dp(context, 14)),
@@ -1566,23 +1562,30 @@ internal class VoiceImePanel(
         }
         row.addView(
             ImageView(context).apply {
-                setImageResource(R.drawable.ic_ime_format_command)
+                setImageResource(iconRes)
                 imageTintList = ColorStateList.valueOf(LAVENDER_BRIGHT)
                 scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = null
             },
-            LinearLayout.LayoutParams(dp(context, 16), dp(context, 16)).apply {
-                marginEnd = dp(context, 8)
-            }
+            LinearLayout.LayoutParams(
+                dp(context, VOICE_IME_MORE_ENTRY_ICON_DP),
+                dp(context, VOICE_IME_MORE_ENTRY_ICON_DP)
+            ).apply { marginEnd = dp(context, VOICE_IME_MORE_ENTRY_ICON_GAP_DP) }
         )
         row.addView(
             textView(context, sizeSp = 14f, color = TEXT).apply {
-                text = "格式指令"
+                text = label
                 setTypeface(typeface, Typeface.BOLD)
             },
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         )
         return row
     }
+
+    private fun moreEntryParams(context: Context): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 38)).apply {
+            topMargin = dp(context, 5)
+        }
 
     private fun renderHistoryRows() {
         if (!isShowingClipboardHistory() && !isShowingVoiceHistory()) return
