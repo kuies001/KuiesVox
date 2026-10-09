@@ -58,6 +58,18 @@ internal class AppUpdateController(
     @Volatile
     private var activeRelease: GitHubRelease? = null
 
+    @Volatile
+    private var activeChecksumAssetUrl: String? = null
+
+    @Volatile
+    private var activeApkFileName: String? = null
+
+    @Volatile
+    private var activeExpectedSizeBytes = 0L
+
+    @Volatile
+    private var activeIntegrity: ApkIntegrityResult? = null
+
     private var receiverRegistered = false
 
     @Volatile
@@ -114,6 +126,11 @@ internal class AppUpdateController(
     fun download(release: GitHubRelease, version: SemanticVersion, asset: GitHubReleaseAsset) {
         if (!downloading.compareAndSet(false, true)) return
         activeRelease = release
+        activeChecksumAssetUrl =
+            UpdateRepository.selectChecksumAsset(release.assets, asset.name)?.browserDownloadUrl
+        activeApkFileName = AppUpdateManager.apkFileNameFor(version)
+        activeExpectedSizeBytes = asset.sizeBytes
+        activeIntegrity = null
         onStateChanged(AppUpdateState.Downloading(release))
         executor.execute {
             runCatching { appUpdateManager.enqueueDownload(asset, version) }
@@ -139,7 +156,14 @@ internal class AppUpdateController(
     }
 
     fun install(release: GitHubRelease, downloadId: Long) {
-        when (val request = appUpdateManager.requestInstall(downloadId)) {
+        val integrity = activeIntegrity
+        if (integrity !is ApkIntegrityResult.Verified) {
+            onStateChanged(
+                AppUpdateState.Error(AppUpdateManager.CHECKSUM_ERROR_MESSAGE, release.htmlUrl)
+            )
+            return
+        }
+        when (val request = appUpdateManager.requestInstall(downloadId, integrity)) {
             is InstallRequestResult.ReadyToLaunch -> {
                 pendingInstallRelease = release
                 onStateChanged(AppUpdateState.Installing(release, downloadId))
@@ -178,6 +202,19 @@ internal class AppUpdateController(
         executor.execute {
             val status = runCatching { appUpdateManager.getDownloadStatus(downloadId) }
                 .getOrDefault(ApkDownloadStatus.Failed)
+            // 驗證在主執行緒之外進行：需要計算下載檔案的雜湊並取得 checksum。
+            val integrity = if (status == ApkDownloadStatus.Complete) {
+                runCatching {
+                    appUpdateManager.verifyDownloadedApk(
+                        downloadId = downloadId,
+                        checksumAssetUrl = activeChecksumAssetUrl,
+                        apkFileName = activeApkFileName.orEmpty(),
+                        expectedSizeBytes = activeExpectedSizeBytes
+                    )
+                }.getOrDefault(ApkIntegrityResult.ReadFailed)
+            } else {
+                null
+            }
             mainHandler.post {
                 if (downloadId != activeDownloadId) return@post
                 when (status) {
@@ -185,8 +222,19 @@ internal class AppUpdateController(
                     ApkDownloadStatus.Complete -> {
                         downloading.set(false)
                         activeDownloadId = null
-                        activeRelease = null
-                        install(release, downloadId)
+                        activeIntegrity = integrity
+                        if (integrity is ApkIntegrityResult.Verified) {
+                            install(release, downloadId)
+                        } else {
+                            activeRelease = null
+                            runCatching { appUpdateManager.discardDownload(downloadId) }
+                            onStateChanged(
+                                AppUpdateState.Error(
+                                    AppUpdateManager.CHECKSUM_ERROR_MESSAGE,
+                                    release.htmlUrl
+                                )
+                            )
+                        }
                     }
                     ApkDownloadStatus.Failed -> {
                         downloading.set(false)

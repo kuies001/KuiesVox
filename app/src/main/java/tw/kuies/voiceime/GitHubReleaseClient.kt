@@ -28,13 +28,18 @@ internal fun interface GitHubReleaseSource {
     fun fetchReleases(): List<GitHubRelease>
 }
 
+internal fun interface GitHubChecksumSource {
+    @Throws(IOException::class)
+    fun fetchChecksumText(url: String): String
+}
+
 internal class GitHubReleaseClient(
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .callTimeout(30, TimeUnit.SECONDS)
         .build()
-) : GitHubReleaseSource {
+) : GitHubReleaseSource, GitHubChecksumSource {
     override fun fetchReleases(): List<GitHubRelease> {
         val request = Request.Builder()
             .url(GitHubReleaseConfig.RELEASES_API_URL)
@@ -51,6 +56,36 @@ internal class GitHubReleaseClient(
             val responseBody = response.body?.string()
                 ?: throw IOException("GitHub Releases API returned an empty response.")
             return parseReleaseList(responseBody)
+        }
+    }
+
+    private val checksumResponseLimitBytes = 4_096
+
+    /** 取下載 checksum 檔的內容；只接受官方 Release 下載路徑。 */
+    override fun fetchChecksumText(url: String): String {
+        val safeUrl = GitHubReleaseConfig.officialAssetUrlOrNull(url)
+            ?: throw IOException("Checksum URL is not a KuiesVox release asset.")
+        val request = Request.Builder()
+            .url(safeUrl)
+            .header("Accept", "text/plain")
+            .header("User-Agent", "KuiesVox-Android")
+            .get()
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("Checksum download returned HTTP ${response.code}.")
+            }
+            val responseBody = response.body
+                ?: throw IOException("Checksum download returned an empty response.")
+            if (responseBody.contentLength() > checksumResponseLimitBytes) {
+                throw IOException("Checksum asset is unexpectedly large.")
+            }
+            val text = responseBody.string()
+            if (text.length > checksumResponseLimitBytes) {
+                throw IOException("Checksum asset is unexpectedly large.")
+            }
+            return text
         }
     }
 

@@ -4,8 +4,11 @@
     <exclude domain="sharedpref" path="groq_settings.xml" />
     <exclude domain="sharedpref" path="text_formatting_api_keys.xml" />
     <exclude domain="sharedpref" path="mcp_settings.xml" />
+    <exclude domain="sharedpref" path="mcp_config.xml" />
+    <exclude domain="sharedpref" path="mcp_context_cache.xml" />
     <exclude domain="database" path="kuiesvox_history.db" />
     <exclude domain="database" path="kuiesvox_history.db-wal" />
     <exclude domain="database" path="kuiesvox_history.db-shm" />
     <exclude domain="database" path="kuiesvox_history.db-journal" />
+    <exclude domain="external" path="Download" />
 </full-backup-content>
