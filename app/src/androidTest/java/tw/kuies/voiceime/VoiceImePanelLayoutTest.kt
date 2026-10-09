@@ -747,11 +747,33 @@ class VoiceImePanelLayoutTest {
         assertEquals(View.VISIBLE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
         assertEquals(normalHeight, measuredHeight(panel))
 
+        val formatIconState = panel.idleMicButton.drawable.constantState
+        assertEquals("格式指令模式錄音", panel.idleMicButton.contentDescription)
+        val exit = findViewByDescription(panel.view, "返回一般模式")
+        assertTrue("exit control must be reachable", exit != null)
+        assertTrue(allTextViews(exit!!).any { it.text == "返回" })
+        assertTrue(
+            "exit must not intrude on the main round button: exit.left=${exit.left} " +
+                "mic.right=${panel.idleMicButton.right}",
+            exit.left >= panel.idleMicButton.right
+        )
+        assertTrue("exit must stay narrower than the main button", exit.width < panel.idleMicButton.width)
+        assertTrue(
+            "exit needs a usable touch area",
+            exit.height >= (22 * context.resources.displayMetrics.density).toInt()
+        )
+
         panel.render(VoiceImeState.IDLE)
         assertEquals(View.VISIBLE, panel.idleTitle.visibility)
         assertEquals("開始語音輸入", panel.idleTitle.text)
         assertEquals("點一下開始說話", panel.idleHint.text.toString())
         assertEquals(2, panel.idleHint.maxLines)
+        assertEquals("開始語音輸入", panel.idleMicButton.contentDescription)
+        assertNotEquals(
+            "format mode must use a different main icon",
+            formatIconState,
+            panel.idleMicButton.drawable.constantState
+        )
         assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
 
         panel.render(VoiceImeState.IDLE, formatCommandMode = true)
@@ -806,6 +828,8 @@ class VoiceImePanelLayoutTest {
 
         listOf(320, 360).forEach { widthDp ->
             layoutPanel(panel, widthDp = widthDp)
+            panel.render(VoiceImeState.IDLE)
+            val normalIconState = panel.idleMicButton.drawable.constantState
             panel.render(VoiceImeState.IDLE, formatCommandMode = true)
             layoutPanel(panel, widthDp = widthDp)
 
@@ -824,6 +848,20 @@ class VoiceImePanelLayoutTest {
                 panel.idleHint.layout.lineCount in 1..2
             )
             assertEquals(null, panel.idleHint.ellipsize)
+            assertNotEquals(
+                "format mode must keep its own icon at ${widthDp}dp wide",
+                normalIconState,
+                panel.idleMicButton.drawable.constantState
+            )
+
+            val exit = findViewByDescription(panel.view, "返回一般模式")
+            assertTrue("missing exit control at ${widthDp}dp wide", exit != null)
+            assertEquals(View.VISIBLE, exit!!.visibility)
+            assertTrue(
+                "exit must not intrude on the main button at ${widthDp}dp wide: " +
+                    "exit.left=${exit.left} mic.right=${panel.idleMicButton.right}",
+                exit.left >= panel.idleMicButton.right
+            )
         }
     }
 

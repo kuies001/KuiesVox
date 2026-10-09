@@ -38,6 +38,10 @@ private const val MORE_ENTRY_HORIZONTAL_PADDING_DP = 12
 private const val IDLE_HINT_MAX_LINES = 2
 private const val NORMAL_HINT_TEXT_SP = 11f
 private const val FORMAT_MODE_HINT_TEXT_SP = 12f
+private const val BACK_ICON_DP = 14
+private const val BACK_ICON_GAP_DP = 4
+private const val BACK_BUTTON_HEIGHT_DP = 26
+private const val BACK_BUTTON_HORIZONTAL_PADDING_DP = 10
 
 internal class VoiceImePanel(
     context: Context,
@@ -173,7 +177,7 @@ internal class VoiceImePanel(
     private val voiceActionsContainer = FrameLayout(context)
     private val sideActionColumn = LinearLayout(context)
     private val busyLabel = textView(context, sizeSp = 13f, color = TEXT)
-    private val formatModeExitButton = textView(context, sizeSp = 11f, color = TEXT_MUTED)
+    private val formatModeExitButton = LinearLayout(context)
     private val moreEntries = LinearLayout(context)
 
     val view: View
@@ -511,12 +515,17 @@ internal class VoiceImePanel(
             )
         )
 
+        // 只保留小型返回圖示與「返回」兩字，寬度大幅縮小，避免侵入主圓形按鈕的視覺區域。
         formatModeExitButton.apply {
-            text = "返回一般模式"
-            contentDescription = "返回一般模式"
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setTextColor(TEXT_MUTED)
-            setPadding(dp(context, 10), 0, dp(context, 10), 0)
+            contentDescription = "返回一般模式"
+            setPadding(
+                dp(context, BACK_BUTTON_HORIZONTAL_PADDING_DP),
+                0,
+                dp(context, BACK_BUTTON_HORIZONTAL_PADDING_DP),
+                0
+            )
             isClickable = true
             isFocusable = true
             visibility = View.GONE
@@ -525,15 +534,36 @@ internal class VoiceImePanel(
                 solid(SURFACE, dp(context, 14)),
                 null
             )
+            addView(
+                ImageView(context).apply {
+                    setImageResource(R.drawable.ic_ime_back)
+                    imageTintList = ColorStateList.valueOf(TEXT_MUTED)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    contentDescription = null
+                },
+                LinearLayout.LayoutParams(dp(context, BACK_ICON_DP), dp(context, BACK_ICON_DP)).apply {
+                    marginEnd = dp(context, BACK_ICON_GAP_DP)
+                }
+            )
+            addView(
+                textView(context, sizeSp = NORMAL_HINT_TEXT_SP, color = TEXT_MUTED).apply {
+                    text = "返回"
+                    setTypeface(typeface, Typeface.BOLD)
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
             setOnClickListener { onExitFormatCommandMode() }
         }
         voiceActionsContainer.addView(
             formatModeExitButton,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                dp(context, 22),
+                dp(context, BACK_BUTTON_HEIGHT_DP),
                 Gravity.TOP or Gravity.END
-            ).apply { topMargin = dp(context, 1) }
+            )
         )
 
         recordingActions.apply {
@@ -1831,6 +1861,13 @@ internal class VoiceImePanel(
             idleHint.setTextColor(TEXT_MUTED)
             idleHint.text = if (holdToTalkRecording) "放開即辨識" else "點一下開始說話"
         }
+        // 格式模式改用排版圖示，讓模式只靠主按鈕就能辨識；收音中仍由狀態燈、音量回饋與
+        // 啟動配色（isActivated）表達，不會因此換回麥克風圖示。
+        idleMicButton.setImageResource(
+            if (formatCommandMode) R.drawable.ic_ime_format_command else R.drawable.ic_ime_mic
+        )
+        idleMicButton.contentDescription =
+            if (formatCommandMode) "格式指令模式錄音" else "開始語音輸入"
         idleMicButton.isActivated = holdToTalkRecording
         idleMicButton.alpha = if (holdToTalkRecording) 0.9f else 1f
         idleMicButton.background = if (holdToTalkRecording) {
