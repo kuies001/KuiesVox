@@ -21,6 +21,13 @@ internal sealed interface FormatCommandInterpretation {
 }
 
 /**
+ * 純格式指令（換行、空一行）不寫入語音歷史，避免出現只有換行的項目；
+ * 會產生實質文字的指令才記錄。
+ */
+internal fun FormatCommandInterpretation.recordsVoiceHistory(): Boolean =
+    this == FormatCommandInterpretation.UseAi
+
+/**
  * 第一層：本機確定性指令。
  * 只比對整句正規化後的完整字串，不做任意子字串比對，
  * 因此「我覺得換行很好用」不會被當成單純的換行命令。

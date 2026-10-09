@@ -1634,12 +1634,18 @@ class VoiceImeService : InputMethodService() {
         apiKey: String
     ) {
         val snapshot = activeVoiceOperationSnapshot ?: return
-        when (FormatCommandInterpreter.interpret(originalText)) {
-            is FormatCommandInterpretation.Newline ->
-                commitFormatCommandText(file, operationId, "\n", "已插入換行")
+        when (val interpretation = FormatCommandInterpreter.interpret(originalText)) {
+            is FormatCommandInterpretation.Newline -> commitFormatCommandText(
+                file, operationId, "\n", "已插入換行", interpretation.recordsVoiceHistory()
+            )
 
-            is FormatCommandInterpretation.BlankLine ->
-                commitFormatCommandText(file, operationId, blankLineInsertionText(snapshot), "已插入空行")
+            is FormatCommandInterpretation.BlankLine -> commitFormatCommandText(
+                file,
+                operationId,
+                blankLineInsertionText(snapshot),
+                "已插入空行",
+                interpretation.recordsVoiceHistory()
+            )
 
             is FormatCommandInterpretation.Unsupported -> {
                 Log.w(TAG, "Format command rejected as unsupported")
@@ -1653,7 +1659,15 @@ class VoiceImeService : InputMethodService() {
                     return
                 }
                 if (!transitionStatus(VoiceImeState.FORMATTING)) return
-                runFormatCommand(file, operationId, apiKey, snapshot.settings.model, provider, originalText)
+                runFormatCommand(
+                    file,
+                    operationId,
+                    apiKey,
+                    snapshot.settings.model,
+                    provider,
+                    originalText,
+                    interpretation.recordsVoiceHistory()
+                )
             }
         }
     }
@@ -1673,7 +1687,8 @@ class VoiceImeService : InputMethodService() {
         apiKey: String,
         model: String,
         provider: TextFormattingProvider,
-        originalText: String
+        originalText: String,
+        recordVoiceHistory: Boolean
     ) {
         if (!isVoiceOperationTargetCurrent(operationId)) return
         try {
@@ -1693,7 +1708,13 @@ class VoiceImeService : InputMethodService() {
                                 Log.w(TAG, "Format command produced no insertable text")
                                 failFormatCommand(operationId, "無法解讀這個格式指令，未插入任何文字")
                             } else {
-                                commitFormatCommandText(file, operationId, formatted, "已插入格式指令結果")
+                                commitFormatCommandText(
+                                    file,
+                                    operationId,
+                                    formatted,
+                                    "已插入格式指令結果",
+                                    recordVoiceHistory
+                                )
                             }
                         }
                         is TextFormattingResult.Failure -> {
@@ -1711,12 +1732,16 @@ class VoiceImeService : InputMethodService() {
         }
     }
 
-    /** 格式指令結果不寫入語音歷史，避免出現只有換行的項目。 */
+    /**
+     * 純格式指令（換行、空一行）不寫入語音歷史，避免出現只有換行的項目；
+     * 會產生實質文字的指令才記錄。
+     */
     private fun commitFormatCommandText(
         file: File,
         operationId: Long,
         text: String,
-        statusLabel: String
+        statusLabel: String,
+        recordVoiceHistory: Boolean
     ) {
         try {
             requestGate.runIfCurrent(operationId) {
@@ -1737,6 +1762,20 @@ class VoiceImeService : InputMethodService() {
                     false
                 }
                 if (committed) {
+                    if (recordVoiceHistory) {
+                        UserHistoryRepository.recordVoiceAsync(
+                            applicationContext,
+                            rawText = activeRawTranscript.orEmpty(),
+                            finalText = text,
+                            successfulCommit = true,
+                            cancelled = false,
+                            isSensitiveEditor = snapshot.sensitiveEditor
+                        ) { result ->
+                            if (result.isFailure) {
+                                logHistoryFailure("voice_history_record", result.exceptionOrNull())
+                            }
+                        }
+                    }
                     finishSuccessfully(operationId, file, VoiceImeState.SUCCESS, statusLabel)
                 } else {
                     finishWithError(operationId, "input_connection_unavailable")

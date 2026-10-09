@@ -1,6 +1,8 @@
 package tw.kuies.voiceime
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FormatCommandInterpreterTest {
@@ -63,6 +65,14 @@ class FormatCommandInterpreterTest {
     fun emptyTranscriptIsNotTreatedAsACommand() {
         assertEquals(FormatCommandInterpretation.UseAi, interpret(""))
         assertEquals(FormatCommandInterpretation.UseAi, interpret("   "))
+    }
+
+    @Test
+    fun onlyCommandsThatProduceRealTextAreRecordedInVoiceHistory() {
+        assertFalse(FormatCommandInterpretation.Newline.recordsVoiceHistory())
+        assertFalse(FormatCommandInterpretation.BlankLine.recordsVoiceHistory())
+        assertFalse(FormatCommandInterpretation.Unsupported.recordsVoiceHistory())
+        assertTrue(FormatCommandInterpretation.UseAi.recordsVoiceHistory())
     }
 
     private fun interpret(transcript: String): FormatCommandInterpretation =
