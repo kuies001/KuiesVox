@@ -1,5 +1,6 @@
 package tw.kuies.voiceime
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -77,6 +78,56 @@ class HistoryPrivacyPolicyTest {
         )
         assertFalse(
             VoiceHistoryPolicy.canStore("原始", "最終", true, false, isSensitiveEditor = true)
+        )
+    }
+
+    @Test
+    fun togglingOneSwitchLeavesTheOtherUntouched() {
+        val bothOn = HistorySettings(voiceHistoryEnabled = true, clipboardHistoryEnabled = true)
+
+        assertEquals(
+            HistorySettings(voiceHistoryEnabled = false, clipboardHistoryEnabled = true),
+            bothOn.withVoiceHistoryEnabled(false)
+        )
+        assertEquals(
+            HistorySettings(voiceHistoryEnabled = true, clipboardHistoryEnabled = false),
+            bothOn.withClipboardHistoryEnabled(false)
+        )
+        assertEquals(bothOn, bothOn.withVoiceHistoryEnabled(true))
+    }
+
+    @Test
+    fun rapidTogglingCannotLoseASettingBecauseEachUpdateStartsFromThePersistedValue() {
+        var persisted = HistorySettings()
+
+        persisted = persisted.withVoiceHistoryEnabled(false)
+        persisted = persisted.withClipboardHistoryEnabled(false)
+        persisted = persisted.withVoiceHistoryEnabled(true)
+
+        assertTrue(persisted.voiceHistoryEnabled)
+        assertFalse(persisted.clipboardHistoryEnabled)
+    }
+
+    @Test
+    fun theWriteGateReadsTheSettingWhenTheWriteActuallyRuns() {
+        var voice = HistorySettings(voiceHistoryEnabled = true)
+        val voiceProvider = { voice }
+
+        // 排入佇列時仍允許寫入；使用者關閉後、真正寫入的那一刻必須拒絕。
+        assertTrue(HistoryWriteGate.shouldWriteVoice(voiceProvider, isSensitiveEditor = false))
+        voice = voice.withVoiceHistoryEnabled(false)
+        assertFalse(HistoryWriteGate.shouldWriteVoice(voiceProvider, isSensitiveEditor = false))
+
+        var clipboard = HistorySettings(clipboardHistoryEnabled = true)
+        val clipboardProvider = { clipboard }
+        assertTrue(HistoryWriteGate.shouldWriteClipboard(clipboardProvider, isSensitiveEditor = false))
+        clipboard = clipboard.withClipboardHistoryEnabled(false)
+        assertFalse(HistoryWriteGate.shouldWriteClipboard(clipboardProvider, isSensitiveEditor = false))
+
+        // 敏感欄位永遠拒絕，即使開關是開的。
+        assertFalse(HistoryWriteGate.shouldWriteVoice({ HistorySettings() }, isSensitiveEditor = true))
+        assertFalse(
+            HistoryWriteGate.shouldWriteClipboard({ HistorySettings() }, isSensitiveEditor = true)
         )
     }
 }

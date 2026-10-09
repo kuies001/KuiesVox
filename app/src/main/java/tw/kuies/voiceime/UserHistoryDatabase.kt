@@ -363,17 +363,22 @@ internal object UserHistoryRepository {
         isSensitiveEditor: Boolean,
         callback: (Result<Boolean>) -> Unit = {}
     ) {
-        if (!HistoryCapturePolicy.shouldRecordClipboard(
-                HistorySettingsRepository.loadSync(context),
-                isSensitiveEditor
-            ) || !ClipboardHistoryPolicy.canStore(text, isSensitiveEditor)
-        ) {
+        if (!ClipboardHistoryPolicy.canStore(text, isSensitiveEditor)) {
             callback(Result.success(false))
             return
         }
         AppStorageExecutor.submit({
-            ClipboardHistoryManager(UserHistoryDatabase.get(context).clipboardHistoryDao())
-                .record(text, isSensitiveEditor)
+            // 設定在寫入當下才檢查：使用者關閉後，已在佇列中的工作也不會寫入。
+            if (!HistoryWriteGate.shouldWriteClipboard(
+                    { HistorySettingsRepository.loadSync(context) },
+                    isSensitiveEditor
+                )
+            ) {
+                false
+            } else {
+                ClipboardHistoryManager(UserHistoryDatabase.get(context).clipboardHistoryDao())
+                    .record(text, isSensitiveEditor)
+            }
         }, callback)
     }
 
@@ -417,10 +422,7 @@ internal object UserHistoryRepository {
         isSensitiveEditor: Boolean,
         callback: (Result<Boolean>) -> Unit = {}
     ) {
-        if (!HistoryCapturePolicy.shouldRecordVoice(
-                HistorySettingsRepository.loadSync(context),
-                isSensitiveEditor
-            ) || !VoiceHistoryPolicy.canStore(
+        if (!VoiceHistoryPolicy.canStore(
                 rawText,
                 finalText,
                 successfulCommit,
@@ -432,8 +434,17 @@ internal object UserHistoryRepository {
             return
         }
         AppStorageExecutor.submit({
-            VoiceHistoryManager(UserHistoryDatabase.get(context).voiceHistoryDao())
-                .record(rawText, finalText, successfulCommit, cancelled, isSensitiveEditor)
+            // 設定在寫入當下才檢查：使用者關閉後，已在佇列中的工作也不會寫入。
+            if (!HistoryWriteGate.shouldWriteVoice(
+                    { HistorySettingsRepository.loadSync(context) },
+                    isSensitiveEditor
+                )
+            ) {
+                false
+            } else {
+                VoiceHistoryManager(UserHistoryDatabase.get(context).voiceHistoryDao())
+                    .record(rawText, finalText, successfulCommit, cancelled, isSensitiveEditor)
+            }
         }, callback)
     }
 
