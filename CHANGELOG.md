@@ -5,6 +5,7 @@
 ## 版本索引
 
 - [未發布](#unreleased)
+- [0.13.0](#v0-13-0)
 - [0.12.0](#v0-12-0)
 - [0.11.0](#v0-11-0)
 - [0.10.0](#v0-10-0)
@@ -15,6 +16,18 @@
 ## [Unreleased]
 
 此區留給下一版尚未發布的變更。
+
+<a id="v0-13-0"></a>
+## [0.13.0] - 2026-10-09
+
+### Changed
+
+- 移除快捷短語分類操作，改以「全部／最近使用」檢視清單；既有分類中的短語資料完整保留，搜尋可搭配排序使用。
+- 最近使用排序依實際成功插入時間更新，瀏覽、搜尋、編輯或長按不會更新使用時間。
+
+### Fixed
+
+- 修復長按快捷短語無法顯示刪除確認的問題；長按、卡片單筆刪除與批次刪除共用 IME 內確認介面。
 
 <a id="v0-12-0"></a>
 ## [0.12.0] - 2026-10-08
@@ -148,7 +161,8 @@
 
 - Groq API Key：[console.groq.com/keys](https://console.groq.com/keys)
 
-[Unreleased]: https://github.com/kuies001/KuiesVox/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/kuies001/KuiesVox/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/kuies001/KuiesVox/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/kuies001/KuiesVox/releases/tag/v0.12.0
 [0.11.0]: https://github.com/kuies001/KuiesVox/releases/tag/v0.11.0
 [0.10.0]: https://github.com/kuies001/KuiesVox/releases/tag/v0.10.0

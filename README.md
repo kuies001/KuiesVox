@@ -3,7 +3,7 @@
 KuiesVox 是 Android 語音輸入法。
 
 <!-- KUIESVOX_VERSION_START -->
-目前版本：v0.12.0 Beta（測試版）
+目前版本：v0.13.0 Beta（測試版）
 <!-- KUIESVOX_VERSION_END -->
 
 ## 版本與下載
