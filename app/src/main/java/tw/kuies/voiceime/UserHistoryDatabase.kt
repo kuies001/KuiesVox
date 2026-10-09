@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -12,6 +13,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import java.util.UUID
 
 @Entity(
@@ -47,6 +50,54 @@ internal data class VoiceHistoryRow(
     val finalText: String
 ) {
     fun toEntity() = VoiceHistoryEntity(id, createdAt, rawText, finalText)
+}
+
+@Entity(
+    tableName = "snippet_categories",
+    indices = [Index(value = ["name"], unique = true)]
+)
+internal data class SnippetCategoryRow(
+    @PrimaryKey val id: String,
+    val name: String,
+    val isBuiltIn: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long
+) {
+    fun toEntity() = SavedSnippetCategory(id, name, isBuiltIn, createdAt, updatedAt)
+}
+
+@Entity(
+    tableName = "saved_snippets",
+    foreignKeys = [
+        ForeignKey(
+            entity = SnippetCategoryRow::class,
+            parentColumns = ["id"],
+            childColumns = ["categoryId"],
+            onDelete = ForeignKey.RESTRICT
+        )
+    ],
+    indices = [Index(value = ["categoryId"]), Index(value = ["lastUsedAt"])]
+)
+internal data class SavedSnippetRow(
+    @PrimaryKey val id: String,
+    val title: String,
+    val content: String,
+    val categoryId: String,
+    val pinned: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val lastUsedAt: Long?
+) {
+    fun toEntity() = SavedSnippet(
+        id = id,
+        title = title,
+        content = content,
+        categoryId = categoryId,
+        pinned = pinned,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        lastUsedAt = lastUsedAt
+    )
 }
 
 @Dao
@@ -101,14 +152,65 @@ internal interface VoiceHistoryDao {
     fun trim(maxItems: Int)
 }
 
+@Dao
+internal interface SavedSnippetDao {
+    @Query("SELECT * FROM snippet_categories ORDER BY isBuiltIn DESC, name COLLATE NOCASE ASC")
+    fun getCategories(): List<SnippetCategoryRow>
+
+    @Query("SELECT * FROM snippet_categories WHERE id = :id LIMIT 1")
+    fun getCategory(id: String): SnippetCategoryRow?
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertCategory(category: SnippetCategoryRow)
+
+    @Update
+    fun updateCategory(category: SnippetCategoryRow)
+
+    @Query("DELETE FROM snippet_categories WHERE id = :id")
+    fun deleteCategory(id: String)
+
+    @Query("SELECT * FROM saved_snippets ORDER BY pinned DESC, lastUsedAt DESC, updatedAt DESC, title COLLATE NOCASE ASC")
+    fun getSnippets(): List<SavedSnippetRow>
+
+    @Query("SELECT * FROM saved_snippets WHERE id = :id LIMIT 1")
+    fun getSnippet(id: String): SavedSnippetRow?
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertSnippet(snippet: SavedSnippetRow)
+
+    @Update
+    fun updateSnippet(snippet: SavedSnippetRow)
+
+    @Query("UPDATE saved_snippets SET pinned = :pinned, updatedAt = :updatedAt WHERE id = :id")
+    fun setPinned(id: String, pinned: Boolean, updatedAt: Long)
+
+    @Query("UPDATE saved_snippets SET lastUsedAt = :timestamp WHERE id = :id")
+    fun setLastUsedAt(id: String, timestamp: Long)
+
+    @Query("DELETE FROM saved_snippets WHERE id = :id")
+    fun deleteSnippet(id: String)
+
+    @Query("DELETE FROM saved_snippets")
+    fun deleteAllSnippets()
+
+    @Query("UPDATE saved_snippets SET categoryId = :targetCategoryId WHERE categoryId = :sourceCategoryId")
+    fun moveSnippets(sourceCategoryId: String, targetCategoryId: String)
+}
+
 @Database(
-    entities = [ClipboardHistoryRow::class, VoiceHistoryRow::class],
-    version = 1,
+    entities = [
+        ClipboardHistoryRow::class,
+        VoiceHistoryRow::class,
+        SnippetCategoryRow::class,
+        SavedSnippetRow::class
+    ],
+    version = 2,
     exportSchema = false
 )
 internal abstract class UserHistoryDatabase : RoomDatabase() {
     abstract fun clipboardHistoryDao(): ClipboardHistoryDao
     abstract fun voiceHistoryDao(): VoiceHistoryDao
+    abstract fun savedSnippetDao(): SavedSnippetDao
 
     companion object {
         const val DATABASE_NAME = "kuiesvox_history.db"
@@ -121,7 +223,66 @@ internal abstract class UserHistoryDatabase : RoomDatabase() {
                 context.applicationContext,
                 UserHistoryDatabase::class.java,
                 DATABASE_NAME
-            ).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2)
+                .addCallback(object : RoomDatabase.Callback() {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        super.onCreate(db)
+                        insertDefaultSnippetCategories(db)
+                    }
+                })
+                .build().also { instance = it }
+        }
+
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `snippet_categories` (
+                        `id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `isBuiltIn` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )""".trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_snippet_categories_name` " +
+                        "ON `snippet_categories` (`name`)"
+                )
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `saved_snippets` (
+                        `id` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `categoryId` TEXT NOT NULL,
+                        `pinned` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `lastUsedAt` INTEGER,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`categoryId`) REFERENCES `snippet_categories`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                    )""".trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_saved_snippets_categoryId` " +
+                        "ON `saved_snippets` (`categoryId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_saved_snippets_lastUsedAt` " +
+                        "ON `saved_snippets` (`lastUsedAt`)"
+                )
+                insertDefaultSnippetCategories(db)
+            }
+        }
+
+        private fun insertDefaultSnippetCategories(db: SupportSQLiteDatabase) {
+            SavedSnippetCategoryDefaults.entries.forEach { category ->
+                db.execSQL(
+                    "INSERT OR IGNORE INTO `snippet_categories` " +
+                        "(`id`, `name`, `isBuiltIn`, `createdAt`, `updatedAt`) VALUES (?, ?, 1, 0, 0)",
+                    arrayOf(category.id, category.name)
+                )
+            }
         }
     }
 }

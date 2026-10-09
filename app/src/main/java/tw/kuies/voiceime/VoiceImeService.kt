@@ -133,6 +133,15 @@ class VoiceImeService : InputMethodService() {
             onClearUnpinnedClipboard = ::clearUnpinnedClipboardHistory,
             onDeleteVoiceHistoryItem = ::deleteVoiceHistoryItem,
             onClearVoiceHistory = ::clearVoiceHistory,
+            onOpenSavedSnippets = ::openSavedSnippets,
+            onInsertSavedSnippet = ::insertSavedSnippet,
+            onMarkSavedSnippetUsed = { id ->
+                SavedSnippetRepository.markUsedAsync(applicationContext, id)
+            },
+            onSetSavedSnippetPinned = ::setSavedSnippetPinned,
+            onDeleteSavedSnippet = ::deleteSavedSnippet,
+            onClearSavedSnippets = ::clearSavedSnippets,
+            onManageSavedSnippets = ::openSavedSnippetManager,
             onIsSensitiveEditor = ::isCurrentEditorSensitive
         )
         voicePanel = panel
@@ -151,6 +160,8 @@ class VoiceImeService : InputMethodService() {
                     voicePanel?.showClipboardHistoryPanel(isSensitiveEditor = true)
                 voicePanel?.isShowingVoiceHistory() == true ->
                     voicePanel?.showVoiceHistoryPanel(isSensitiveEditor = true)
+                voicePanel?.isShowingSavedSnippets() == true ->
+                    voicePanel?.hideSavedSnippetsForPrivacy()
             }
         }
         registerClipboardListenerForSafeEditor()
@@ -458,6 +469,106 @@ class VoiceImeService : InputMethodService() {
                         if (result.isFailure) "無法載入語音歷史，請稍後再試" else null
                     )
                 }
+            }
+        }
+    }
+
+    private fun openSavedSnippets() {
+        if (isCurrentEditorSensitive()) {
+            voicePanel?.hideSavedSnippetsForPrivacy()
+            return
+        }
+        refreshSavedSnippets()
+    }
+
+    private fun refreshSavedSnippets(statusMessage: String? = null) {
+        if (isCurrentEditorSensitive()) {
+            voicePanel?.hideSavedSnippetsForPrivacy()
+            return
+        }
+        SavedSnippetRepository.loadAsync(applicationContext) { result ->
+            mainHandler.post {
+                val panel = voicePanel ?: return@post
+                if (!panel.isShowingSavedSnippets()) return@post
+                if (isCurrentEditorSensitive()) {
+                    panel.hideSavedSnippetsForPrivacy()
+                    return@post
+                }
+                val library = result.getOrElse { SavedSnippetLibrary(emptyList(), emptyList()) }
+                val message = statusMessage ?: if (result.isFailure) {
+                    "無法載入快捷短語，請稍後再試"
+                } else {
+                    null
+                }
+                panel.updateSavedSnippets(library, message)
+            }
+        }
+    }
+
+    private fun insertSavedSnippet(snippet: SavedSnippet): Boolean {
+        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE) return false
+        if (isCurrentEditorSensitive()) {
+            voicePanel?.hideSavedSnippetsForPrivacy()
+            return false
+        }
+        val connection = try {
+            currentInputConnection
+        } catch (_: Exception) {
+            null
+        } ?: return false
+        val target = SnippetCommitTarget { text, newCursorPosition ->
+            connection.commitText(text, newCursorPosition)
+        }
+        return SavedSnippetInsertion.insert(target, snippet.content)
+    }
+
+    private fun openSavedSnippetManager(action: SavedSnippetManagerAction, snippetId: String?) {
+        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || isCurrentEditorSensitive()) {
+            if (isCurrentEditorSensitive()) voicePanel?.hideSavedSnippetsForPrivacy()
+            return
+        }
+        try {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .putExtra(MainActivity.EXTRA_SAVED_SNIPPET_ACTION, action.name)
+                    .putExtra(MainActivity.EXTRA_SAVED_SNIPPET_ID, snippetId)
+                    .addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+            )
+        } catch (exception: Exception) {
+            Log.w(TAG, "Saved snippet manager could not be opened: ${exception.javaClass.simpleName}")
+        }
+    }
+
+    private fun setSavedSnippetPinned(id: String, pinned: Boolean) {
+        if (isCurrentEditorSensitive()) return
+        SavedSnippetRepository.setPinnedAsync(applicationContext, id, pinned) { result ->
+            mainHandler.post {
+                if (isCurrentEditorSensitive()) voicePanel?.hideSavedSnippetsForPrivacy()
+                else refreshSavedSnippets(if (result.isFailure) "收藏狀態更新失敗" else null)
+            }
+        }
+    }
+
+    private fun deleteSavedSnippet(id: String) {
+        if (isCurrentEditorSensitive()) return
+        SavedSnippetRepository.deleteAsync(applicationContext, id) { result ->
+            mainHandler.post {
+                if (isCurrentEditorSensitive()) voicePanel?.hideSavedSnippetsForPrivacy()
+                else refreshSavedSnippets(if (result.isFailure) "短語刪除失敗" else null)
+            }
+        }
+    }
+
+    private fun clearSavedSnippets() {
+        if (isCurrentEditorSensitive()) return
+        SavedSnippetRepository.clearAllAsync(applicationContext) { result ->
+            mainHandler.post {
+                if (isCurrentEditorSensitive()) voicePanel?.hideSavedSnippetsForPrivacy()
+                else refreshSavedSnippets(if (result.isFailure) "清除短語失敗" else null)
             }
         }
     }

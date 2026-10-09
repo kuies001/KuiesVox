@@ -66,6 +66,7 @@ internal fun HomeScreen(
     onOpenSmartFormatting: () -> Unit,
     onOpenAppProfiles: () -> Unit,
     onOpenPersonalization: () -> Unit,
+    onOpenSavedSnippets: () -> Unit,
     onOpenMcp: () -> Unit,
     onCheckForUpdates: () -> Unit,
     onDownloadUpdate: (GitHubRelease, SemanticVersion, GitHubReleaseAsset) -> Unit,
@@ -190,6 +191,27 @@ internal fun HomeScreen(
                 accent = colors.primary,
                 contentColor = colors.onPrimary,
                 onClick = onOpenAppProfiles,
+                modifier = Modifier.align(Alignment.End)
+            )
+        }
+
+        HomeFeatureCard(
+            icon = R.drawable.ic_home_personalization,
+            title = "快捷短語",
+            subtitle = "收藏常用文字，從輸入法直接插入",
+            accent = colors.secondary,
+            status = "本機保存"
+        ) {
+            Text(
+                "請勿收藏密碼、OTP 或 API Key；密碼與 PIN 欄位不顯示短語。",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.onSurfaceVariant
+            )
+            ActionButton(
+                label = "管理快捷短語",
+                accent = colors.secondary,
+                contentColor = colors.onSecondary,
+                onClick = onOpenSavedSnippets,
                 modifier = Modifier.align(Alignment.End)
             )
         }

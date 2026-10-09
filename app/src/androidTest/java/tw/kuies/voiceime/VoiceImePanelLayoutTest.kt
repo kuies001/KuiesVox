@@ -225,7 +225,124 @@ class VoiceImePanelLayoutTest {
         panel.showVoiceHistoryPanel(isSensitiveEditor = true)
         heights += measuredHeight(panel)
 
+        val safePanel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {},
+            onIsSensitiveEditor = { false }
+        )
+        val safeHeights = mutableListOf(measuredHeight(safePanel))
+        safePanel.showSavedSnippetsPanel(isSensitiveEditor = false)
+        safePanel.updateSavedSnippets(
+            SavedSnippetLibrary(
+                categories = SavedSnippetCategoryDefaults.entries,
+                snippets = listOf(
+                    SavedSnippet("one", "第一則", "這是較長的快捷短語預覽內容。\n仍會完整插入。", "general", true, 1, 1, null),
+                    SavedSnippet("two", "第二則", "第二筆", "work", false, 1, 1, null)
+                )
+            )
+        )
+        safeHeights += measuredHeight(safePanel)
+        assertTrue(safePanel.snippetListScrollView.measuredHeight > 0)
+        val categoryButton = allTextViews(safePanel.savedSnippetsPanel)
+            .first { it.text.toString() == "分類" }
+        assertTrue(categoryButton.performClick())
+        safeHeights += measuredHeight(safePanel)
+
         assertTrue(heights.all { it == heights.first() })
+        assertTrue(safeHeights.all { it == safeHeights.first() })
+    }
+
+    @Test
+    fun savedSnippetManagementRoutesOpenFromTheImePanel() {
+        val managementRequests = mutableListOf<Pair<SavedSnippetManagerAction, String?>>()
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {},
+            onManageSavedSnippets = { action, id -> managementRequests += action to id },
+            onIsSensitiveEditor = { false }
+        )
+        panel.showSavedSnippetsPanel(isSensitiveEditor = false)
+        panel.updateSavedSnippets(
+            SavedSnippetLibrary(
+                SavedSnippetCategoryDefaults.entries,
+                listOf(SavedSnippet("snippet-1", "標題", "完整內容", "general", false, 1, 1, null))
+            )
+        )
+
+        val snippetAddButton = allTextViews(panel.savedSnippetsPanel)
+            .first { it.text.toString() == "新增" }
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            assertTrue(snippetAddButton.performClick())
+        }
+
+        val categoryButton = allTextViews(panel.savedSnippetsPanel)
+            .first { it.text.toString() == "分類" }
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            assertTrue(categoryButton.performClick())
+        }
+        val editButton = allTextViews(panel.savedSnippetsPanel)
+            .first { it.text.toString() == "編輯" }
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            assertTrue(editButton.performClick())
+        }
+        assertEquals(
+            listOf(
+                SavedSnippetManagerAction.NEW to null,
+                SavedSnippetManagerAction.CATEGORIES to null,
+                SavedSnippetManagerAction.EDIT to "snippet-1"
+            ),
+            managementRequests
+        )
+    }
+
+    @Test
+    fun savedSnippetTapOnlyInsertsAndMarksUsage() {
+        val snippet = SavedSnippet("snippet-1", "範例", "多行文字\n保留完整內容", "general", false, 1, 1, null)
+        val inserted = mutableListOf<SavedSnippet>()
+        val usedIds = mutableListOf<String>()
+        var voiceActions = 0
+        var clipboardHistoryReads = 0
+        var voiceHistoryReads = 0
+        var historyInserts = 0
+        var clipboardCopies = 0
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = { voiceActions++ },
+            onCancel = {},
+            onSwitchInputMethod = {},
+            onOpenClipboardHistory = { clipboardHistoryReads++ },
+            onOpenVoiceHistory = { voiceHistoryReads++ },
+            onInsertHistoryText = { historyInserts++ },
+            onCopyHistoryText = { clipboardCopies++ },
+            onInsertSavedSnippet = {
+                inserted += it
+                true
+            },
+            onMarkSavedSnippetUsed = { usedIds += it },
+            onIsSensitiveEditor = { false }
+        )
+        panel.showSavedSnippetsPanel(isSensitiveEditor = false)
+        panel.updateSavedSnippets(
+            SavedSnippetLibrary(SavedSnippetCategoryDefaults.entries, listOf(snippet))
+        )
+
+        val title = allTextViews(panel.savedSnippetsPanel).first { it.text.toString() == snippet.title }
+        val contentColumn = title.parent as View
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            assertTrue(contentColumn.performClick())
+        }
+
+        assertEquals(listOf(snippet), inserted)
+        assertEquals(listOf(snippet.id), usedIds)
+        assertEquals(0, voiceActions)
+        assertEquals(0, clipboardHistoryReads)
+        assertEquals(0, voiceHistoryReads)
+        assertEquals(0, historyInserts)
+        assertEquals(0, clipboardCopies)
     }
 
     @Test

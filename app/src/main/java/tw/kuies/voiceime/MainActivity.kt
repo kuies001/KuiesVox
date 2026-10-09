@@ -36,10 +36,13 @@ private const val MAIN_ACTIVITY_TAG = "MainActivity"
 
 class MainActivity : ComponentActivity() {
     private var editorPackageForProfiles by mutableStateOf<String?>(null)
+    private var savedSnippetLaunch by mutableStateOf<SavedSnippetManagerLaunch?>(null)
+    private var savedSnippetLaunchId = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         editorPackageForProfiles = intent.getStringExtra(EXTRA_EDITOR_PACKAGE)
+        updateSavedSnippetLaunch(intent)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
@@ -49,7 +52,11 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     VoiceImeSettingsApp(
                         modifier = Modifier.padding(innerPadding),
-                        currentEditorPackageName = editorPackageForProfiles
+                        currentEditorPackageName = editorPackageForProfiles,
+                        savedSnippetLaunch = savedSnippetLaunch,
+                        onClearSavedSnippetLaunch = { requestId ->
+                            if (savedSnippetLaunch?.requestId == requestId) savedSnippetLaunch = null
+                        }
                     )
                 }
             }
@@ -60,10 +67,24 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         editorPackageForProfiles = intent.getStringExtra(EXTRA_EDITOR_PACKAGE)
+        updateSavedSnippetLaunch(intent)
+    }
+
+    private fun updateSavedSnippetLaunch(intent: Intent) {
+        val action = intent.getStringExtra(EXTRA_SAVED_SNIPPET_ACTION)
+            ?.let { runCatching { SavedSnippetManagerAction.valueOf(it) }.getOrNull() }
+            ?: return
+        savedSnippetLaunch = SavedSnippetManagerLaunch(
+            requestId = ++savedSnippetLaunchId,
+            action = action,
+            snippetId = intent.getStringExtra(EXTRA_SAVED_SNIPPET_ID)
+        )
     }
 
     companion object {
         const val EXTRA_EDITOR_PACKAGE = "tw.kuies.voiceime.extra.EDITOR_PACKAGE"
+        const val EXTRA_SAVED_SNIPPET_ACTION = "tw.kuies.voiceime.extra.SAVED_SNIPPET_ACTION"
+        const val EXTRA_SAVED_SNIPPET_ID = "tw.kuies.voiceime.extra.SAVED_SNIPPET_ID"
     }
 }
 
@@ -73,13 +94,16 @@ private enum class SettingsDestination {
     SMART_FORMATTING,
     APP_PROFILES,
     PERSONALIZATION,
+    SAVED_SNIPPETS,
     MCP
 }
 
 @Composable
 private fun VoiceImeSettingsApp(
     modifier: Modifier = Modifier,
-    currentEditorPackageName: String? = null
+    currentEditorPackageName: String? = null,
+    savedSnippetLaunch: SavedSnippetManagerLaunch? = null,
+    onClearSavedSnippetLaunch: (Long) -> Unit = {}
 ) {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
@@ -110,6 +134,23 @@ private fun VoiceImeSettingsApp(
     }
 
     var destination by remember { mutableStateOf(SettingsDestination.HOME) }
+    var savedSnippetAction by remember { mutableStateOf<SavedSnippetManagerAction?>(null) }
+    var savedSnippetId by remember { mutableStateOf<String?>(null) }
+    var savedSnippetRequestId by remember { mutableStateOf<Long?>(null) }
+    var savedSnippetLibrary by remember {
+        mutableStateOf(SavedSnippetLibrary(emptyList(), emptyList()))
+    }
+    var savedSnippetStatus by remember { mutableStateOf("載入快捷短語中…") }
+
+    LaunchedEffect(savedSnippetLaunch?.requestId) {
+        savedSnippetLaunch?.let { launch ->
+            savedSnippetAction = launch.action
+            savedSnippetId = launch.snippetId
+            savedSnippetRequestId = launch.requestId
+            destination = SettingsDestination.SAVED_SNIPPETS
+            onClearSavedSnippetLaunch(launch.requestId)
+        }
+    }
     var hasRecordAudioPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
@@ -151,8 +192,30 @@ private fun VoiceImeSettingsApp(
     var openAiApiKeyStatus by remember { mutableStateOf("") }
     var smartFormattingStatus by remember { mutableStateOf("載入智慧整理設定中…") }
 
+    fun reloadSavedSnippets(statusMessage: String? = null) {
+        SavedSnippetRepository.loadAsync(applicationContext) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                result.onSuccess { library ->
+                    savedSnippetLibrary = library
+                    savedSnippetStatus = statusMessage ?: if (library.snippets.isEmpty()) {
+                        "尚未建立快捷短語。"
+                    } else {
+                        ""
+                    }
+                }.onFailure {
+                    savedSnippetStatus = statusMessage ?: "快捷短語讀取失敗，請稍後再試。"
+                }
+            }
+        }
+    }
+
     BackHandler(enabled = destination != SettingsDestination.HOME) {
         destination = SettingsDestination.HOME
+        savedSnippetAction = null
+        savedSnippetId = null
+        savedSnippetRequestId = null
+        savedSnippetLaunch?.let { onClearSavedSnippetLaunch(it.requestId) }
     }
 
     DisposableEffect(applicationContext, appUpdateController) {
@@ -267,6 +330,7 @@ private fun VoiceImeSettingsApp(
                 appVoiceProfilesLoaded = true
             }
         }
+        reloadSavedSnippets()
         onDispose {
             screenIsActive.set(false)
             appUpdateController.close()
@@ -345,6 +409,84 @@ private fun VoiceImeSettingsApp(
                     .onFailure { exception ->
                         Log.w(MAIN_ACTIVITY_TAG, "App voice profile delete failed: ${exception.javaClass.simpleName}")
                     }
+            }
+        }
+    }
+
+    fun saveSavedSnippet(id: String?, title: String, content: String, categoryId: String) {
+        SavedSnippetRepository.saveAsync(
+            applicationContext,
+            id,
+            title,
+            content,
+            categoryId
+        ) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                reloadSavedSnippets(
+                    if (result.getOrNull() == true) "快捷短語已儲存。" else "儲存失敗，請檢查標題、內容與分類。"
+                )
+            }
+        }
+    }
+
+    fun setSavedSnippetPinned(id: String, pinned: Boolean) {
+        SavedSnippetRepository.setPinnedAsync(applicationContext, id, pinned) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                reloadSavedSnippets(if (result.isSuccess) "收藏狀態已更新。" else "收藏狀態更新失敗。")
+            }
+        }
+    }
+
+    fun deleteSavedSnippet(id: String) {
+        SavedSnippetRepository.deleteAsync(applicationContext, id) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                reloadSavedSnippets(if (result.isSuccess) "短語已刪除。" else "短語刪除失敗。")
+            }
+        }
+    }
+
+    fun clearSavedSnippets() {
+        SavedSnippetRepository.clearAllAsync(applicationContext) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                reloadSavedSnippets(if (result.isSuccess) "全部短語已清除。" else "清除失敗，請稍後再試。")
+            }
+        }
+    }
+
+    fun createSavedSnippetCategory(name: String) {
+        SavedSnippetRepository.createCategoryAsync(applicationContext, name) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                reloadSavedSnippets(
+                    if (result.getOrNull() == true) "分類已新增。" else "分類名稱重複或儲存失敗。"
+                )
+            }
+        }
+    }
+
+    fun renameSavedSnippetCategory(id: String, name: String) {
+        SavedSnippetRepository.renameCategoryAsync(applicationContext, id, name) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                reloadSavedSnippets(
+                    if (result.getOrNull() == true) "分類已更新。" else "分類名稱重複或更新失敗。"
+                )
+            }
+        }
+    }
+
+    fun deleteSavedSnippetCategory(id: String) {
+        SavedSnippetRepository.deleteCategoryAsync(applicationContext, id) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                reloadSavedSnippets(
+                    if (result.getOrNull() == true) "分類已刪除，短語已移至「一般」。"
+                    else "無法刪除這個分類。"
+                )
             }
         }
     }
@@ -597,6 +739,12 @@ private fun VoiceImeSettingsApp(
             onOpenSmartFormatting = { destination = SettingsDestination.SMART_FORMATTING },
             onOpenAppProfiles = { destination = SettingsDestination.APP_PROFILES },
             onOpenPersonalization = { destination = SettingsDestination.PERSONALIZATION },
+            onOpenSavedSnippets = {
+                savedSnippetAction = null
+                savedSnippetId = null
+                savedSnippetRequestId = null
+                destination = SettingsDestination.SAVED_SNIPPETS
+            },
             onOpenMcp = { destination = SettingsDestination.MCP },
             onCheckForUpdates = appUpdateController::checkForUpdates,
             onDownloadUpdate = { release, version, apk ->
@@ -745,6 +893,29 @@ private fun VoiceImeSettingsApp(
             onSetCorrectionRuleEnabled = ::setCorrectionRuleEnabled,
             onDeleteCorrectionRule = ::deleteCorrectionRule,
             onBack = { destination = SettingsDestination.HOME }
+        )
+
+        SettingsDestination.SAVED_SNIPPETS -> SavedSnippetsScreen(
+            modifier = modifier,
+            library = savedSnippetLibrary,
+            status = savedSnippetStatus,
+            launchRequestId = savedSnippetRequestId,
+            launchAction = savedSnippetAction,
+            launchSnippetId = savedSnippetId,
+            onSaveSnippet = ::saveSavedSnippet,
+            onSetPinned = ::setSavedSnippetPinned,
+            onDeleteSnippet = ::deleteSavedSnippet,
+            onClearSnippets = ::clearSavedSnippets,
+            onCreateCategory = ::createSavedSnippetCategory,
+            onRenameCategory = ::renameSavedSnippetCategory,
+            onDeleteCategory = ::deleteSavedSnippetCategory,
+            onBack = {
+                destination = SettingsDestination.HOME
+                savedSnippetAction = null
+                savedSnippetId = null
+                savedSnippetRequestId = null
+                savedSnippetLaunch?.let { onClearSavedSnippetLaunch(it.requestId) }
+            }
         )
 
         SettingsDestination.MCP -> McpSettingsScreen(
