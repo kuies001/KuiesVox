@@ -40,14 +40,13 @@ internal object SavedSnippetCategoryDefaults {
 }
 
 internal enum class SavedSnippetSort {
+    ALL,
     RECENT,
-    TITLE
 }
 
 internal enum class SavedSnippetManagerAction {
     NEW,
-    EDIT,
-    CATEGORIES
+    EDIT
 }
 
 internal data class SavedSnippetManagerLaunch(
@@ -60,23 +59,23 @@ internal object SavedSnippetOrdering {
     fun filterAndSort(
         snippets: List<SavedSnippet>,
         search: String,
-        categoryId: String?,
         sort: SavedSnippetSort
     ): List<SavedSnippet> {
         val query = search.trim()
         val filtered = snippets.filter { snippet ->
-            (categoryId == null || snippet.categoryId == categoryId) &&
-                (query.isEmpty() || snippet.title.contains(query, ignoreCase = true) ||
-                    snippet.content.contains(query, ignoreCase = true))
+            query.isEmpty() || snippet.title.contains(query, ignoreCase = true) ||
+                snippet.content.contains(query, ignoreCase = true)
         }
         val comparator = when (sort) {
+            SavedSnippetSort.ALL -> compareByDescending<SavedSnippet> { it.pinned }
+                .thenBy { it.title.lowercase(Locale.ROOT) }
+                .thenByDescending { it.updatedAt }
             SavedSnippetSort.RECENT -> compareByDescending<SavedSnippet> { it.lastUsedAt ?: Long.MIN_VALUE }
+                .thenByDescending { it.pinned }
                 .thenByDescending { it.updatedAt }
                 .thenBy { it.title.lowercase(Locale.ROOT) }
-            SavedSnippetSort.TITLE -> compareBy<SavedSnippet> { it.title.lowercase(Locale.ROOT) }
-                .thenByDescending { it.updatedAt }
         }
-        return filtered.sortedWith(compareByDescending<SavedSnippet> { it.pinned }.then(comparator))
+        return filtered.sortedWith(comparator)
     }
 }
 
@@ -136,6 +135,44 @@ internal class SavedSnippetSelection {
     }
 }
 
+internal data class SavedSnippetDeleteRequest(
+    val ids: Set<String>,
+    val batchDelete: Boolean,
+    val message: String
+)
+
+internal class SavedSnippetDeleteConfirmationState {
+    private var request: SavedSnippetDeleteRequest? = null
+
+    val isVisible: Boolean
+        get() = request != null
+
+    fun show(ids: Collection<String>, batchDelete: Boolean, message: String): Boolean {
+        if (request != null || ids.isEmpty()) return false
+        request = SavedSnippetDeleteRequest(ids.toSet(), batchDelete, message)
+        return true
+    }
+
+    fun dismiss() {
+        request = null
+    }
+
+    fun invalidateMissing(existingIds: Collection<String>): Boolean {
+        val pending = request ?: return false
+        val existing = existingIds.toSet()
+        if (pending.ids.all { it in existing }) return false
+        request = null
+        return true
+    }
+
+    fun consume(existingIds: Collection<String>): SavedSnippetDeleteRequest? {
+        val pending = request ?: return null
+        request = null
+        val validIds = pending.ids.intersect(existingIds.toSet())
+        return pending.copy(ids = validIds).takeIf { validIds.isNotEmpty() }
+    }
+}
+
 internal fun interface SnippetCommitTarget {
     fun commitText(text: CharSequence, newCursorPosition: Int): Boolean
 }
@@ -144,6 +181,12 @@ internal object SavedSnippetInsertion {
     fun insert(target: SnippetCommitTarget?, content: String): Boolean {
         if (target == null || content.isEmpty()) return false
         return runCatching { target.commitText(content, 1) }.getOrDefault(false)
+    }
+
+    fun insert(target: SnippetCommitTarget?, content: String, onSuccessfulInsert: () -> Unit): Boolean {
+        if (!insert(target, content)) return false
+        onSuccessfulInsert()
+        return true
     }
 }
 

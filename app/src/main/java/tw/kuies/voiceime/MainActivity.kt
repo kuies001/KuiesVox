@@ -424,7 +424,7 @@ private fun VoiceImeSettingsApp(
             mainHandler.post {
                 if (!screenIsActive.get()) return@post
                 reloadSavedSnippets(
-                    if (result.getOrNull() == true) "快捷短語已儲存。" else "儲存失敗，請檢查標題、內容與分類。"
+                    if (result.getOrNull() == true) "快捷短語已儲存。" else "儲存失敗，請檢查標題與內容。"
                 )
             }
         }
@@ -453,40 +453,6 @@ private fun VoiceImeSettingsApp(
             mainHandler.post {
                 if (!screenIsActive.get()) return@post
                 reloadSavedSnippets(if (result.isSuccess) "全部短語已清除。" else "清除失敗，請稍後再試。")
-            }
-        }
-    }
-
-    fun createSavedSnippetCategory(name: String) {
-        SavedSnippetRepository.createCategoryAsync(applicationContext, name) { result ->
-            mainHandler.post {
-                if (!screenIsActive.get()) return@post
-                reloadSavedSnippets(
-                    if (result.getOrNull() == true) "分類已新增。" else "分類名稱重複或儲存失敗。"
-                )
-            }
-        }
-    }
-
-    fun renameSavedSnippetCategory(id: String, name: String) {
-        SavedSnippetRepository.renameCategoryAsync(applicationContext, id, name) { result ->
-            mainHandler.post {
-                if (!screenIsActive.get()) return@post
-                reloadSavedSnippets(
-                    if (result.getOrNull() == true) "分類已更新。" else "分類名稱重複或更新失敗。"
-                )
-            }
-        }
-    }
-
-    fun deleteSavedSnippetCategory(id: String) {
-        SavedSnippetRepository.deleteCategoryAsync(applicationContext, id) { result ->
-            mainHandler.post {
-                if (!screenIsActive.get()) return@post
-                reloadSavedSnippets(
-                    if (result.getOrNull() == true) "分類已刪除，短語已移至「一般」。"
-                    else "無法刪除這個分類。"
-                )
             }
         }
     }
@@ -906,9 +872,6 @@ private fun VoiceImeSettingsApp(
             onSetPinned = ::setSavedSnippetPinned,
             onDeleteSnippet = ::deleteSavedSnippet,
             onClearSnippets = ::clearSavedSnippets,
-            onCreateCategory = ::createSavedSnippetCategory,
-            onRenameCategory = ::renameSavedSnippetCategory,
-            onDeleteCategory = ::deleteSavedSnippetCategory,
             onBack = {
                 destination = SettingsDestination.HOME
                 savedSnippetAction = null

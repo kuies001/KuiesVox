@@ -61,7 +61,7 @@ class SavedSnippetsTest {
     }
 
     @Test
-    fun favoriteSearchAndRecentOrTitleOrderingAreStable() {
+    fun searchAndAllOrRecentOrderingAreStable() {
         val snippets = listOf(
             SavedSnippet("b", "Zeta", "搜尋文字", "work", false, 1, 1, 30),
             SavedSnippet("a", "Alpha", "內容", "general", false, 1, 1, 10),
@@ -71,23 +71,21 @@ class SavedSnippetsTest {
         val recent = SavedSnippetOrdering.filterAndSort(
             snippets,
             search = "搜尋",
-            categoryId = "work",
             sort = SavedSnippetSort.RECENT
         )
         assertEquals(listOf("b"), recent.map { it.id })
 
-        val byTitle = SavedSnippetOrdering.filterAndSort(
+        val all = SavedSnippetOrdering.filterAndSort(
             snippets,
             search = "",
-            categoryId = null,
-            sort = SavedSnippetSort.TITLE
+            sort = SavedSnippetSort.ALL
         )
-        assertEquals(listOf("c", "a", "b"), byTitle.map { it.id })
+        assertEquals(listOf("c", "a", "b"), all.map { it.id })
 
         val favoriteFirst = snippets.map { if (it.id == "b") it.copy(pinned = true) else it }
         assertEquals(
-            listOf("b", "c", "a"),
-            SavedSnippetOrdering.filterAndSort(favoriteFirst, "", null, SavedSnippetSort.RECENT).map { it.id }
+            listOf("b", "a", "c"),
+            SavedSnippetOrdering.filterAndSort(favoriteFirst, "", SavedSnippetSort.RECENT).map { it.id }
         )
     }
 
@@ -131,36 +129,94 @@ class SavedSnippetsTest {
     }
 
     @Test
-    fun selectAllIsLimitedToCurrentSearchAndCategoryResults() {
+    fun unifiedListPreservesEveryCategoryAndSearchScopesBatchSelection() {
         val snippets = listOf(
             SavedSnippet("work-email", "工作 Email", "work@example.com", "work", false, 1, 1, null),
             SavedSnippet("home-email", "私人 Email", "home@example.com", "general", false, 1, 1, null),
             SavedSnippet("work-address", "公司地址", "地址內容", "work", false, 1, 1, null),
-            SavedSnippet("technical", "GitHub", "git status", "technical", false, 1, 1, null)
+            SavedSnippet("technical", "GitHub", "git status", "technical", false, 1, 1, null),
+            SavedSnippet("custom", "自訂範例", "custom body", "custom-category", false, 1, 1, null)
         )
         val selection = SavedSnippetSelection().apply { enter() }
+
+        val allResults = SavedSnippetOrdering.filterAndSort(
+            snippets,
+            search = "",
+            sort = SavedSnippetSort.ALL
+        )
+        assertEquals(setOf("general", "work", "technical", "custom-category"), allResults.map { it.categoryId }.toSet())
+        assertEquals(snippets.map { it.id }.toSet(), allResults.map { it.id }.toSet())
 
         val emailResults = SavedSnippetOrdering.filterAndSort(
             snippets,
             search = "Email",
-            categoryId = null,
-            sort = SavedSnippetSort.TITLE
+            sort = SavedSnippetSort.ALL
         ).map(SavedSnippet::id)
         selection.setAllSelected(true, emailResults)
         assertEquals(setOf("work-email", "home-email"), selection.selectedIds(emailResults))
         assertEquals(2, selection.selectedIds(emailResults).size)
 
-        val workResults = SavedSnippetOrdering.filterAndSort(
+        val contentSearchResults = SavedSnippetOrdering.filterAndSort(
             snippets,
-            search = "",
-            categoryId = "work",
-            sort = SavedSnippetSort.TITLE
+            search = "custom body",
+            sort = SavedSnippetSort.RECENT
+        )
+        assertEquals(listOf("custom"), contentSearchResults.map { it.id })
+        val titleSearchResults = SavedSnippetOrdering.filterAndSort(
+            snippets,
+            search = "GitHub",
+            sort = SavedSnippetSort.ALL
+        )
+        assertEquals(listOf("technical"), titleSearchResults.map { it.id })
+
+        val recentResults = SavedSnippetOrdering.filterAndSort(
+            snippets,
+            search = "Email",
+            sort = SavedSnippetSort.RECENT
         ).map(SavedSnippet::id)
-        selection.reconcile(workResults)
-        assertEquals(setOf("work-email"), selection.selectedIds(workResults))
-        selection.setAllSelected(true, workResults)
-        assertEquals(setOf("work-email", "work-address"), selection.selectedIds(workResults))
-        assertEquals(SavedSnippetSelectionState.ALL, selection.stateFor(workResults))
+        assertEquals(setOf("work-email", "home-email"), recentResults.toSet())
+        assertEquals(setOf("work-email", "home-email"), selection.selectedIds(recentResults))
+        assertEquals(SavedSnippetSelectionState.ALL, selection.stateFor(recentResults))
+    }
+
+    @Test
+    fun recentSortOrdersUsageNewestFirstAndLeavesUnusedItemsLastAcrossCategories() {
+        val snippets = listOf(
+            SavedSnippet("unused-pinned", "A", "unused", "work", true, 1, 3, null),
+            SavedSnippet("old", "B", "old", "technical", false, 1, 2, 10),
+            SavedSnippet("new", "C", "new", "custom", false, 1, 1, 30),
+            SavedSnippet("middle", "D", "middle", "general", false, 1, 4, 20)
+        )
+        assertEquals(
+            listOf("new", "middle", "old", "unused-pinned"),
+            SavedSnippetOrdering.filterAndSort(snippets, "", SavedSnippetSort.RECENT).map { it.id }
+        )
+    }
+
+    @Test
+    fun deleteConfirmationWaitsForConfirmSupportsCancelAndConsumesOnlyExistingTargetsOnce() {
+        val confirmation = SavedSnippetDeleteConfirmationState()
+        val searchResultIds = listOf("email-1", "email-2")
+
+        assertTrue(confirmation.show(searchResultIds, batchDelete = true, message = "刪除 2 則"))
+        assertTrue(confirmation.isVisible)
+        assertFalse(confirmation.show(listOf("other"), batchDelete = false, message = "刪除單筆"))
+        confirmation.dismiss()
+        assertFalse(confirmation.isVisible)
+        assertNull(confirmation.consume(searchResultIds))
+
+        assertTrue(confirmation.show(searchResultIds, batchDelete = true, message = "刪除 2 則"))
+        assertFalse(confirmation.invalidateMissing(listOf("email-1", "email-2", "other")))
+        val request = confirmation.consume(listOf("email-1", "email-2", "other"))
+        assertEquals(setOf("email-1", "email-2"), request?.ids)
+        assertTrue(request?.batchDelete == true)
+        assertFalse(confirmation.isVisible)
+        assertNull(confirmation.consume(searchResultIds))
+
+        assertTrue(confirmation.show(listOf("email-1"), batchDelete = false, message = "單筆"))
+        assertTrue(confirmation.invalidateMissing(listOf("other")))
+        assertFalse(confirmation.isVisible)
+        assertNull(confirmation.consume(listOf("email-1", "other")))
     }
 
     @Test
@@ -211,6 +267,19 @@ class SavedSnippetsTest {
                 content
             )
         )
+    }
+
+    @Test
+    fun snippetUsageCallbackRunsOnlyAfterSuccessfulInsertion() {
+        var used = 0
+        val successfulTarget = SnippetCommitTarget { _, _ -> true }
+        val unavailableTarget = SnippetCommitTarget { _, _ -> false }
+
+        assertTrue(SavedSnippetInsertion.insert(successfulTarget, "insert me") { used++ })
+        assertEquals(1, used)
+        assertFalse(SavedSnippetInsertion.insert(unavailableTarget, "do not mark") { used++ })
+        assertFalse(SavedSnippetInsertion.insert(successfulTarget, "") { used++ })
+        assertEquals(1, used)
     }
 
     @Test

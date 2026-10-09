@@ -8,7 +8,6 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
-import android.app.AlertDialog
 import android.text.InputType
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -16,7 +15,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -61,9 +59,7 @@ internal class VoiceImePanel(
     private val onClearVoiceHistory: () -> Unit = {},
     private val onOpenSavedSnippets: () -> Unit = {},
     private val onInsertSavedSnippet: (SavedSnippet) -> Boolean = { false },
-    private val onMarkSavedSnippetUsed: (String) -> Unit = {},
     private val onSetSavedSnippetPinned: (String, Boolean) -> Unit = { _, _ -> },
-    private val onDeleteSavedSnippet: (String) -> Unit = {},
     private val onDeleteSavedSnippets: (Set<String>) -> Unit = {},
     private val onClearSavedSnippets: () -> Unit = {},
     private val onManageSavedSnippets: (SavedSnippetManagerAction, String?) -> Unit = { _, _ -> },
@@ -89,11 +85,11 @@ internal class VoiceImePanel(
     private val morePanel = LinearLayout(context)
     private val historyPanel = LinearLayout(context)
     internal val savedSnippetsPanel = LinearLayout(context)
+    private val savedSnippetsPageContainer = FrameLayout(context)
     internal val snippetListScrollView = ScrollView(context)
     private val snippetRows = LinearLayout(context)
     private val snippetItemCheckBoxes = linkedMapOf<String, CheckBox>()
-    private val snippetCategoryTabs = LinearLayout(context)
-    private val snippetCategoryManagementRow = LinearLayout(context)
+    private val snippetSortRow = LinearLayout(context)
     private val snippetBatchControlsPanel = LinearLayout(context)
     private val snippetSelectAllCheckBox = CheckBox(context)
     private val snippetAddButton = textView(context, sizeSp = 12f, color = LAVENDER_BRIGHT)
@@ -103,13 +99,18 @@ internal class VoiceImePanel(
         setTypeface(typeface, Typeface.BOLD)
     }
     private val snippetDeleteButton = textView(context, sizeSp = 11f, color = PINK)
-    private val snippetSortButton = textView(context, sizeSp = 11f, color = TEXT_MUTED)
+    private val snippetAllSortButton = textView(context, sizeSp = 11f, color = TEXT_MUTED)
+    private val snippetRecentSortButton = textView(context, sizeSp = 11f, color = TEXT_MUTED)
+    private val snippetDeleteConfirmationOverlay = FrameLayout(context)
+    private val snippetDeleteConfirmationTitle = textView(context, sizeSp = 14f, color = TEXT).apply {
+        setTypeface(typeface, Typeface.BOLD)
+    }
+    private val snippetDeleteConfirmationMessage = textView(context, sizeSp = 12f, color = TEXT)
+    private val snippetDeleteConfirmationState = SavedSnippetDeleteConfirmationState()
     private var savedSnippets: List<SavedSnippet> = emptyList()
-    private var snippetCategories: List<SavedSnippetCategory> = emptyList()
     private var snippetHiddenForPrivacy = false
     private var snippetStatusMessage: String? = null
-    private var selectedSnippetCategoryId: String? = null
-    private var snippetSort = SavedSnippetSort.RECENT
+    private var snippetSort = SavedSnippetSort.ALL
     private var snippetSearchQuery = ""
     private val snippetSelection = SavedSnippetSelection()
     private var syncingSnippetSelection = false
@@ -635,6 +636,7 @@ internal class VoiceImePanel(
     }
 
     fun showMainPanel() {
+        clearSnippetDeleteConfirmation()
         snippetSelection.cancel()
         page = PanelPage.MAIN
         updatePageVisibility()
@@ -648,6 +650,7 @@ internal class VoiceImePanel(
         page == PanelPage.SAVED_SNIPPETS
 
     fun showClipboardHistoryPanel(isSensitiveEditor: Boolean) {
+        clearSnippetDeleteConfirmation()
         page = PanelPage.CLIPBOARD_HISTORY
         clearHistoryConfirmation = false
         clipboardHiddenForPrivacy = isSensitiveEditor
@@ -671,6 +674,7 @@ internal class VoiceImePanel(
     }
 
     fun showVoiceHistoryPanel(isSensitiveEditor: Boolean) {
+        clearSnippetDeleteConfirmation()
         page = PanelPage.VOICE_HISTORY
         clearHistoryConfirmation = false
         voiceHiddenForPrivacy = isSensitiveEditor
@@ -691,13 +695,12 @@ internal class VoiceImePanel(
     }
 
     fun showSavedSnippetsPanel(isSensitiveEditor: Boolean) {
+        clearSnippetDeleteConfirmation()
         page = PanelPage.SAVED_SNIPPETS
         snippetSelection.cancel()
         snippetHiddenForPrivacy = isSensitiveEditor
         if (isSensitiveEditor) {
             savedSnippets = emptyList()
-            snippetCategories = emptyList()
-            selectedSnippetCategoryId = null
             snippetStatusMessage = "此欄位不顯示快捷短語"
         } else {
             snippetStatusMessage = "正在載入快捷短語…"
@@ -710,16 +713,13 @@ internal class VoiceImePanel(
     fun updateSavedSnippets(library: SavedSnippetLibrary, statusMessage: String? = null) {
         if (snippetHiddenForPrivacy || onIsSensitiveEditor()) {
             savedSnippets = emptyList()
-            snippetCategories = emptyList()
             snippetHiddenForPrivacy = true
+            clearSnippetDeleteConfirmation()
             snippetStatusMessage = "此欄位不顯示快捷短語"
         } else {
             savedSnippets = library.snippets
-            snippetCategories = library.categories
-            if (selectedSnippetCategoryId != null &&
-                library.categories.none { it.id == selectedSnippetCategoryId }
-            ) {
-                selectedSnippetCategoryId = null
+            if (snippetDeleteConfirmationState.invalidateMissing(library.snippets.map(SavedSnippet::id))) {
+                snippetDeleteConfirmationOverlay.visibility = View.GONE
             }
             snippetStatusMessage = statusMessage ?: if (library.snippets.isEmpty()) {
                 "尚未建立快捷短語"
@@ -735,7 +735,19 @@ internal class VoiceImePanel(
         showSavedSnippetsPanel(isSensitiveEditor = true)
     }
 
+    fun clearSnippetDeleteConfirmation() {
+        snippetDeleteConfirmationState.dismiss()
+        snippetDeleteConfirmationOverlay.visibility = View.GONE
+    }
+
+    fun resetSavedSnippetTransientState() {
+        clearSnippetDeleteConfirmation()
+        snippetSelection.cancel()
+        if (page == PanelPage.SAVED_SNIPPETS) renderSavedSnippets()
+    }
+
     private fun showMorePanel() {
+        clearSnippetDeleteConfirmation()
         page = PanelPage.MORE
         updatePageVisibility()
     }
@@ -746,7 +758,9 @@ internal class VoiceImePanel(
         historyPanel.visibility = if (
             page == PanelPage.CLIPBOARD_HISTORY || page == PanelPage.VOICE_HISTORY
         ) View.VISIBLE else View.GONE
-        savedSnippetsPanel.visibility = if (page == PanelPage.SAVED_SNIPPETS) View.VISIBLE else View.GONE
+        savedSnippetsPageContainer.visibility = if (page == PanelPage.SAVED_SNIPPETS) View.VISIBLE else View.GONE
+        savedSnippetsPanel.visibility = View.VISIBLE
+        if (page != PanelPage.SAVED_SNIPPETS) clearSnippetDeleteConfirmation()
         renderHistoryRows()
         renderSavedSnippets()
     }
@@ -1001,53 +1015,23 @@ internal class VoiceImePanel(
             }
         )
 
-        snippetCategoryManagementRow.apply {
+        snippetSortRow.apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val categoryScroll = ScrollView(context).apply {
-            isHorizontalScrollBarEnabled = false
-            isFillViewport = false
-            addView(
-                snippetCategoryTabs,
-                ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(context, 32))
-            )
-        }
-        snippetCategoryTabs.orientation = LinearLayout.HORIZONTAL
-        snippetCategoryManagementRow.addView(
-            categoryScroll,
-            LinearLayout.LayoutParams(0, dp(context, 34), 1f)
+        configureSnippetSortButton(snippetAllSortButton, "全部", SavedSnippetSort.ALL, context)
+        configureSnippetSortButton(snippetRecentSortButton, "最近使用", SavedSnippetSort.RECENT, context)
+        snippetSortRow.addView(
+            snippetAllSortButton,
+            LinearLayout.LayoutParams(0, dp(context, 30), 1f).apply { marginEnd = dp(context, 4) }
         )
-        snippetCategoryManagementRow.addView(
-            secondaryActionButton(context, textView(context, sizeSp = 10f, color = TEXT_MUTED), "分類", TEXT_MUTED) {
-                if (!snippetHiddenForPrivacy && !onIsSensitiveEditor()) {
-                    onManageSavedSnippets(SavedSnippetManagerAction.CATEGORIES, null)
-                } else {
-                    hideSavedSnippetsForPrivacy()
-                }
-            },
-            LinearLayout.LayoutParams(dp(context, 48), dp(context, 30)).apply {
-                marginStart = dp(context, 4)
-            }
-        )
-        snippetCategoryManagementRow.addView(
-            snippetSortButton.apply {
-                gravity = Gravity.CENTER
-                setPadding(dp(context, 4), 0, dp(context, 4), 0)
-                setOnClickListener {
-                    snippetSort = if (snippetSort == SavedSnippetSort.RECENT) {
-                        SavedSnippetSort.TITLE
-                    } else {
-                        SavedSnippetSort.RECENT
-                    }
-                    renderSavedSnippets()
-                }
-            },
-            LinearLayout.LayoutParams(dp(context, 54), dp(context, 30))
+        snippetSortRow.addView(
+            snippetRecentSortButton,
+            LinearLayout.LayoutParams(0, dp(context, 30), 1f)
         )
         savedSnippetsPanel.addView(
-            snippetCategoryManagementRow,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 36)).apply {
+            snippetSortRow,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 34)).apply {
                 topMargin = dp(context, 1)
             }
         )
@@ -1101,14 +1085,23 @@ internal class VoiceImePanel(
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
         )
 
-        root.addView(
+        buildSnippetDeleteConfirmationOverlay(context)
+        savedSnippetsPageContainer.addView(
             savedSnippetsPanel,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        )
+        savedSnippetsPageContainer.addView(
+            snippetDeleteConfirmationOverlay,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        )
+        savedSnippetsPageContainer.visibility = View.GONE
+        root.addView(
+            savedSnippetsPageContainer,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(context, VOICE_IME_PAGE_CONTENT_HEIGHT_DP)
             )
         )
-        savedSnippetsPanel.visibility = View.GONE
     }
 
     private fun renderSavedSnippets() {
@@ -1117,16 +1110,11 @@ internal class VoiceImePanel(
         if (isSensitive) {
             snippetSelection.cancel()
             savedSnippets = emptyList()
-            snippetCategories = emptyList()
+            clearSnippetDeleteConfirmation()
             snippetHiddenForPrivacy = true
             snippetStatusMessage = "此欄位不顯示快捷短語"
         }
-        snippetCategoryTabs.removeAllViews()
-        if (!snippetHiddenForPrivacy) {
-            addSnippetCategoryTab("全部", null)
-            snippetCategories.forEach { addSnippetCategoryTab(it.name, it.id) }
-        }
-        snippetSortButton.text = if (snippetSort == SavedSnippetSort.RECENT) "最近" else "名稱"
+        renderSnippetSortButtons()
         snippetDeleteButton.visibility = if (
             snippetHiddenForPrivacy || savedSnippets.isEmpty() || snippetSelection.isActive
         ) View.GONE else View.VISIBLE
@@ -1136,36 +1124,108 @@ internal class VoiceImePanel(
             View.GONE
         }
         snippetAddButton.visibility = if (snippetHiddenForPrivacy || snippetSelection.isActive) View.GONE else View.VISIBLE
-        snippetCategoryManagementRow.visibility = if (snippetHiddenForPrivacy) View.GONE else View.VISIBLE
+        snippetSortRow.visibility = if (snippetHiddenForPrivacy) View.GONE else View.VISIBLE
         snippetStatus.text = snippetStatusMessage.orEmpty()
         snippetStatus.visibility = if (snippetStatusMessage.isNullOrBlank()) View.GONE else View.VISIBLE
         snippetSearch.visibility = if (snippetHiddenForPrivacy) View.GONE else View.VISIBLE
         renderSnippetRows()
     }
 
-    private fun addSnippetCategoryTab(label: String, id: String?) {
-        val context = view.context
-        val selected = selectedSnippetCategoryId == id
-        snippetCategoryTabs.addView(
-            textView(context, sizeSp = 10f, color = if (selected) TEXT else TEXT_MUTED).apply {
-                text = label
-                gravity = Gravity.CENTER
-                setPadding(dp(context, 9), 0, dp(context, 9), 0)
-                background = rounded(
-                    if (selected) intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT) else intArrayOf(SURFACE, SURFACE),
-                    dp(context, 12),
-                    if (selected) LAVENDER_BRIGHT else OUTLINE,
-                    dp(context, 1)
-                )
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    selectedSnippetCategoryId = id
+    private fun configureSnippetSortButton(
+        button: TextView,
+        label: String,
+        sort: SavedSnippetSort,
+        context: Context
+    ) {
+        button.apply {
+            text = label
+            gravity = Gravity.CENTER
+            setPadding(dp(context, 6), 0, dp(context, 6), 0)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                if (snippetHiddenForPrivacy || onIsSensitiveEditor()) {
+                    hideSavedSnippetsForPrivacy()
+                } else {
+                    snippetSort = sort
                     renderSavedSnippets()
                 }
+            }
+        }
+    }
+
+    private fun renderSnippetSortButtons() {
+        listOf(
+            snippetAllSortButton to (snippetSort == SavedSnippetSort.ALL),
+            snippetRecentSortButton to (snippetSort == SavedSnippetSort.RECENT)
+        ).forEach { (button, selected) ->
+            button.setTextColor(if (selected) TEXT else TEXT_MUTED)
+            button.background = rounded(
+                if (selected) intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT) else intArrayOf(SURFACE, SURFACE),
+                dp(view.context, 12),
+                if (selected) LAVENDER_BRIGHT else OUTLINE,
+                dp(view.context, 1)
+            )
+        }
+    }
+
+    private fun buildSnippetDeleteConfirmationOverlay(context: Context) {
+        snippetDeleteConfirmationOverlay.apply {
+            visibility = View.GONE
+            background = rounded(
+                intArrayOf(Color.argb(225, 11, 12, 20), Color.argb(225, 11, 12, 20)),
+                dp(context, 16),
+                OUTLINE,
+                dp(context, 1)
+            )
+            isClickable = true
+            isFocusable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(context, 14), dp(context, 10), dp(context, 14), dp(context, 8))
+            background = rounded(intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT), dp(context, 14), OUTLINE, dp(context, 1))
+            isClickable = true
+            isFocusable = false
+        }
+        card.addView(
+            snippetDeleteConfirmationTitle,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        )
+        snippetDeleteConfirmationMessage.maxLines = 4
+        card.addView(
+            snippetDeleteConfirmationMessage,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(context, 4)
+            }
+        )
+        val actions = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        actions.addView(
+            secondaryActionButton(context, textView(context, sizeSp = 11f, color = TEXT_MUTED), "取消", TEXT_MUTED) {
+                clearSnippetDeleteConfirmation()
             },
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(context, 27)).apply {
-                marginEnd = dp(context, 4)
+            LinearLayout.LayoutParams(dp(context, 54), dp(context, 30)).apply { marginEnd = dp(context, 5) }
+        )
+        actions.addView(
+            secondaryActionButton(context, textView(context, sizeSp = 11f, color = PINK), "刪除", PINK) {
+                confirmSnippetDeletion()
+            },
+            LinearLayout.LayoutParams(dp(context, 54), dp(context, 30))
+        )
+        card.addView(
+            actions,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 30)).apply {
+                topMargin = dp(context, 5)
+            }
+        )
+        snippetDeleteConfirmationOverlay.addView(
+            card,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER).apply {
+                setMargins(dp(context, 12), dp(context, 8), dp(context, 12), dp(context, 8))
             }
         )
     }
@@ -1173,7 +1233,6 @@ internal class VoiceImePanel(
     private fun currentVisibleSnippetItems(): List<SavedSnippet> = SavedSnippetOrdering.filterAndSort(
         snippets = savedSnippets,
         search = snippetSearchQuery,
-        categoryId = selectedSnippetCategoryId,
         sort = snippetSort
     )
 
@@ -1223,6 +1282,7 @@ internal class VoiceImePanel(
             return
         }
         showSnippetDeleteConfirmation(
+            title = "刪除快捷短語",
             message = "確定要刪除「${snippet.title}」嗎？",
             ids = setOf(snippet.id),
             batchDelete = false
@@ -1238,59 +1298,47 @@ internal class VoiceImePanel(
         val visibleIds = currentVisibleSnippetIds()
         val ids = snippetSelection.selectedIds(visibleIds)
         if (ids.isEmpty()) return
-        val allLibraryItemsSelected = savedSnippets.isNotEmpty() &&
+        val allLibraryItemsSelected = snippetSearchQuery.isBlank() && savedSnippets.isNotEmpty() &&
             ids.size == savedSnippets.size && savedSnippets.all { it.id in ids }
         val message = if (allLibraryItemsSelected) {
             "確定刪除全部快捷短語？"
         } else {
             "確定刪除選取的 ${ids.size} 則快捷短語？"
         }
-        showSnippetDeleteConfirmation(message, ids, batchDelete = true)
+        showSnippetDeleteConfirmation("刪除快捷短語", message, ids, batchDelete = true)
     }
 
-    private fun showSnippetDeleteConfirmation(message: String, ids: Set<String>, batchDelete: Boolean) {
+    private fun showSnippetDeleteConfirmation(
+        title: String,
+        message: String,
+        ids: Set<String>,
+        batchDelete: Boolean
+    ) {
         val safeIds = ids.filterTo(linkedSetOf()) { id -> savedSnippets.any { it.id == id } }
-        if (safeIds.isEmpty()) return
-        val dialog = AlertDialog.Builder(view.context)
-            .setTitle("刪除快捷短語")
-            .setMessage(message)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("刪除", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(TEXT_MUTED)
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).apply {
-                setTextColor(PINK)
-                setOnClickListener {
-                    val currentIds = safeIds.filterTo(linkedSetOf()) { id -> savedSnippets.any { it.id == id } }
-                    if (batchDelete) {
-                        snippetSelection.cancel()
-                    } else if (snippetSelection.isActive) {
-                        currentIds.singleOrNull()?.let { id ->
-                            snippetSelection.setSelected(id, false, currentVisibleSnippetIds())
-                        }
-                    }
-                    if (currentIds.isNotEmpty()) {
-                        if (currentIds.size == 1) onDeleteSavedSnippet(currentIds.single())
-                        else onDeleteSavedSnippets(currentIds)
-                    }
-                    dialog.dismiss()
-                    renderSavedSnippets()
-                }
-            }
+        if (!snippetDeleteConfirmationState.show(safeIds, batchDelete, message)) return
+        snippetDeleteConfirmationTitle.text = title
+        snippetDeleteConfirmationMessage.text = message
+        snippetDeleteConfirmationOverlay.visibility = View.VISIBLE
+        snippetDeleteConfirmationOverlay.bringToFront()
+    }
+
+    private fun confirmSnippetDeletion() {
+        if (!snippetDeleteConfirmationState.isVisible) return
+        if (snippetHiddenForPrivacy || onIsSensitiveEditor()) {
+            hideSavedSnippetsForPrivacy()
+            return
         }
-        dialog.window?.apply {
-            setType(WindowManager.LayoutParams.TYPE_INPUT_METHOD_DIALOG)
-            attributes = attributes.apply {
-                token = savedSnippetsPanel.windowToken
-                flags = flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
-                dimAmount = 0.32f
-            }
+        val request = snippetDeleteConfirmationState.consume(savedSnippets.map(SavedSnippet::id))
+        snippetDeleteConfirmationOverlay.visibility = View.GONE
+        val currentIds = request?.ids.orEmpty()
+        clearSnippetDeleteConfirmation()
+        if (request == null || request.batchDelete) {
+            snippetSelection.cancel()
+        } else if (snippetSelection.isActive) {
+            currentIds.forEach { id -> snippetSelection.setSelected(id, false, currentVisibleSnippetIds()) }
         }
-        runCatching { dialog.show() }.onFailure {
-            snippetStatusMessage = "無法顯示刪除確認，請稍後再試。"
-            renderSavedSnippets()
-        }
+        if (currentIds.isNotEmpty()) onDeleteSavedSnippets(currentIds)
+        renderSavedSnippets()
     }
 
     private fun renderSnippetRows() {
@@ -1303,7 +1351,7 @@ internal class VoiceImePanel(
         renderSnippetBatchControls(visibleIds)
         if (!snippetStatusMessage.isNullOrBlank()) return
         if (visibleItems.isEmpty()) {
-            snippetStatus.text = if (snippetSearchQuery.isBlank()) "這個分類沒有短語" else "找不到符合的短語"
+            snippetStatus.text = if (snippetSearchQuery.isBlank()) "尚未建立快捷短語" else "找不到符合的短語"
             snippetStatus.visibility = View.VISIBLE
             return
         }
@@ -1335,7 +1383,6 @@ internal class VoiceImePanel(
                     snippetSelection.setSelected(snippet.id, !selected, visibleIds)
                     refreshSnippetSelectionControls()
                 } else if (onInsertSavedSnippet(snippet)) {
-                    snippetItemsMarkUsed(snippet.id)
                     showMainPanel()
                 }
             }
@@ -1439,10 +1486,6 @@ internal class VoiceImePanel(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = dp(context, 4) }
-    }
-
-    private fun snippetItemsMarkUsed(id: String) {
-        onMarkSavedSnippetUsed(id)
     }
 
     private fun subpanelHeader(context: Context, title: String): View = LinearLayout(context).apply {

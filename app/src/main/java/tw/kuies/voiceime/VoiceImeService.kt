@@ -141,11 +141,7 @@ class VoiceImeService : InputMethodService() {
             onClearVoiceHistory = ::clearVoiceHistory,
             onOpenSavedSnippets = ::openSavedSnippets,
             onInsertSavedSnippet = ::insertSavedSnippet,
-            onMarkSavedSnippetUsed = { id ->
-                SavedSnippetRepository.markUsedAsync(applicationContext, id)
-            },
             onSetSavedSnippetPinned = ::setSavedSnippetPinned,
-            onDeleteSavedSnippet = ::deleteSavedSnippet,
             onDeleteSavedSnippets = ::deleteSavedSnippets,
             onClearSavedSnippets = ::clearSavedSnippets,
             onManageSavedSnippets = ::openSavedSnippetManager,
@@ -159,6 +155,7 @@ class VoiceImeService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        voicePanel?.resetSavedSnippetTransientState()
         updateEditorInfo(info, restarting = true, fromInputView = true)
         voicePanel?.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
         if (isCurrentEditorSensitive()) {
@@ -177,10 +174,12 @@ class VoiceImeService : InputMethodService() {
 
     override fun onStartInput(attribute: EditorInfo, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
+        voicePanel?.resetSavedSnippetTransientState()
         updateEditorInfo(attribute, restarting, fromInputView = false)
     }
 
     override fun onFinishInput() {
+        voicePanel?.resetSavedSnippetTransientState()
         if (activeOperationId != 0L) cancelCurrentOperation()
         editorSessionId += 1
         unregisterClipboardListener()
@@ -258,6 +257,7 @@ class VoiceImeService : InputMethodService() {
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        voicePanel?.resetSavedSnippetTransientState()
         voicePanel?.cancelHoldToTalkGesture()
         if (stateMachine.state == VoiceImeState.RECORDING) {
             cancelCurrentOperation()
@@ -267,6 +267,11 @@ class VoiceImeService : InputMethodService() {
         backspaceRepeater.stop()
         unregisterClipboardListener()
         super.onFinishInputView(finishingInput)
+    }
+
+    override fun onWindowHidden() {
+        voicePanel?.resetSavedSnippetTransientState()
+        super.onWindowHidden()
     }
 
     private fun isCurrentEditorSensitive(): Boolean {
@@ -531,7 +536,9 @@ class VoiceImeService : InputMethodService() {
         val target = SnippetCommitTarget { text, newCursorPosition ->
             connection.commitText(text, newCursorPosition)
         }
-        return SavedSnippetInsertion.insert(target, snippet.content)
+        return SavedSnippetInsertion.insert(target, snippet.content) {
+            SavedSnippetRepository.markUsedAsync(applicationContext, snippet.id)
+        }
     }
 
     private fun openSavedSnippetManager(action: SavedSnippetManagerAction, snippetId: String?) {
@@ -563,10 +570,6 @@ class VoiceImeService : InputMethodService() {
                 else refreshSavedSnippets(if (result.isFailure) "收藏狀態更新失敗" else null)
             }
         }
-    }
-
-    private fun deleteSavedSnippet(id: String) {
-        deleteSavedSnippets(setOf(id))
     }
 
     private fun deleteSavedSnippets(ids: Set<String>) {
@@ -1697,6 +1700,7 @@ class VoiceImeService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        voicePanel?.resetSavedSnippetTransientState()
         voicePanel?.disposeHoldToTalkGesture()
         serviceDestroyed = true
         holdToTalkRecording = false
