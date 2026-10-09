@@ -80,6 +80,62 @@ internal object SavedSnippetOrdering {
     }
 }
 
+internal enum class SavedSnippetSelectionState {
+    NONE,
+    PARTIAL,
+    ALL
+}
+
+internal class SavedSnippetSelection {
+    private val selected = linkedSetOf<String>()
+
+    var isActive: Boolean = false
+        private set
+
+    fun enter() {
+        selected.clear()
+        isActive = true
+    }
+
+    fun cancel() {
+        selected.clear()
+        isActive = false
+    }
+
+    fun setSelected(id: String, isSelected: Boolean, visibleIds: Collection<String>) {
+        if (!isActive || id !in visibleIds) return
+        if (isSelected) selected.add(id) else selected.remove(id)
+    }
+
+    fun setAllSelected(isSelected: Boolean, visibleIds: Collection<String>) {
+        if (!isActive) return
+        if (isSelected) selected.addAll(visibleIds) else selected.removeAll(visibleIds.toSet())
+    }
+
+    fun toggleAll(visibleIds: Collection<String>) {
+        if (!isActive || visibleIds.isEmpty()) return
+        val allSelected = visibleIds.all(selected::contains)
+        setAllSelected(!allSelected, visibleIds)
+    }
+
+    fun reconcile(visibleIds: Collection<String>) {
+        selected.retainAll(visibleIds.toSet())
+    }
+
+    fun selectedIds(visibleIds: Collection<String>): Set<String> =
+        selected.filterTo(linkedSetOf()) { it in visibleIds }
+
+    fun stateFor(visibleIds: Collection<String>): SavedSnippetSelectionState {
+        if (visibleIds.isEmpty()) return SavedSnippetSelectionState.NONE
+        val selectedCount = visibleIds.count(selected::contains)
+        return when {
+            selectedCount == 0 -> SavedSnippetSelectionState.NONE
+            selectedCount == visibleIds.size -> SavedSnippetSelectionState.ALL
+            else -> SavedSnippetSelectionState.PARTIAL
+        }
+    }
+}
+
 internal fun interface SnippetCommitTarget {
     fun commitText(text: CharSequence, newCursorPosition: Int): Boolean
 }
@@ -142,7 +198,15 @@ internal class SavedSnippetManager(
         dao.setLastUsedAt(id, now())
     }
 
-    fun delete(id: String) = dao.deleteSnippet(id)
+    fun delete(id: String) = delete(setOf(id))
+
+    fun delete(ids: Set<String>) {
+        val validIds = ids.filter(String::isNotBlank).toSet()
+        if (validIds.isEmpty()) return
+        runInTransaction {
+            validIds.forEach(dao::deleteSnippet)
+        }
+    }
 
     fun clearAll() = dao.deleteAllSnippets()
 
@@ -210,7 +274,13 @@ internal object SavedSnippetRepository {
     }
 
     fun deleteAsync(context: Context, id: String, callback: (Result<Unit>) -> Unit = {}) =
-        submit(context, callback) { it.delete(id) }
+        deleteManyAsync(context, setOf(id), callback)
+
+    fun deleteManyAsync(
+        context: Context,
+        ids: Set<String>,
+        callback: (Result<Unit>) -> Unit = {}
+    ) = submit(context, callback) { it.delete(ids) }
 
     fun clearAllAsync(context: Context, callback: (Result<Unit>) -> Unit = {}) =
         submit(context, callback) { it.clearAll() }

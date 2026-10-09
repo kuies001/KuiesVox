@@ -92,6 +92,103 @@ class SavedSnippetsTest {
     }
 
     @Test
+    fun batchSelectionTracksSingleMultipleAllAndPartialVisibleSelections() {
+        val selection = SavedSnippetSelection()
+        val visibleIds = listOf("work-1", "work-2", "work-3")
+
+        selection.enter()
+        assertTrue(selection.isActive)
+        assertEquals(SavedSnippetSelectionState.NONE, selection.stateFor(visibleIds))
+        assertTrue(selection.selectedIds(visibleIds).isEmpty())
+
+        selection.setSelected("work-1", true, visibleIds)
+        assertEquals(setOf("work-1"), selection.selectedIds(visibleIds))
+        assertEquals(SavedSnippetSelectionState.PARTIAL, selection.stateFor(visibleIds))
+        selection.setSelected("work-2", true, visibleIds)
+        assertEquals(setOf("work-1", "work-2"), selection.selectedIds(visibleIds))
+
+        selection.toggleAll(visibleIds)
+        assertEquals(visibleIds.toSet(), selection.selectedIds(visibleIds))
+        assertEquals(SavedSnippetSelectionState.ALL, selection.stateFor(visibleIds))
+
+        selection.setSelected("work-2", false, visibleIds)
+        assertEquals(SavedSnippetSelectionState.PARTIAL, selection.stateFor(visibleIds))
+        assertEquals(setOf("work-1", "work-3"), selection.selectedIds(visibleIds))
+        selection.toggleAll(visibleIds)
+        assertEquals(visibleIds.toSet(), selection.selectedIds(visibleIds))
+        selection.toggleAll(visibleIds)
+        assertTrue(selection.selectedIds(visibleIds).isEmpty())
+        assertEquals(SavedSnippetSelectionState.NONE, selection.stateFor(visibleIds))
+
+        visibleIds.forEach { selection.setSelected(it, true, visibleIds) }
+        assertEquals(SavedSnippetSelectionState.ALL, selection.stateFor(visibleIds))
+        selection.reconcile(listOf("work-1", "work-3"))
+        assertEquals(setOf("work-1", "work-3"), selection.selectedIds(visibleIds))
+        assertEquals(SavedSnippetSelectionState.ALL, selection.stateFor(listOf("work-1", "work-3")))
+        selection.reconcile(emptyList())
+        assertTrue(selection.selectedIds(visibleIds).isEmpty())
+        assertEquals(SavedSnippetSelectionState.NONE, selection.stateFor(emptyList()))
+    }
+
+    @Test
+    fun selectAllIsLimitedToCurrentSearchAndCategoryResults() {
+        val snippets = listOf(
+            SavedSnippet("work-email", "工作 Email", "work@example.com", "work", false, 1, 1, null),
+            SavedSnippet("home-email", "私人 Email", "home@example.com", "general", false, 1, 1, null),
+            SavedSnippet("work-address", "公司地址", "地址內容", "work", false, 1, 1, null),
+            SavedSnippet("technical", "GitHub", "git status", "technical", false, 1, 1, null)
+        )
+        val selection = SavedSnippetSelection().apply { enter() }
+
+        val emailResults = SavedSnippetOrdering.filterAndSort(
+            snippets,
+            search = "Email",
+            categoryId = null,
+            sort = SavedSnippetSort.TITLE
+        ).map(SavedSnippet::id)
+        selection.setAllSelected(true, emailResults)
+        assertEquals(setOf("work-email", "home-email"), selection.selectedIds(emailResults))
+        assertEquals(2, selection.selectedIds(emailResults).size)
+
+        val workResults = SavedSnippetOrdering.filterAndSort(
+            snippets,
+            search = "",
+            categoryId = "work",
+            sort = SavedSnippetSort.TITLE
+        ).map(SavedSnippet::id)
+        selection.reconcile(workResults)
+        assertEquals(setOf("work-email"), selection.selectedIds(workResults))
+        selection.setAllSelected(true, workResults)
+        assertEquals(setOf("work-email", "work-address"), selection.selectedIds(workResults))
+        assertEquals(SavedSnippetSelectionState.ALL, selection.stateFor(workResults))
+    }
+
+    @Test
+    fun cancelBatchSelectionClearsSelectionAndSingleAndBatchDeletesShareManagerPath() {
+        val dao = FakeSavedSnippetDao()
+        val manager = SavedSnippetManager(dao, now = { 1L }, newId = { "id-${dao.snippets.size}" })
+        assertTrue(manager.save(null, "one", "content one", "general"))
+        assertTrue(manager.save(null, "two", "content two", "general"))
+        assertTrue(manager.save(null, "three", "content three", "general"))
+        val ids = manager.load().snippets.map { it.id }
+        val selection = SavedSnippetSelection().apply {
+            enter()
+            setSelected(ids[0], true, ids)
+            setSelected(ids[2], true, ids)
+        }
+        assertEquals(setOf(ids[0], ids[2]), selection.selectedIds(ids))
+        manager.delete(selection.selectedIds(ids))
+        assertEquals(listOf(ids[1]), manager.load().snippets.map { it.id })
+
+        manager.delete(ids[1])
+        assertTrue(manager.load().snippets.isEmpty())
+
+        selection.cancel()
+        assertFalse(selection.isActive)
+        assertTrue(selection.selectedIds(ids).isEmpty())
+    }
+
+    @Test
     fun insertionPassesEntireMultilineTextOnceAndFailsSafelyWithoutConnection() {
         val content = "您好，已收到。\ncommit 到 GitHub ✅"
         var calls = 0

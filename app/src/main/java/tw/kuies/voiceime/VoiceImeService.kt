@@ -146,6 +146,7 @@ class VoiceImeService : InputMethodService() {
             },
             onSetSavedSnippetPinned = ::setSavedSnippetPinned,
             onDeleteSavedSnippet = ::deleteSavedSnippet,
+            onDeleteSavedSnippets = ::deleteSavedSnippets,
             onClearSavedSnippets = ::clearSavedSnippets,
             onManageSavedSnippets = ::openSavedSnippetManager,
             onIsSensitiveEditor = ::isCurrentEditorSensitive
@@ -565,8 +566,13 @@ class VoiceImeService : InputMethodService() {
     }
 
     private fun deleteSavedSnippet(id: String) {
+        deleteSavedSnippets(setOf(id))
+    }
+
+    private fun deleteSavedSnippets(ids: Set<String>) {
+        if (ids.isEmpty()) return
         if (isCurrentEditorSensitive()) return
-        SavedSnippetRepository.deleteAsync(applicationContext, id) { result ->
+        SavedSnippetRepository.deleteManyAsync(applicationContext, ids) { result ->
             mainHandler.post {
                 if (isCurrentEditorSensitive()) voicePanel?.hideSavedSnippetsForPrivacy()
                 else refreshSavedSnippets(if (result.isFailure) "短語刪除失敗" else null)
