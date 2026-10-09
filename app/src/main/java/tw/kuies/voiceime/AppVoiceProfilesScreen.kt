@@ -388,6 +388,18 @@ private fun AppProfileEditorDialog(
                     onSelect = { draft = draft.copy(contextualCorrectionEnabledOverride = it) }
                 )
                 ProfileDropdown(
+                    title = "台灣繁體中文用字偏好",
+                    selected = draft.taiwanWordingEnabledOverride,
+                    choices = listOf(ProfileChoice<Boolean>(null, "繼承全域"), ProfileChoice(true, "開"), ProfileChoice(false, "關")),
+                    onSelect = { draft = draft.copy(taiwanWordingEnabledOverride = it) }
+                )
+                ProfileDropdown(
+                    title = "智慧標點與段落整理",
+                    selected = draft.smartPunctuationEnabledOverride,
+                    choices = listOf(ProfileChoice<Boolean>(null, "繼承全域"), ProfileChoice(true, "開"), ProfileChoice(false, "關")),
+                    onSelect = { draft = draft.copy(smartPunctuationEnabledOverride = it) }
+                )
+                ProfileDropdown(
                     title = "句尾句號",
                     selected = draft.terminalPeriodModeOverride,
                     choices = listOf(ProfileChoice<TerminalPeriodMode>(null, "繼承全域")) + TerminalPeriodMode.entries.map {

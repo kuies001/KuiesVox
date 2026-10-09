@@ -69,7 +69,7 @@ internal object TranscriptFormattingPrompt {
         輸出必須只包含處理後的逐字稿。
     """.trimIndent() + "\n\n語言規則：保留中文與英文的自然混合；英文技術詞、品牌及模型名稱沿用原拼法，不要翻譯。"
 
-    private const val MAX_CONTEXT_UTF8_BYTES = 2_400
+    private const val MAX_CONTEXT_UTF8_BYTES = 4_000
     private const val MAX_CONTEXT_RULES = 8
     private const val MAX_CONTEXT_TERMS = 30
 
@@ -77,7 +77,9 @@ internal object TranscriptFormattingPrompt {
         contextualCorrectionEnabled: Boolean,
         glossary: List<PersonalGlossaryTerm> = emptyList(),
         correctionRules: List<TextCorrectionRule> = emptyList(),
-        formattingStyle: TextFormattingStyle = TextFormattingStyle.DAILY
+        formattingStyle: TextFormattingStyle = TextFormattingStyle.DAILY,
+        taiwanWordingEnabled: Boolean = false,
+        smartPunctuationEnabled: Boolean = false
     ): String {
         val additions = mutableListOf<String>()
         if (formattingStyle != TextFormattingStyle.DAILY) {
@@ -109,6 +111,34 @@ internal object TranscriptFormattingPrompt {
                 - 保留中英混合、英文專有名詞大小寫、數字、網址、Email、API Key 與程式碼。
                 - 使用繁體中文，只回傳修正後文字，不附加解釋。
             """.trimIndent()
+        }
+
+        if (taiwanWordingEnabled) {
+            additions += """
+                台灣繁體中文用字偏好：
+                - 使用台灣繁體中文，優先採用台灣慣用的科技、生活與工作詞彙，例如：軟件→軟體、硬盤→硬碟、內存→記憶體、網絡→網路、打印機→印表機、默認→預設、文件夾→資料夾、鼠標→滑鼠、視頻→影片。
+                - 只在語意明確且不影響理解時替換；專有名詞、產品名稱、人名、地名、引用內容與程式碼一律保留原樣。
+                - 說話者正在討論、引用或比較某個詞彙本身時保留原文；有歧義時也保留原文。
+                - 不改變原文語氣、立場與資訊量。
+                - 使用者個人詞庫與明確修正规則優先於一般地區用語偏好。
+            """.trimIndent()
+        }
+
+        if (smartPunctuationEnabled) {
+            additions += """
+                智慧標點與分段：
+                - 依整句句型判斷標點，不可只因為出現「嗎、呢、為什麼、怎麼、何時、哪裡、是否、有沒有」就直接加上問號。
+                - 直接問句、反問句與否定疑問句以「？」結尾；間接問句、陳述、請求與命令以「。」結尾，例如「我想知道你明天有沒有空。」
+                - 條件、因果與並列子句之間使用「，」或「、」，例如「如果明天下雨，我們就改期。」
+                - 一段語音可能包含多個句子，需依語意補上每一句的結尾標點，不是只處理最後一句。
+                - 只在語氣明確時使用「！」，不確定時使用「。」；不可產生重複或矛盾的結尾標點，例如「？」加「。」、「。」重複。
+                - 引號內保留引述內容，網址與程式碼原樣保留。
+                - 只在主題、時間或語意明顯轉換時分段；短句與簡短聊天訊息不要分段，也不要整理成文章格式。
+                - 不改變敘述順序，也不補充原文沒有的內容。
+            """.trimIndent()
+        }
+
+        if (contextualCorrectionEnabled) {
             glossaryContext(glossary)?.let(additions::add)
         }
 

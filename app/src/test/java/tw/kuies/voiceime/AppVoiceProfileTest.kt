@@ -157,6 +157,8 @@ class AppVoiceProfileTest {
         assertNull(oldProfile.smartFormattingEnabledOverride)
         assertNull(oldProfile.providerOverride)
         assertNull(oldProfile.contextualCorrectionEnabledOverride)
+        assertNull(oldProfile.taiwanWordingEnabledOverride)
+        assertNull(oldProfile.smartPunctuationEnabledOverride)
         assertNull(oldProfile.terminalPeriodModeOverride)
         assertNull(oldProfile.formattingStyleOverride)
 
@@ -173,6 +175,8 @@ class AppVoiceProfileTest {
             smartFormattingEnabledOverride = false,
             providerOverride = TextFormattingProviderId.GROQ,
             contextualCorrectionEnabledOverride = true,
+            taiwanWordingEnabledOverride = false,
+            smartPunctuationEnabledOverride = true,
             terminalPeriodModeOverride = TerminalPeriodMode.AUTO,
             formattingStyleOverride = TextFormattingStyle.FORMAL
         )
@@ -215,6 +219,43 @@ class AppVoiceProfileTest {
         }
 
         assertEquals(0, formattingCallCount)
+    }
+
+    @Test
+    fun taiwanWordingAndSmartPunctuationOverridesInheritOrApplyPerApp() {
+        val global = SmartFormattingSettings(taiwanWordingEnabled = true, smartPunctuationEnabled = true)
+        val inheriting = AppVoiceProfile(packageName = "com.example.notes")
+        val technical = AppVoiceProfile(
+            packageName = "com.example.terminal",
+            taiwanWordingEnabledOverride = false,
+            smartPunctuationEnabledOverride = false
+        )
+
+        val inherited = AppVoiceProfilePolicy.resolve(inheriting.packageName, listOf(inheriting), global).settings
+        assertTrue(inherited.taiwanWordingEnabled)
+        assertTrue(inherited.smartPunctuationEnabled)
+
+        val overridden = AppVoiceProfilePolicy.resolve(technical.packageName, listOf(technical), global).settings
+        assertFalse(overridden.taiwanWordingEnabled)
+        assertFalse(overridden.smartPunctuationEnabled)
+        assertTrue(overridden.enabled)
+
+        assertEquals(technical, AppVoiceProfileRepository.decode(AppVoiceProfileRepository.encode(listOf(technical))).single())
+    }
+
+    @Test
+    fun sensitiveEditorCannotUseTaiwanWordingOrSmartPunctuation() {
+        val global = SmartFormattingSettings(taiwanWordingEnabled = true, smartPunctuationEnabled = true)
+
+        val resolved = AppVoiceProfilePolicy.resolve(
+            "com.example.passwords",
+            emptyList(),
+            global,
+            sensitiveEditor = true
+        )
+
+        assertFalse(resolved.settings.taiwanWordingEnabled)
+        assertFalse(resolved.settings.smartPunctuationEnabled)
     }
 
     @Test

@@ -152,6 +152,8 @@ internal data class SmartFormattingSettings(
     val openAiCustomModelId: String = "",
     val terminalPeriodMode: TerminalPeriodMode = TerminalPeriodMode.AUTO,
     val contextualCorrectionEnabled: Boolean = DEFAULT_CONTEXTUAL_CORRECTION_ENABLED,
+    val taiwanWordingEnabled: Boolean = DEFAULT_TAIWAN_WORDING_ENABLED,
+    val smartPunctuationEnabled: Boolean = DEFAULT_SMART_PUNCTUATION_ENABLED,
     val formattingStyle: TextFormattingStyle = TextFormattingStyle.DAILY
 ) {
     val model: String
@@ -176,6 +178,8 @@ internal data class SmartFormattingSettings(
         const val MIN_THRESHOLD = 0
         const val MAX_THRESHOLD = 500
         const val DEFAULT_CONTEXTUAL_CORRECTION_ENABLED = true
+        const val DEFAULT_TAIWAN_WORDING_ENABLED = true
+        const val DEFAULT_SMART_PUNCTUATION_ENABLED = true
         const val DEFAULT_SPEECH_MODEL = "whisper-large-v3-turbo"
         const val DEFAULT_GROQ_MODEL = "qwen/qwen3.8-27b"
         const val DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
@@ -224,6 +228,17 @@ internal object SmartFormattingPolicy {
         }
 }
 
+/** 需智慧整理實際送出 AI 請求時才能生效的功能開關；關閉時不得改用本機規則模擬語意判斷。 */
+internal object TextEnhancementPolicy {
+    fun shouldUse(
+        featureEnabled: Boolean,
+        smartFormattingEnabled: Boolean,
+        providerAvailable: Boolean,
+        apiKeyAvailable: Boolean,
+        sensitiveEditor: Boolean
+    ): Boolean = featureEnabled && smartFormattingEnabled && providerAvailable && apiKeyAvailable && !sensitiveEditor
+}
+
 internal object ContextualCorrectionPolicy {
     fun shouldUse(
         enabled: Boolean,
@@ -231,5 +246,11 @@ internal object ContextualCorrectionPolicy {
         providerAvailable: Boolean,
         apiKeyAvailable: Boolean,
         sensitiveEditor: Boolean
-    ): Boolean = enabled && smartFormattingEnabled && providerAvailable && apiKeyAvailable && !sensitiveEditor
+    ): Boolean = TextEnhancementPolicy.shouldUse(
+        featureEnabled = enabled,
+        smartFormattingEnabled = smartFormattingEnabled,
+        providerAvailable = providerAvailable,
+        apiKeyAvailable = apiKeyAvailable,
+        sensitiveEditor = sensitiveEditor
+    )
 }

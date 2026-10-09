@@ -128,6 +128,64 @@ internal fun SmartFormattingSettingsScreen(
                 enabled = loaded
             )
         }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text("台灣繁體中文用字偏好", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "依語境優先使用台灣慣用詞彙，保留專有名詞與原意。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (!draft.enabled) {
+                    Text(
+                        "需要啟用智慧整理才能使用；目前不會執行台灣用字偏好。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+            }
+            Switch(
+                checked = draft.taiwanWordingEnabled,
+                onCheckedChange = { draft = draft.copy(taiwanWordingEnabled = it) },
+                enabled = loaded
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text("智慧標點與段落整理", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "依句型自動判斷問號、句號及適當分段，讓語音輸入更自然易讀。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (!draft.enabled) {
+                    Text(
+                        "需要啟用智慧整理才能使用；目前不會執行智慧標點與段落整理。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+            }
+            Switch(
+                checked = draft.smartPunctuationEnabled,
+                onCheckedChange = { draft = draft.copy(smartPunctuationEnabled = it) },
+                enabled = loaded
+            )
+        }
         OutlinedTextField(
             value = thresholdText,
             onValueChange = { value -> if (value.length <= 3 && value.all(Char::isDigit)) thresholdText = value },

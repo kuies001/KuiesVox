@@ -37,13 +37,33 @@ internal object TerminalPunctuationProcessor {
         imeOptions: Int = 0,
         inputType: Int = 0
     ): String {
+        val normalized = collapseRedundantSentenceEnders(text)
         val shouldRemove = when (mode) {
             TerminalPeriodMode.AUTO -> shouldRemoveInAuto(imeOptions, inputType)
             TerminalPeriodMode.NEVER -> true
             TerminalPeriodMode.ALWAYS -> false
         }
-        return if (shouldRemove) removeLastTerminalChinesePeriod(text) else text
+        return if (shouldRemove) removeLastTerminalChinesePeriod(normalized) else normalized
     }
+
+    /**
+     * 文字整理可能產生重複或矛盾的結尾標點，例如「？」後又接「。」或連續句號。
+     * 這裡只折疊緊接在句末標點之後的中文句號，不動其他標點與內容。
+     */
+    internal fun collapseRedundantSentenceEnders(text: String): String {
+        if (!text.contains('。')) return text
+        val builder = StringBuilder(text.length)
+        text.forEach { char ->
+            if (char == '。' && (builder.lastOrNull() == '。' || builder.lastOrNull().isSentenceEndingMark())) {
+                return@forEach
+            }
+            builder.append(char)
+        }
+        return builder.toString()
+    }
+
+    private fun Char?.isSentenceEndingMark(): Boolean =
+        this == '？' || this == '！' || this == '?' || this == '!'
 
     fun shouldRemoveInAuto(imeOptions: Int, inputType: Int): Boolean {
         when (imeOptions and IME_MASK_ACTION) {

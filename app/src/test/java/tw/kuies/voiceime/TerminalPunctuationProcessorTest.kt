@@ -61,6 +61,27 @@ class TerminalPunctuationProcessorTest {
     }
 
     @Test
+    fun redundantSentenceEndersAreCollapsedBeforeTheModeIsApplied() {
+        assertEquals("你今天有空。", apply("你今天有空。。", TerminalPeriodMode.ALWAYS))
+        assertEquals("你好嗎？", apply("你好嗎？。", TerminalPeriodMode.ALWAYS))
+        assertEquals("你要去哪裡？！", apply("你要去哪裡？！。", TerminalPeriodMode.ALWAYS))
+        assertEquals("？", apply("？。", TerminalPeriodMode.ALWAYS))
+        assertEquals("你好嗎？", apply("你好嗎？。", TerminalPeriodMode.NEVER))
+        assertEquals("你今天有空", apply("你今天有空。。", TerminalPeriodMode.NEVER))
+    }
+
+    @Test
+    fun collapsingLeavesOtherPunctuationParagraphsAndAsciiDotsUntouched() {
+        assertEquals("i.e. this.", apply("i.e. this.", TerminalPeriodMode.ALWAYS))
+        assertEquals("你好……", apply("你好……", TerminalPeriodMode.ALWAYS))
+        assertEquals("第一段。\n第二段。", apply("第一段。\n第二段。", TerminalPeriodMode.ALWAYS))
+        assertEquals(
+            "第一段。\n\n第二段？",
+            apply("第一段。\n\n第二段？。", TerminalPeriodMode.ALWAYS)
+        )
+    }
+
+    @Test
     fun missingOrInvalidStoredModeDefaultsToAuto() {
         assertEquals(TerminalPeriodMode.AUTO, TerminalPeriodMode.fromStoredValue(null))
         assertEquals(TerminalPeriodMode.AUTO, TerminalPeriodMode.fromStoredValue("unknown"))

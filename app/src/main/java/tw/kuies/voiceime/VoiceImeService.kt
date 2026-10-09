@@ -1344,11 +1344,26 @@ class VoiceImeService : InputMethodService() {
                                 return@post
                             }
                             val sensitiveEditor = activeVoiceOperationSnapshot?.sensitiveEditor != false
+                            val apiKeyAvailable = apiKey.isNotBlank()
                             val useContextualCorrection = ContextualCorrectionPolicy.shouldUse(
                                 enabled = settings.contextualCorrectionEnabled,
                                 smartFormattingEnabled = settings.enabled,
                                 providerAvailable = true,
-                                apiKeyAvailable = apiKey.isNotBlank(),
+                                apiKeyAvailable = apiKeyAvailable,
+                                sensitiveEditor = sensitiveEditor
+                            )
+                            val useTaiwanWording = TextEnhancementPolicy.shouldUse(
+                                featureEnabled = settings.taiwanWordingEnabled,
+                                smartFormattingEnabled = settings.enabled,
+                                providerAvailable = true,
+                                apiKeyAvailable = apiKeyAvailable,
+                                sensitiveEditor = sensitiveEditor
+                            )
+                            val useSmartPunctuation = TextEnhancementPolicy.shouldUse(
+                                featureEnabled = settings.smartPunctuationEnabled,
+                                smartFormattingEnabled = settings.enabled,
+                                providerAvailable = true,
+                                apiKeyAvailable = apiKeyAvailable,
                                 sensitiveEditor = sensitiveEditor
                             )
                             formatTranscript(
@@ -1367,7 +1382,9 @@ class VoiceImeService : InputMethodService() {
                                         it.id in correctionPlan.matchedOccurrences
                                     },
                                     formattingStyle = activeVoiceOperationSnapshot?.formattingStyle
-                                        ?: settings.formattingStyle
+                                        ?: settings.formattingStyle,
+                                    taiwanWordingEnabled = useTaiwanWording,
+                                    smartPunctuationEnabled = useSmartPunctuation
                                 ),
                                 settings.terminalPeriodMode
                             )

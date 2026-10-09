@@ -76,6 +76,8 @@ internal object AppVoiceProfileRepository {
             profile.smartFormattingEnabledOverride?.let { item.put("smartFormattingEnabled", it) }
             profile.providerOverride?.let { item.put("provider", it.name.lowercase()) }
             profile.contextualCorrectionEnabledOverride?.let { item.put("contextualCorrectionEnabled", it) }
+            profile.taiwanWordingEnabledOverride?.let { item.put("taiwanWordingEnabled", it) }
+            profile.smartPunctuationEnabledOverride?.let { item.put("smartPunctuationEnabled", it) }
             profile.terminalPeriodModeOverride?.let { item.put("terminalPeriodMode", it.storageValue) }
             profile.formattingStyleOverride?.let { item.put("formattingStyle", it.storageValue) }
             array.put(item)
@@ -105,6 +107,8 @@ internal object AppVoiceProfileRepository {
                             it.name.equals(providerValue, ignoreCase = true)
                         }?.takeIf(TextFormattingProviderRegistry::isProfileSupported),
                         contextualCorrectionEnabledOverride = item.nullableBoolean("contextualCorrectionEnabled"),
+                        taiwanWordingEnabledOverride = item.nullableBoolean("taiwanWordingEnabled"),
+                        smartPunctuationEnabledOverride = item.nullableBoolean("smartPunctuationEnabled"),
                         terminalPeriodModeOverride = item.nullableString("terminalPeriodMode")?.let { value ->
                             TerminalPeriodMode.entries.firstOrNull { it.storageValue.equals(value, ignoreCase = true) }
                         },

@@ -19,6 +19,8 @@ internal object SmartFormattingSettingsRepository {
     private const val OPENAI_CUSTOM_MODEL_KEY = "openai_custom_model_id"
     private const val TERMINAL_PERIOD_MODE_KEY = "terminal_period_mode"
     private const val CONTEXTUAL_CORRECTION_ENABLED_KEY = "contextual_correction_enabled"
+    private const val TAIWAN_WORDING_ENABLED_KEY = "taiwan_wording_enabled"
+    private const val SMART_PUNCTUATION_ENABLED_KEY = "smart_punctuation_enabled"
     private const val FORMATTING_STYLE_KEY = "text_formatting_style"
 
     fun loadAsync(context: Context, callback: (Result<SmartFormattingSettings>) -> Unit) {
@@ -75,6 +77,14 @@ internal object SmartFormattingSettingsRepository {
                     CONTEXTUAL_CORRECTION_ENABLED_KEY,
                     SmartFormattingSettings.DEFAULT_CONTEXTUAL_CORRECTION_ENABLED
                 ),
+                taiwanWordingEnabled = preferences.getBoolean(
+                    TAIWAN_WORDING_ENABLED_KEY,
+                    SmartFormattingSettings.DEFAULT_TAIWAN_WORDING_ENABLED
+                ),
+                smartPunctuationEnabled = preferences.getBoolean(
+                    SMART_PUNCTUATION_ENABLED_KEY,
+                    SmartFormattingSettings.DEFAULT_SMART_PUNCTUATION_ENABLED
+                ),
                 formattingStyle = TextFormattingStyle.fromStoredValue(
                     preferences.getString(FORMATTING_STYLE_KEY, null)
                 ) ?: TextFormattingStyle.DAILY
@@ -100,6 +110,8 @@ internal object SmartFormattingSettingsRepository {
             .putString(OPENAI_CUSTOM_MODEL_KEY, normalized.openAiCustomModelId)
             .putString(TERMINAL_PERIOD_MODE_KEY, normalized.terminalPeriodMode.storageValue)
             .putBoolean(CONTEXTUAL_CORRECTION_ENABLED_KEY, normalized.contextualCorrectionEnabled)
+            .putBoolean(TAIWAN_WORDING_ENABLED_KEY, normalized.taiwanWordingEnabled)
+            .putBoolean(SMART_PUNCTUATION_ENABLED_KEY, normalized.smartPunctuationEnabled)
             .putString(FORMATTING_STYLE_KEY, normalized.formattingStyle.storageValue)
             .commit()
         if (!saved) throw IOException("Smart formatting settings could not be persisted")

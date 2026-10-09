@@ -9,6 +9,8 @@ internal data class AppVoiceProfile(
     val smartFormattingEnabledOverride: Boolean? = null,
     val providerOverride: TextFormattingProviderId? = null,
     val contextualCorrectionEnabledOverride: Boolean? = null,
+    val taiwanWordingEnabledOverride: Boolean? = null,
+    val smartPunctuationEnabledOverride: Boolean? = null,
     val terminalPeriodModeOverride: TerminalPeriodMode? = null,
     val formattingStyleOverride: TextFormattingStyle? = null,
     val createdAt: Long = 0L,
@@ -63,7 +65,11 @@ internal object AppVoiceProfilePolicy {
     ): ResolvedAppVoiceSettings {
         if (sensitiveEditor) {
             return ResolvedAppVoiceSettings(
-                settings = globalSettings.copy(contextualCorrectionEnabled = false),
+                settings = globalSettings.copy(
+                    contextualCorrectionEnabled = false,
+                    taiwanWordingEnabled = false,
+                    smartPunctuationEnabled = false
+                ),
                 formattingStyle = globalSettings.formattingStyle,
                 appliedProfile = null
             )
@@ -93,6 +99,10 @@ internal object AppVoiceProfilePolicy {
             provider = validProvider ?: globalSettings.provider,
             contextualCorrectionEnabled = profile.contextualCorrectionEnabledOverride
                 ?: globalSettings.contextualCorrectionEnabled,
+            taiwanWordingEnabled = profile.taiwanWordingEnabledOverride
+                ?: globalSettings.taiwanWordingEnabled,
+            smartPunctuationEnabled = profile.smartPunctuationEnabledOverride
+                ?: globalSettings.smartPunctuationEnabled,
             terminalPeriodMode = profile.terminalPeriodModeOverride ?: globalSettings.terminalPeriodMode,
             formattingStyle = profile.formattingStyleOverride ?: globalSettings.formattingStyle
         )
@@ -169,6 +179,8 @@ internal fun AppVoiceProfile.summary(): String = listOf(
     smartFormattingEnabledOverride?.let { if (it) "智慧整理開" else "智慧整理關" } ?: "智慧整理繼承",
     providerOverride.displayNameOrInherit(),
     contextualCorrectionEnabledOverride?.let { if (it) "糾錯開" else "糾錯關" } ?: "糾錯繼承",
+    taiwanWordingEnabledOverride?.let { if (it) "台灣用字開" else "台灣用字關" } ?: "台灣用字繼承",
+    smartPunctuationEnabledOverride?.let { if (it) "智慧標點開" else "智慧標點關" } ?: "智慧標點繼承",
     terminalPeriodModeOverride.displayNameOrInherit(),
     formattingStyleOverride.displayNameOrInherit()
 ).joinToString(" · ")
