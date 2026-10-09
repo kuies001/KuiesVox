@@ -76,9 +76,13 @@ internal object TranscriptFormattingPrompt {
     fun buildSystemPrompt(
         contextualCorrectionEnabled: Boolean,
         glossary: List<PersonalGlossaryTerm> = emptyList(),
-        correctionRules: List<TextCorrectionRule> = emptyList()
+        correctionRules: List<TextCorrectionRule> = emptyList(),
+        formattingStyle: TextFormattingStyle = TextFormattingStyle.DAILY
     ): String {
         val additions = mutableListOf<String>()
+        if (formattingStyle != TextFormattingStyle.DAILY) {
+            additions += "文字整理風格：${formattingStyle.promptInstruction}"
+        }
         val ruleLines = correctionRules.asSequence()
             .filter { it.enabled && it.sourceText.isNotBlank() }
             .take(MAX_CONTEXT_RULES)

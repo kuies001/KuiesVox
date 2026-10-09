@@ -151,7 +151,8 @@ internal data class SmartFormattingSettings(
     val openAiFormattingModel: String = DEFAULT_OPENAI_MODEL,
     val openAiCustomModelId: String = "",
     val terminalPeriodMode: TerminalPeriodMode = TerminalPeriodMode.AUTO,
-    val contextualCorrectionEnabled: Boolean = DEFAULT_CONTEXTUAL_CORRECTION_ENABLED
+    val contextualCorrectionEnabled: Boolean = DEFAULT_CONTEXTUAL_CORRECTION_ENABLED,
+    val formattingStyle: TextFormattingStyle = TextFormattingStyle.DAILY
 ) {
     val model: String
         get() = modelFor(provider)

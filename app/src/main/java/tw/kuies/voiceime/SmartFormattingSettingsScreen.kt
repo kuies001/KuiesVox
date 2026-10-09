@@ -151,6 +151,15 @@ internal fun SmartFormattingSettingsScreen(
             }
         }
         SettingsDropdown(
+            title = "文字整理風格",
+            value = draft.formattingStyle.displayName,
+            items = TextFormattingStyle.entries.map { it.displayName },
+            enabled = loaded,
+            onSelect = { name ->
+                draft = draft.copy(formattingStyle = TextFormattingStyle.entries.first { it.displayName == name })
+            }
+        )
+        SettingsDropdown(
             title = "Provider",
             value = draft.provider.displayName,
             items = TextFormattingProviderId.entries.map { it.displayName },

@@ -35,8 +35,11 @@ import tw.kuies.voiceime.ui.theme.VoiceIMETheme
 private const val MAIN_ACTIVITY_TAG = "MainActivity"
 
 class MainActivity : ComponentActivity() {
+    private var editorPackageForProfiles by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        editorPackageForProfiles = intent.getStringExtra(EXTRA_EDITOR_PACKAGE)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
@@ -44,10 +47,23 @@ class MainActivity : ComponentActivity() {
         setContent {
             VoiceIMETheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    VoiceImeSettingsApp(Modifier.padding(innerPadding))
+                    VoiceImeSettingsApp(
+                        modifier = Modifier.padding(innerPadding),
+                        currentEditorPackageName = editorPackageForProfiles
+                    )
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        editorPackageForProfiles = intent.getStringExtra(EXTRA_EDITOR_PACKAGE)
+    }
+
+    companion object {
+        const val EXTRA_EDITOR_PACKAGE = "tw.kuies.voiceime.extra.EDITOR_PACKAGE"
     }
 }
 
@@ -55,12 +71,16 @@ private enum class SettingsDestination {
     HOME,
     GROQ,
     SMART_FORMATTING,
+    APP_PROFILES,
     PERSONALIZATION,
     MCP
 }
 
 @Composable
-private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
+private fun VoiceImeSettingsApp(
+    modifier: Modifier = Modifier,
+    currentEditorPackageName: String? = null
+) {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
@@ -119,6 +139,8 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
     var mcpBusy by remember { mutableStateOf(false) }
     var smartFormattingSettings by remember { mutableStateOf(SmartFormattingSettings()) }
     var smartFormattingLoaded by remember { mutableStateOf(false) }
+    var appVoiceProfiles by remember { mutableStateOf<List<AppVoiceProfile>>(emptyList()) }
+    var appVoiceProfilesLoaded by remember { mutableStateOf(false) }
     var geminiApiKey by remember { mutableStateOf("") }
     var geminiApiKeySaved by remember { mutableStateOf(false) }
     var geminiApiKeyLoaded by remember { mutableStateOf(false) }
@@ -235,6 +257,16 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
                 smartFormattingLoaded = true
             }
         }
+        AppVoiceProfileRepository.load(applicationContext) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                result.onSuccess { profiles -> appVoiceProfiles = profiles }
+                    .onFailure { exception ->
+                        Log.w(MAIN_ACTIVITY_TAG, "App voice profiles load failed: ${exception.javaClass.simpleName}")
+                    }
+                appVoiceProfilesLoaded = true
+            }
+        }
         onDispose {
             screenIsActive.set(false)
             appUpdateController.close()
@@ -277,6 +309,42 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
                     )
                     smartFormattingStatus = "設定儲存失敗，請稍後再試。"
                 }
+            }
+        }
+    }
+
+    fun saveAppVoiceProfile(profile: AppVoiceProfile) {
+        AppVoiceProfileRepository.upsert(applicationContext, profile) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                result.onSuccess { appVoiceProfiles = it }
+                    .onFailure { exception ->
+                        Log.w(MAIN_ACTIVITY_TAG, "App voice profile save failed: ${exception.javaClass.simpleName}")
+                    }
+            }
+        }
+    }
+
+    fun setAppVoiceProfileEnabled(packageName: String, enabled: Boolean) {
+        AppVoiceProfileRepository.setEnabled(applicationContext, packageName, enabled) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                result.onSuccess { appVoiceProfiles = it }
+                    .onFailure { exception ->
+                        Log.w(MAIN_ACTIVITY_TAG, "App voice profile update failed: ${exception.javaClass.simpleName}")
+                    }
+            }
+        }
+    }
+
+    fun deleteAppVoiceProfile(packageName: String) {
+        AppVoiceProfileRepository.delete(applicationContext, packageName) { result ->
+            mainHandler.post {
+                if (!screenIsActive.get()) return@post
+                result.onSuccess { appVoiceProfiles = it }
+                    .onFailure { exception ->
+                        Log.w(MAIN_ACTIVITY_TAG, "App voice profile delete failed: ${exception.javaClass.simpleName}")
+                    }
             }
         }
     }
@@ -518,6 +586,7 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
             apiKeySaved = apiKeySaved,
             hasMicrophonePermission = hasRecordAudioPermission,
             smartFormattingSettings = smartFormattingSettings,
+            appVoiceProfileCount = appVoiceProfiles.size,
             glossaryTerms = glossaryTerms,
             correctionRules = correctionRules,
             mcpConfig = mcpConfig,
@@ -526,6 +595,7 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
             updateState = appUpdateState,
             onOpenGroq = { destination = SettingsDestination.GROQ },
             onOpenSmartFormatting = { destination = SettingsDestination.SMART_FORMATTING },
+            onOpenAppProfiles = { destination = SettingsDestination.APP_PROFILES },
             onOpenPersonalization = { destination = SettingsDestination.PERSONALIZATION },
             onOpenMcp = { destination = SettingsDestination.MCP },
             onCheckForUpdates = appUpdateController::checkForUpdates,
@@ -640,6 +710,20 @@ private fun VoiceImeSettingsApp(modifier: Modifier = Modifier) {
             },
             onOpenGroqSettings = { destination = SettingsDestination.GROQ },
             onOpenApiKeyPage = ::openApiKeyPage,
+            onBack = { destination = SettingsDestination.HOME }
+        )
+
+        SettingsDestination.APP_PROFILES -> AppVoiceProfilesScreen(
+            modifier = modifier,
+            profiles = appVoiceProfiles,
+            loaded = appVoiceProfilesLoaded,
+            globalSettings = smartFormattingSettings,
+            currentEditorPackageName = currentEditorPackageName,
+            onOpenGlobalSettings = { destination = SettingsDestination.SMART_FORMATTING },
+            onOpenGlobalAsrSettings = { destination = SettingsDestination.GROQ },
+            onSaveProfile = ::saveAppVoiceProfile,
+            onSetEnabled = ::setAppVoiceProfileEnabled,
+            onDeleteProfile = ::deleteAppVoiceProfile,
             onBack = { destination = SettingsDestination.HOME }
         )
 

@@ -19,6 +19,7 @@ internal object SmartFormattingSettingsRepository {
     private const val OPENAI_CUSTOM_MODEL_KEY = "openai_custom_model_id"
     private const val TERMINAL_PERIOD_MODE_KEY = "terminal_period_mode"
     private const val CONTEXTUAL_CORRECTION_ENABLED_KEY = "contextual_correction_enabled"
+    private const val FORMATTING_STYLE_KEY = "text_formatting_style"
 
     fun loadAsync(context: Context, callback: (Result<SmartFormattingSettings>) -> Unit) {
         val appContext = context.applicationContext
@@ -73,7 +74,10 @@ internal object SmartFormattingSettingsRepository {
                 contextualCorrectionEnabled = preferences.getBoolean(
                     CONTEXTUAL_CORRECTION_ENABLED_KEY,
                     SmartFormattingSettings.DEFAULT_CONTEXTUAL_CORRECTION_ENABLED
-                )
+                ),
+                formattingStyle = TextFormattingStyle.fromStoredValue(
+                    preferences.getString(FORMATTING_STYLE_KEY, null)
+                ) ?: TextFormattingStyle.DAILY
             )
         )
     }
@@ -96,6 +100,7 @@ internal object SmartFormattingSettingsRepository {
             .putString(OPENAI_CUSTOM_MODEL_KEY, normalized.openAiCustomModelId)
             .putString(TERMINAL_PERIOD_MODE_KEY, normalized.terminalPeriodMode.storageValue)
             .putBoolean(CONTEXTUAL_CORRECTION_ENABLED_KEY, normalized.contextualCorrectionEnabled)
+            .putString(FORMATTING_STYLE_KEY, normalized.formattingStyle.storageValue)
             .commit()
         if (!saved) throw IOException("Smart formatting settings could not be persisted")
     }
@@ -130,7 +135,8 @@ internal object SmartFormattingSettingsRepository {
             geminiCustomModelId = geminiCustomModel,
             openAiFormattingModel = openAiModel,
             openAiCustomModelId = openAiCustomModel,
-            terminalPeriodMode = settings.terminalPeriodMode
+            terminalPeriodMode = settings.terminalPeriodMode,
+            formattingStyle = settings.formattingStyle
         )
     }
 

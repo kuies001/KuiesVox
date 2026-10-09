@@ -79,6 +79,22 @@ class ContextualCorrectionTest {
     }
 
     @Test
+    fun nonDefaultFormattingStyleExtendsTheExistingPromptWithoutAnotherRequest() {
+        val dailyPrompt = TranscriptFormattingPrompt.buildSystemPrompt(
+            contextualCorrectionEnabled = false,
+            formattingStyle = TextFormattingStyle.DAILY
+        )
+        val technicalPrompt = TranscriptFormattingPrompt.buildSystemPrompt(
+            contextualCorrectionEnabled = false,
+            formattingStyle = TextFormattingStyle.TECHNICAL
+        )
+
+        assertEquals(TranscriptFormattingPrompt.SYSTEM_PROMPT, dailyPrompt)
+        assertTrue(technicalPrompt.contains(TextFormattingStyle.TECHNICAL.promptInstruction))
+        assertFalse(technicalPrompt.contains("上下文智慧糾錯"))
+    }
+
+    @Test
     fun explicitRuleSurvivesAControlledFormatterReversionInOneRequest() {
         val rule = TextCorrectionRule("rule-1", "助手", "住手", true)
         val prepared = TextPostProcessor.processWithPlan("你給我助手", listOf(rule))

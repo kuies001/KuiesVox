@@ -33,4 +33,9 @@ internal object TextFormattingProviderRegistry {
         TextFormattingProviderId.GROQ -> groqProvider
         TextFormattingProviderId.GEMINI, TextFormattingProviderId.OPENAI -> null
     }
+
+    fun supportedProfileProviders(): List<TextFormattingProviderId> =
+        TextFormattingProviderId.entries.filter { forProvider(it) != null }
+
+    fun isProfileSupported(provider: TextFormattingProviderId): Boolean = forProvider(provider) != null
 }

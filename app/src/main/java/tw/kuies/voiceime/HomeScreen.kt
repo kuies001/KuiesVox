@@ -55,6 +55,7 @@ internal fun HomeScreen(
     apiKeySaved: Boolean,
     hasMicrophonePermission: Boolean,
     smartFormattingSettings: SmartFormattingSettings,
+    appVoiceProfileCount: Int,
     glossaryTerms: List<PersonalGlossaryTerm>,
     correctionRules: List<TextCorrectionRule>,
     mcpConfig: McpConfig,
@@ -63,6 +64,7 @@ internal fun HomeScreen(
     updateState: AppUpdateState,
     onOpenGroq: () -> Unit,
     onOpenSmartFormatting: () -> Unit,
+    onOpenAppProfiles: () -> Unit,
     onOpenPersonalization: () -> Unit,
     onOpenMcp: () -> Unit,
     onCheckForUpdates: () -> Unit,
@@ -171,6 +173,23 @@ internal fun HomeScreen(
                 accent = colors.tertiary,
                 contentColor = colors.onTertiary,
                 onClick = onOpenPersonalization,
+                modifier = Modifier.align(Alignment.End)
+            )
+        }
+
+        HomeFeatureCard(
+            icon = R.drawable.ic_home_personalization,
+            title = "App 專屬設定",
+            subtitle = "依輸入欄位所屬 App 套用語音設定",
+            accent = colors.primary,
+            status = "$appVoiceProfileCount 個 App"
+        ) {
+            StatusLine(label = "設定來源", value = "全域預設 + App 覆蓋")
+            ActionButton(
+                label = "管理 App 專屬設定",
+                accent = colors.primary,
+                contentColor = colors.onPrimary,
+                onClick = onOpenAppProfiles,
                 modifier = Modifier.align(Alignment.End)
             )
         }

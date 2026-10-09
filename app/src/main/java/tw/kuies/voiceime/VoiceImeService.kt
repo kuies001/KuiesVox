@@ -66,6 +66,22 @@ class VoiceImeService : InputMethodService() {
     private var statusLabelOverride: String? = null
     @Volatile
     private var currentEditorInfo: EditorInfo? = null
+    private var currentEditorDetails: EditorFieldDetails? = null
+    private var currentEditorConnectionIdentity: InputConnection? = null
+    @Volatile
+    private var editorSessionId = 0L
+    @Volatile
+    private var activeVoiceOperationSnapshot: VoiceOperationSnapshot? = null
+    @Volatile
+    private var currentResolvedAppSettings = ResolvedAppVoiceSettings(
+        settings = SmartFormattingSettings(),
+        formattingStyle = TextFormattingStyle.DAILY,
+        appliedProfile = null
+    )
+    private var profileCacheInitialized = false
+    private var profileCachePackageName: String? = null
+    private var profileCacheGlobalSettings = SmartFormattingSettings()
+    private var profileCacheProfiles: List<AppVoiceProfile> = emptyList()
     @Volatile
     private var activeRawTranscript: String? = null
     private val clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
@@ -127,7 +143,7 @@ class VoiceImeService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        currentEditorInfo = info
+        updateEditorInfo(info, restarting = true, fromInputView = true)
         voicePanel?.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
         if (isCurrentEditorSensitive()) {
             when {
@@ -143,20 +159,76 @@ class VoiceImeService : InputMethodService() {
 
     override fun onStartInput(attribute: EditorInfo, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
-        currentEditorInfo = attribute
+        updateEditorInfo(attribute, restarting, fromInputView = false)
     }
 
     override fun onFinishInput() {
+        if (activeOperationId != 0L) cancelCurrentOperation()
+        editorSessionId += 1
         unregisterClipboardListener()
         currentEditorInfo = null
+        currentEditorDetails = null
+        currentEditorConnectionIdentity = null
         super.onFinishInput()
+    }
+
+    private fun updateEditorInfo(info: EditorInfo, restarting: Boolean, fromInputView: Boolean) {
+        val previous = currentEditorDetails
+        val incoming = EditorFieldDetails.from(info)
+        val incomingConnection = currentInputConnection
+        val packageChanged = previous?.packageName != incoming.packageName
+        val editorDetailsChanged = previous != null && previous != incoming
+        val connectionChanged = previous != null && currentEditorConnectionIdentity !== incomingConnection
+        val targetChanged = when {
+            previous == null -> true
+            packageChanged || editorDetailsChanged || connectionChanged -> true
+            !fromInputView && !restarting -> true
+            else -> false
+        }
+        if (targetChanged) {
+            if (activeOperationId != 0L) cancelCurrentOperation()
+            editorSessionId += 1
+        }
+        currentEditorInfo = info
+        currentEditorDetails = incoming
+        currentEditorConnectionIdentity = incomingConnection
+        resolveCurrentEditorSettings(info)
+    }
+
+    private fun resolveCurrentEditorSettings(info: EditorInfo) {
+        val packageName = AppPackageName.normalize(info.packageName)
+        if (!profileCacheInitialized || profileCachePackageName != packageName) {
+            profileCacheInitialized = true
+            profileCachePackageName = packageName
+            profileCacheGlobalSettings = runCatching {
+                SmartFormattingSettingsRepository.loadSync(applicationContext)
+            }.getOrElse { exception ->
+                Log.w(TAG, "Global settings unavailable for editor: ${exception.javaClass.simpleName}")
+                SmartFormattingSettings()
+            }
+            profileCacheProfiles = runCatching {
+                AppVoiceProfileRepository.loadSync(applicationContext)
+            }.getOrElse { exception ->
+                Log.w(TAG, "App profiles unavailable for editor: ${exception.javaClass.simpleName}")
+                emptyList()
+            }
+        }
+        val sensitive = EditorPrivacyPolicy.isSensitive(info.inputType, info.imeOptions)
+        currentResolvedAppSettings = AppVoiceProfilePolicy.resolve(
+            packageName = packageName,
+            profiles = profileCacheProfiles,
+            globalSettings = profileCacheGlobalSettings,
+            sensitiveEditor = sensitive
+        )
     }
 
     private fun openSettings() {
         if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || activeOperationId != 0L) return
         try {
             startActivity(
-                Intent(this, MainActivity::class.java).addFlags(
+                Intent(this, MainActivity::class.java)
+                    .putExtra(MainActivity.EXTRA_EDITOR_PACKAGE, AppPackageName.normalize(currentEditorInfo?.packageName))
+                    .addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or
                         Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -605,6 +677,8 @@ class VoiceImeService : InputMethodService() {
             return false
         }
 
+        val voiceSnapshot = createVoiceOperationSnapshot()
+
         var newRecorder: AudioRecord? = null
         var outputFile: File? = null
         try {
@@ -641,6 +715,7 @@ class VoiceImeService : InputMethodService() {
 
             val operationId = requestGate.begin()
             activeOperationId = operationId
+            activeVoiceOperationSnapshot = voiceSnapshot
             activeAudioFile = file
             recordingFailure = null
             audioRecord = recorder
@@ -724,7 +799,7 @@ class VoiceImeService : InputMethodService() {
         if (!transitionStatus(VoiceImeState.TRANSCRIBING)) return
 
         stopRecorderAndJoin()
-        if (!isOperationCurrent(operationId)) return
+        if (!isVoiceOperationTargetCurrent(operationId)) return
         if (recordingFailure != null) {
             finishWithError(operationId, "recording_failed")
             return
@@ -746,6 +821,7 @@ class VoiceImeService : InputMethodService() {
         holdToTalkRecording = false
         requestGate.invalidate()
         activeOperationId = 0L
+        activeVoiceOperationSnapshot = null
         activeRequestCall.cancel()
         activeRawTranscript = null
         transitionStatus(VoiceImeState.CANCELLED)
@@ -795,11 +871,11 @@ class VoiceImeService : InputMethodService() {
     }
 
     private fun transcribeRecording(file: File, operationId: Long) {
-        if (!isOperationCurrent(operationId)) return
+        if (!isVoiceOperationTargetCurrent(operationId)) return
         try {
             GroqApiKeyStore.readAsync(applicationContext) { keyResult ->
                 mainHandler.post {
-                    if (!isOperationCurrent(operationId)) return@post
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
                     if (keyResult.isFailure) {
                         val errorType = keyResult.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"
                         Log.e(TAG, "Groq API key read failed: $errorType")
@@ -821,16 +897,84 @@ class VoiceImeService : InputMethodService() {
         }
     }
 
+    private fun createVoiceOperationSnapshot(): VoiceOperationSnapshot {
+        val editorInfo = currentEditorInfo
+        val sensitive = editorInfo == null || EditorPrivacyPolicy.isSensitive(
+            editorInfo.inputType,
+            editorInfo.imeOptions
+        )
+        val resolved = runCatching {
+            val globalSettings = SmartFormattingSettingsRepository.loadSync(applicationContext)
+            val profiles = if (sensitive) emptyList() else AppVoiceProfileRepository.loadSync(applicationContext)
+            AppVoiceProfilePolicy.resolve(
+                packageName = editorInfo?.packageName,
+                profiles = profiles,
+                globalSettings = globalSettings,
+                sensitiveEditor = sensitive
+            )
+        }.getOrElse { exception ->
+            Log.w(TAG, "Voice settings snapshot failed: ${exception.javaClass.simpleName}")
+            if (sensitive) {
+                currentResolvedAppSettings.copy(
+                    settings = currentResolvedAppSettings.settings.copy(contextualCorrectionEnabled = false),
+                    appliedProfile = null
+                )
+            } else {
+                currentResolvedAppSettings
+            }
+        }
+        currentResolvedAppSettings = resolved
+        return VoiceOperationSnapshot(
+            editorTarget = VoiceEditorTargetKey(
+                sessionId = editorSessionId,
+                packageName = AppPackageName.normalize(editorInfo?.packageName),
+                fieldId = editorInfo?.fieldId ?: 0,
+                fieldName = editorInfo?.fieldName,
+                inputType = editorInfo?.inputType ?: 0,
+                imeOptions = editorInfo?.imeOptions ?: 0,
+                connectionIdentity = currentInputConnection
+            ),
+            inputConnection = currentInputConnection,
+            inputType = editorInfo?.inputType ?: 0,
+            imeOptions = editorInfo?.imeOptions ?: 0,
+            sensitiveEditor = sensitive,
+            settings = resolved.settings,
+            formattingStyle = resolved.formattingStyle
+        )
+    }
+
+    private fun isOperationTargetCurrent(snapshot: VoiceOperationSnapshot): Boolean {
+        val editorInfo = currentEditorInfo ?: return false
+        val currentTarget = VoiceEditorTargetKey(
+            sessionId = editorSessionId,
+            packageName = AppPackageName.normalize(editorInfo.packageName),
+            fieldId = editorInfo.fieldId,
+            fieldName = editorInfo.fieldName,
+            inputType = editorInfo.inputType,
+            imeOptions = editorInfo.imeOptions,
+            connectionIdentity = currentInputConnection
+        )
+        return VoiceEditorTargetPolicy.stillTargetsSameEditor(snapshot.editorTarget, currentTarget)
+    }
+
+    private fun isVoiceOperationTargetCurrent(operationId: Long): Boolean {
+        if (!isOperationCurrent(operationId)) return false
+        val snapshot = activeVoiceOperationSnapshot ?: return false
+        if (isOperationTargetCurrent(snapshot)) return true
+        cancelCurrentOperation()
+        return false
+    }
+
     private fun loadGlossaryAndTranscribe(file: File, operationId: Long, apiKey: String) {
-        if (!isOperationCurrent(operationId)) return
-        if (isCurrentEditorSensitive()) {
+        if (!isVoiceOperationTargetCurrent(operationId)) return
+        if (activeVoiceOperationSnapshot?.sensitiveEditor != false) {
             enqueueTranscription(file, operationId, apiKey, emptyList(), emptyList())
             return
         }
         try {
             PersonalGlossaryRepository.load(applicationContext) { result ->
                 mainHandler.post {
-                    if (!isOperationCurrent(operationId)) return@post
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
                     val localGlossary = result.getOrNull().orEmpty()
                     if (result.isFailure) {
                         val errorType = result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"
@@ -851,11 +995,11 @@ class VoiceImeService : InputMethodService() {
         apiKey: String,
         localGlossary: List<PersonalGlossaryTerm>
     ) {
-        if (!isOperationCurrent(operationId)) return
+        if (!isVoiceOperationTargetCurrent(operationId)) return
         try {
             McpContextProvider.getContext(applicationContext) { mcpTerms ->
                 mainHandler.post {
-                    if (!isOperationCurrent(operationId)) return@post
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
                     enqueueTranscription(file, operationId, apiKey, localGlossary, mcpTerms)
                 }
             }
@@ -872,12 +1016,12 @@ class VoiceImeService : InputMethodService() {
         localGlossary: List<PersonalGlossaryTerm>,
         mcpTerms: List<String>
     ) {
-        if (!isOperationCurrent(operationId)) return
+        if (!isVoiceOperationTargetCurrent(operationId)) return
         try {
             SmartFormattingSettingsRepository.loadAsync(applicationContext) { settingsResult ->
                 mainHandler.post {
-                    if (!isOperationCurrent(operationId)) return@post
-                    val settings = settingsResult.getOrElse { exception ->
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
+                    val settings = activeVoiceOperationSnapshot?.settings ?: settingsResult.getOrElse { exception ->
                         Log.w(TAG, "Speech model settings read failed: ${exception.javaClass.simpleName}")
                         SmartFormattingSettings()
                     }
@@ -897,7 +1041,7 @@ class VoiceImeService : InputMethodService() {
                         activeRequestCall.attach(call)
                         GroqTranscriptionClient.enqueue(call) { result ->
                             mainHandler.post {
-                                if (!isOperationCurrent(operationId)) return@post
+                                if (!isVoiceOperationTargetCurrent(operationId)) return@post
                                 activeRequestCall.clear()
                                 when (result) {
                                     is GroqTranscriptionResult.Success -> {
@@ -929,7 +1073,7 @@ class VoiceImeService : InputMethodService() {
             }
         } catch (exception: Exception) {
             Log.e(TAG, "Speech settings read setup failed: ${exception.javaClass.simpleName}")
-            val fallbackSettings = SmartFormattingSettings()
+            val fallbackSettings = activeVoiceOperationSnapshot?.settings ?: SmartFormattingSettings()
             val fallbackPrompt = GlossaryPromptBuilder.build(
                 localGlossary,
                 mcpTerms,
@@ -945,7 +1089,7 @@ class VoiceImeService : InputMethodService() {
             activeRequestCall.attach(fallbackCall)
             GroqTranscriptionClient.enqueue(fallbackCall) { result ->
                 mainHandler.post {
-                    if (!isOperationCurrent(operationId)) return@post
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
                     activeRequestCall.clear()
                     when (result) {
                         is GroqTranscriptionResult.Success ->
@@ -971,12 +1115,12 @@ class VoiceImeService : InputMethodService() {
         apiKey: String,
         localGlossary: List<PersonalGlossaryTerm>
     ) {
-        if (!isOperationCurrent(operationId)) return
+        if (!isVoiceOperationTargetCurrent(operationId)) return
         activeRawTranscript = originalText
         try {
             TextCorrectionRuleRepository.load(applicationContext) { result ->
                 mainHandler.post {
-                    if (!isOperationCurrent(operationId)) return@post
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
                     val rules = result.getOrElse { exception ->
                         Log.w(
                             TAG,
@@ -1005,7 +1149,7 @@ class VoiceImeService : InputMethodService() {
         var correctionPlan = TextCorrectionPlan(emptyMap())
         try {
             val correctionApplied = requestGate.runIfCurrent(operationId) {
-                if (serviceDestroyed || activeOperationId != operationId) return@runIfCurrent
+                if (!isVoiceOperationTargetCurrent(operationId)) return@runIfCurrent
                 postProcessedText = try {
                     TextPostProcessor.processWithPlan(originalText.trim(), rules).also { result ->
                         correctionPlan = result.correctionPlan
@@ -1015,12 +1159,12 @@ class VoiceImeService : InputMethodService() {
                     originalText
                 }
             }
-            if (!correctionApplied || !isOperationCurrent(operationId)) return
+            if (!correctionApplied || !isVoiceOperationTargetCurrent(operationId)) return
 
             SmartFormattingSettingsRepository.loadAsync(applicationContext) { settingsResult ->
                 mainHandler.post {
-                    if (!isOperationCurrent(operationId)) return@post
-                    val settings = settingsResult.getOrElse { exception ->
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
+                    val settings = activeVoiceOperationSnapshot?.settings ?: settingsResult.getOrElse { exception ->
                         Log.w(TAG, "Smart formatting settings read failed: ${exception.javaClass.simpleName}")
                         commitFormattingFallback(
                             file,
@@ -1056,7 +1200,7 @@ class VoiceImeService : InputMethodService() {
                                 )
                                 return@post
                             }
-                            val sensitiveEditor = isCurrentEditorSensitive()
+                            val sensitiveEditor = activeVoiceOperationSnapshot?.sensitiveEditor != false
                             val useContextualCorrection = ContextualCorrectionPolicy.shouldUse(
                                 enabled = settings.contextualCorrectionEnabled,
                                 smartFormattingEnabled = settings.enabled,
@@ -1078,7 +1222,9 @@ class VoiceImeService : InputMethodService() {
                                     glossary = if (useContextualCorrection) localGlossary else emptyList(),
                                     correctionRules = if (sensitiveEditor) emptyList() else rules.filter {
                                         it.id in correctionPlan.matchedOccurrences
-                                    }
+                                    },
+                                    formattingStyle = activeVoiceOperationSnapshot?.formattingStyle
+                                        ?: settings.formattingStyle
                                 ),
                                 settings.terminalPeriodMode
                             )
@@ -1088,8 +1234,15 @@ class VoiceImeService : InputMethodService() {
             }
         } catch (exception: Exception) {
             Log.e(TAG, "Smart formatting preparation failed: ${exception.javaClass.simpleName}")
-            if (isOperationCurrent(operationId)) {
-                commitFormattingFallback(file, operationId, postProcessedText, "preparation_failed")
+            if (isVoiceOperationTargetCurrent(operationId)) {
+                val settings = activeVoiceOperationSnapshot?.settings ?: SmartFormattingSettings()
+                commitFormattingFallback(
+                    file,
+                    operationId,
+                    postProcessedText,
+                    "preparation_failed",
+                    terminalPeriodMode = settings.terminalPeriodMode
+                )
             }
         }
     }
@@ -1106,11 +1259,11 @@ class VoiceImeService : InputMethodService() {
         systemPrompt: String,
         terminalPeriodMode: TerminalPeriodMode
     ) {
-        if (!isOperationCurrent(operationId)) return
+        if (!isVoiceOperationTargetCurrent(operationId)) return
         try {
             val call = provider.format(apiKey, model, originalText, systemPrompt) { result ->
                 mainHandler.post {
-                    if (!isOperationCurrent(operationId)) return@post
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
                     activeRequestCall.clear()
                     when (result) {
                         is TextFormattingResult.Success -> {
@@ -1207,16 +1360,20 @@ class VoiceImeService : InputMethodService() {
     ) {
         try {
             requestGate.runIfCurrent(operationId) {
-                if (!isOperationCurrent(operationId)) return@runIfCurrent
-                val editorInfo = currentEditorInfo
+                if (!isVoiceOperationTargetCurrent(operationId)) return@runIfCurrent
+                val snapshot = activeVoiceOperationSnapshot
+                if (snapshot == null || !isOperationTargetCurrent(snapshot)) {
+                    finishWithError(operationId, "editor_target_changed")
+                    return@runIfCurrent
+                }
                 val finalText = TerminalPunctuationProcessor.process(
                     text,
                     terminalPeriodMode,
-                    imeOptions = editorInfo?.imeOptions ?: 0,
-                    inputType = editorInfo?.inputType ?: 0
+                    imeOptions = snapshot.imeOptions,
+                    inputType = snapshot.inputType
                 )
                 val committed = try {
-                    currentInputConnection?.commitText(finalText, 1) == true
+                    snapshot.inputConnection?.commitText(finalText, 1) == true
                 } catch (exception: Exception) {
                     Log.e(TAG, "Voice result delivery failed: ${exception.javaClass.simpleName}")
                     false
@@ -1228,7 +1385,7 @@ class VoiceImeService : InputMethodService() {
                         finalText = finalText,
                         successfulCommit = true,
                         cancelled = false,
-                        isSensitiveEditor = isCurrentEditorSensitive()
+                        isSensitiveEditor = snapshot.sensitiveEditor
                     ) { result ->
                         if (result.isFailure) {
                             logHistoryFailure("voice_history_record", result.exceptionOrNull())
@@ -1254,6 +1411,7 @@ class VoiceImeService : InputMethodService() {
         if (!isOperationCurrent(operationId)) return
         requestGate.invalidate()
         activeOperationId = 0L
+        activeVoiceOperationSnapshot = null
         activeRequestCall.clear()
         activeAudioFile = null
         activeRawTranscript = null
@@ -1273,6 +1431,7 @@ class VoiceImeService : InputMethodService() {
         Log.e(TAG, "Voice operation failed: $errorType$status")
         requestGate.invalidate()
         activeOperationId = 0L
+        activeVoiceOperationSnapshot = null
         activeRequestCall.cancel()
         activeRawTranscript = null
         stopRecorderAndJoin()
@@ -1289,7 +1448,8 @@ class VoiceImeService : InputMethodService() {
     }
 
     private fun isOperationCurrent(operationId: Long): Boolean =
-        !serviceDestroyed && activeOperationId == operationId && requestGate.isCurrent(operationId)
+        !serviceDestroyed && activeOperationId == operationId && requestGate.isCurrent(operationId) &&
+            activeVoiceOperationSnapshot?.editorTarget?.sessionId == editorSessionId
 
     private fun transitionStatus(next: VoiceImeState, labelOverride: String? = null): Boolean {
         if (!stateMachine.transitionTo(next)) return false
@@ -1371,6 +1531,7 @@ class VoiceImeService : InputMethodService() {
         backspaceRepeater.stop()
         requestGate.invalidate()
         activeOperationId = 0L
+        activeVoiceOperationSnapshot = null
         activeRequestCall.cancel()
         statusResetRunnable?.let { mainHandler.removeCallbacks(it) }
         statusResetRunnable = null
@@ -1379,5 +1540,33 @@ class VoiceImeService : InputMethodService() {
         activeAudioFile = null
         voicePanel = null
         super.onDestroy()
+    }
+}
+
+private data class VoiceOperationSnapshot(
+    val editorTarget: VoiceEditorTargetKey,
+    val inputConnection: InputConnection?,
+    val inputType: Int,
+    val imeOptions: Int,
+    val sensitiveEditor: Boolean,
+    val settings: SmartFormattingSettings,
+    val formattingStyle: TextFormattingStyle
+)
+
+private data class EditorFieldDetails(
+    val packageName: String?,
+    val fieldId: Int,
+    val fieldName: String?,
+    val inputType: Int,
+    val imeOptions: Int
+) {
+    companion object {
+        fun from(info: EditorInfo) = EditorFieldDetails(
+            packageName = AppPackageName.normalize(info.packageName),
+            fieldId = info.fieldId,
+            fieldName = info.fieldName,
+            inputType = info.inputType,
+            imeOptions = info.imeOptions
+        )
     }
 }
