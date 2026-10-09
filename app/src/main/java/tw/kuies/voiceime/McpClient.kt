@@ -151,7 +151,7 @@ internal class McpClient(private val config: McpConfig) {
     fun connect(): McpServerSnapshot {
         val discovery = try {
             requestRpc(
-                method = "server/discover",
+                method = METHOD_DISCOVER,
                 params = modernMetadataParameters(),
                 version = MCP_MODERN_VERSION,
                 modern = true
@@ -179,7 +179,7 @@ internal class McpClient(private val config: McpConfig) {
     fun listResources(): List<McpResourceDescriptor> {
         requireConnected()
         if (!resourcesSupported) return emptyList()
-        return paginatedList("resources/list", "resources") { item ->
+        return paginatedList(METHOD_RESOURCES_LIST, "resources") { item ->
             val uri = item.optString("uri", "").trim()
             if (uri.isEmpty()) null else McpResourceDescriptor(
                 uri = uri,
@@ -194,7 +194,7 @@ internal class McpClient(private val config: McpConfig) {
     fun listPrompts(): List<McpPromptDescriptor> {
         requireConnected()
         if (!promptsSupported) return emptyList()
-        return paginatedList("prompts/list", "prompts") { item ->
+        return paginatedList(METHOD_PROMPTS_LIST, "prompts") { item ->
             val name = item.optString("name", "").trim()
             if (name.isEmpty()) null else {
                 val requiredArguments = buildList {
@@ -220,7 +220,7 @@ internal class McpClient(private val config: McpConfig) {
         requireConnected()
         if (!resourcesSupported) throw McpClientException(McpFailureKind.UNSUPPORTED)
         val params = JSONObject().put("uri", uri)
-        val result = requestRpc("resources/read", params, routeName = uri)
+        val result = requestRpc(METHOD_RESOURCES_READ, params, routeName = uri)
         return McpJsonRpcParser.parseResourceTextContents(result)
     }
 
@@ -228,7 +228,7 @@ internal class McpClient(private val config: McpConfig) {
         requireConnected()
         if (!promptsSupported) throw McpClientException(McpFailureKind.UNSUPPORTED)
         val params = JSONObject().put("name", name).put("arguments", JSONObject())
-        val result = requestRpc("prompts/get", params, routeName = name)
+        val result = requestRpc(METHOD_PROMPTS_GET, params, routeName = name)
         return McpJsonRpcParser.parsePromptTextContents(result)
     }
 
@@ -262,7 +262,7 @@ internal class McpClient(private val config: McpConfig) {
             .put("protocolVersion", MCP_LEGACY_VERSION)
             .put("capabilities", JSONObject())
             .put("clientInfo", clientInfo())
-        val initialize = requestRpc("initialize", params, version = "", modern = false)
+        val initialize = requestRpc(METHOD_INITIALIZE, params, version = "", modern = false)
         val acceptedVersion = initialize.optString("protocolVersion", "")
         if (!isLegacyVersion(acceptedVersion)) throw McpClientException(McpFailureKind.UNSUPPORTED)
         protocolVersion = acceptedVersion
@@ -513,13 +513,26 @@ internal class McpClient(private val config: McpConfig) {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val LEGACY_VERSIONS = setOf("2025-11-25", "2025-06-18", "2025-03-26")
         private val MODERN_ERROR_CODES = setOf(-32020, -32021, -32022)
-        private val HTTP_CLIENT = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .callTimeout(30, TimeUnit.SECONDS)
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .build()
+        private val HTTP_CLIENT = McpHttpPolicy.client()
+
+        /**
+         * MCP 唯讀介面：只有探索、列舉與讀取。新增任何 tools 呼叫都必須先加進這個集合，
+         * 測試會擋下超出集合的方法。
+         */
+        internal const val METHOD_INITIALIZE = "initialize"
+        internal const val METHOD_DISCOVER = "server/discover"
+        internal const val METHOD_RESOURCES_LIST = "resources/list"
+        internal const val METHOD_RESOURCES_READ = "resources/read"
+        internal const val METHOD_PROMPTS_LIST = "prompts/list"
+        internal const val METHOD_PROMPTS_GET = "prompts/get"
+        internal val READ_ONLY_METHODS = setOf(
+            METHOD_INITIALIZE,
+            METHOD_DISCOVER,
+            METHOD_RESOURCES_LIST,
+            METHOD_RESOURCES_READ,
+            METHOD_PROMPTS_LIST,
+            METHOD_PROMPTS_GET
+        )
     }
 }
 
