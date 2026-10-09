@@ -67,4 +67,65 @@ class AudioTempFilesTest {
             if (dir.isDirectory) dir.deleteRecursively()
         }
     }
+
+    @Test
+    fun aRecordingStillInUseIsNeverSwept() {
+        val dir = File(System.getProperty("java.io.tmpdir"), "kuiesvox-audio-inuse-test")
+        dir.mkdirs()
+        try {
+            val inUse = File(dir, "voice-active.wav").apply {
+                writeText("audio")
+                setLastModified(1_000L)
+            }
+            val stale = File(dir, "voice-stale.wav").apply {
+                writeText("audio")
+                setLastModified(1_000L)
+            }
+
+            val expired = AudioTempFiles.expiredFiles(
+                files = listOf(inUse, stale),
+                nowMillis = 9_000L,
+                maxAgeMillis = 4_000L,
+                inUseNames = setOf(inUse.name)
+            )
+
+            assertEquals(listOf(stale), expired)
+        } finally {
+            if (dir.isDirectory) dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun abnormalTimestampsAreNotTreatedAsStale() {
+        val dir = File(System.getProperty("java.io.tmpdir"), "kuiesvox-audio-clock-test")
+        dir.mkdirs()
+        try {
+            val unknown = File(dir, "voice-unknown.wav").apply {
+                writeText("audio")
+                setLastModified(0L)
+            }
+            val future = File(dir, "voice-future.wav").apply {
+                writeText("audio")
+                setLastModified(20_000L)
+            }
+
+            val expired = AudioTempFiles.expiredFiles(
+                files = listOf(unknown, future),
+                nowMillis = 9_000L,
+                maxAgeMillis = 4_000L
+            )
+
+            assertTrue("unknown or future timestamps must be left alone", expired.isEmpty())
+        } finally {
+            if (dir.isDirectory) dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun aFileThatDisappearedBeforeTheSweepIsNeitherSelectedNorFatal() {
+        val missing = File(System.getProperty("java.io.tmpdir"), "voice-missing-${System.nanoTime()}.wav")
+
+        assertTrue(AudioTempFiles.expiredFiles(listOf(missing), 9_000L, 4_000L).isEmpty())
+        assertFalse(missing.delete())
+    }
 }

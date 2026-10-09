@@ -167,7 +167,10 @@ class VoiceImeService : InputMethodService() {
     private fun sweepStaleAudioTempFiles() {
         runCatching {
             val files = cacheDir.listFiles()?.toList().orEmpty()
-            AudioTempFiles.expiredFiles(files, System.currentTimeMillis()).forEach { file ->
+            // 正在錄音／辨識或等待重試的檔案一定不在清掃範圍內。
+            val inUse = setOfNotNull(activeAudioFile?.name)
+            AudioTempFiles.expiredFiles(files, System.currentTimeMillis(), inUseNames = inUse)
+                .forEach { file ->
                 if (!file.delete()) Log.w(TAG, "Stale WAV cleanup failed")
             }
         }

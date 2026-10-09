@@ -21,10 +21,14 @@ internal object AudioTempFiles {
     fun expiredFiles(
         files: List<File>,
         nowMillis: Long,
-        maxAgeMillis: Long = MAX_AGE_MILLIS
+        maxAgeMillis: Long = MAX_AGE_MILLIS,
+        inUseNames: Set<String> = emptySet()
     ): List<File> = files.filter { file ->
         file.isFile &&
             isTempRecordingFile(file.name) &&
+            file.name !in inUseNames &&
+            // 時間戳為 0（未知）時寧可不刪；未來時間戳（時鐘偏移）也不會被視為過期。
+            file.lastModified() > 0L &&
             (nowMillis - file.lastModified()) > maxAgeMillis
     }
 }
