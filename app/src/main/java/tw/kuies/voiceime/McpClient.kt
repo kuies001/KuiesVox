@@ -422,7 +422,10 @@ internal class McpClient(private val config: McpConfig) {
 
         try {
             HTTP_CLIENT.newCall(requestBuilder.build()).execute().use { response ->
-                response.header("Mcp-Session-Id")?.let { sessionId = it }
+                // 只接受可安全放入標頭的值：伺服器若回傳含 CRLF 的 session id，
+                // 這裡直接忽略，避免標頭注入與未捕捉的 IllegalArgumentException。
+                McpSessionIdPolicy.sanitizeOrNull(response.header("Mcp-Session-Id"))
+                    ?.let { sessionId = it }
                 val body = readResponseBody(response)
                 return McpHttpResponse(
                     status = response.code,
