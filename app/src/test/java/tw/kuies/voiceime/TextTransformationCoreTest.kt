@@ -125,4 +125,67 @@ class TextTransformationCoreTest {
             TextTransformationCore.interpretSuccess(translateRequest, "  ")
         )
     }
+
+    @Test
+    fun aFillerLadenChineseSentenceBecomesANaturalEnglishLineInOneCall() {
+        val expected = "I'll probably arrive around 3 p.m. tomorrow."
+        val provider = FakeFormattingProvider(expected)
+        val fillerRequest = translateRequest.copy(sourceText = "嗯，我明天可能，呃，下午三點左右會到。")
+        var result: TextFormattingResult? = null
+
+        val prompt = TextTransformationCore.promptFor(fillerRequest)
+        provider.format("k", fillerRequest.model, prompt.userMessage, prompt.systemPrompt) { result = it }
+        val transformed = TextTransformationCore.interpretSuccess(
+            fillerRequest,
+            (result as TextFormattingResult.Success).text
+        )
+
+        assertEquals(TextTransformationResult.Success(expected, 7L), transformed)
+        assertEquals(1, provider.requestCount)
+        // 原文（含 filler）只會出現在 SOURCE CONTENT 資料區，且系統提示要求去除贅詞。
+        assertTrue(prompt.userMessage.contains("嗯"))
+        assertTrue(prompt.userMessage.contains("呃"))
+        assertTrue(prompt.systemPrompt.contains("贅詞"))
+    }
+
+    @Test
+    fun anEnglishFillerSentenceTranslatedToTaiwanChineseDropsTheMeaninglessFillers() {
+        val expected = "我認為我們應該更新 API。"
+        val provider = FakeFormattingProvider(expected)
+        val fillerRequest = translateRequest.copy(
+            sourceText = "Uh, I think, um, we should update the API.",
+            targetLanguage = "Traditional Chinese (Taiwan, zh-Hant-TW), using Taiwan conventions"
+        )
+        var result: TextFormattingResult? = null
+
+        val prompt = TextTransformationCore.promptFor(fillerRequest)
+        provider.format("k", fillerRequest.model, prompt.userMessage, prompt.systemPrompt) { result = it }
+        val transformed = TextTransformationCore.interpretSuccess(
+            fillerRequest,
+            (result as TextFormattingResult.Success).text
+        )
+
+        assertEquals(TextTransformationResult.Success(expected, 7L), transformed)
+        assertEquals(1, provider.requestCount)
+        assertTrue(prompt.userMessage.contains("Uh, I think, um"))
+    }
+
+    @Test
+    fun aFillerQuestionBecomesATranslatedQuestionNotAnAnswer() {
+        val expected = "Are you free tomorrow?"
+        val provider = FakeFormattingProvider(expected)
+        val fillerRequest = translateRequest.copy(sourceText = "呃，你明天有空嗎")
+        var result: TextFormattingResult? = null
+
+        val prompt = TextTransformationCore.promptFor(fillerRequest)
+        provider.format("k", fillerRequest.model, prompt.userMessage, prompt.systemPrompt) { result = it }
+        val transformed = TextTransformationCore.interpretSuccess(
+            fillerRequest,
+            (result as TextFormattingResult.Success).text
+        )
+
+        assertEquals(TextTransformationResult.Success(expected, 7L), transformed)
+        assertEquals(1, provider.requestCount)
+        assertTrue(prompt.userMessage.contains("你明天有空嗎"))
+    }
 }

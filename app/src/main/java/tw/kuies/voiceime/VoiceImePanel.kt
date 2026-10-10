@@ -615,7 +615,7 @@ internal class VoiceImePanel(
             )
             addView(
                 textView(context, sizeSp = NORMAL_HINT_TEXT_SP, color = LAVENDER_BRIGHT).apply {
-                    text = "切換語言"
+                    text = "切換"
                     setTypeface(typeface, Typeface.BOLD)
                 },
                 LinearLayout.LayoutParams(

@@ -11,7 +11,7 @@ class TextTranslatePromptTest {
         assertTrue(prompt.contains("翻譯處理器"))
         assertTrue(prompt.contains("不是聊天助理"))
         assertTrue(prompt.contains("絕對不可以回答"))
-        assertTrue(prompt.contains("只包含翻譯結果"))
+        assertTrue(prompt.contains("輸出必須只有翻譯後的純文字"))
     }
 
     @Test
@@ -37,6 +37,29 @@ class TextTranslatePromptTest {
         assertTrue(message.contains("<<<SOURCE_CONTENT"))
         assertTrue(message.contains("你明天有空嗎？"))
         assertTrue(message.contains("SOURCE_CONTENT>>>"))
+    }
+
+    @Test
+    fun thePromptRemovesSpeechFillersInTheSameTranslationPass() {
+        val prompt = TextTranslatePrompt.SYSTEM_PROMPT
+
+        assertTrue(prompt.contains("贅詞"))
+        assertTrue(prompt.contains("嗯"))
+        assertTrue(prompt.contains("呃"))
+        assertTrue(prompt.contains("uh"))
+        assertTrue(prompt.contains("um"))
+        assertTrue(prompt.contains("同一次輸出完成"))
+    }
+
+    @Test
+    fun thePromptProtectsMeaningfulFillersAndContentFromOverCleaning() {
+        val prompt = TextTranslatePrompt.SYSTEM_PROMPT
+
+        assertTrue(prompt.contains("具有語氣或語意作用"))
+        assertTrue(prompt.contains("必須保留"))
+        assertTrue(prompt.contains("不得摘要"))
+        assertTrue(prompt.contains("不得刪除實質資訊"))
+        assertTrue(prompt.contains("不得改變說話者意圖"))
     }
 
     @Test
