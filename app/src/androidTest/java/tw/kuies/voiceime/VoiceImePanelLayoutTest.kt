@@ -904,6 +904,77 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
+    fun theCentralContentSharesThePanelCentreLineInNormalAndTranslateMode() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+
+        listOf(320, 360).forEach { widthDp ->
+            layoutPanel(panel, widthDp = widthDp)
+            assertCentralContentCentred(panel, "一般模式")
+        }
+
+        // 翻譯模式多了「切換」與「返回」，不得因此讓中央主內容偏離中心線。
+        panel.render(VoiceImeState.IDLE, translateMode = true, translationTargetLabel = "英文")
+        listOf(320, 360).forEach { widthDp ->
+            layoutPanel(panel, widthDp = widthDp)
+            assertCentralContentCentred(panel, "翻譯模式")
+        }
+    }
+
+    @Test
+    fun allToolbarIconButtonsShareOneSpec() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        layoutPanel(panel, widthDp = 360)
+
+        val base = listOf(panel.switchButton, panel.settingsButton, panel.moreButton)
+        val compact = listOf(panel.clipboardButton, panel.translateShortcutButton)
+        val all = base + compact
+        val density = context.resources.displayMetrics.density
+
+        assertEquals(1, all.map { it.layoutParams.height }.distinct().size)
+        assertEquals((TOOLBAR_BUTTON_HEIGHT_DP * density).toInt(), all.first().layoutParams.height)
+        assertEquals(1, all.map { it.scaleType }.distinct().size)
+
+        // 基準圖示共用同一內距；剪貼簿與翻譯用小幅視覺補償且彼此一致。
+        assertEquals(1, base.map { it.paddingTop }.distinct().size)
+        assertEquals(1, compact.map { it.paddingTop }.distinct().size)
+        assertEquals((toolbarIconPaddingDp(TOOLBAR_ICON_SIZE_DP) * density).toInt(), base.first().paddingTop)
+        assertEquals((toolbarIconPaddingDp(TOOLBAR_ICON_COMPACT_SIZE_DP) * density).toInt(), compact.first().paddingTop)
+    }
+
+    /** 主按鈕、標題、副標題必須與整個面板共用同一條水平中心線（右側 Delete / Enter 不得造成偏移）。 */
+    private fun assertCentralContentCentred(panel: VoiceImePanel, label: String) {
+        val panelCentre = panel.view.width / 2
+        listOf("主按鈕" to panel.idleMicButton, "主標題" to panel.idleTitle, "副標題" to panel.idleHint)
+            .forEach { (name, child) ->
+                val centre = centreInRoot(panel.view, child)
+                assertTrue(
+                    "$label：$name 必須與面板中心線對齊 centre=$centre panel=$panelCentre",
+                    kotlin.math.abs(centre - panelCentre) <= 1
+                )
+            }
+    }
+
+    private fun centreInRoot(root: View, child: View): Int {
+        var centre = child.width / 2
+        var current: View? = child
+        while (current != null && current !== root) {
+            centre += current.left
+            current = current.parent as? View
+        }
+        return centre
+    }
+
+    @Test
     fun formatCommandModeShowsAModeHintAndAnExplicitExitControlWithoutChangingHeight() {
         var exited = 0
         val panel = VoiceImePanel(

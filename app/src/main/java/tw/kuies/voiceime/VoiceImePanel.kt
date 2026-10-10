@@ -24,6 +24,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.annotation.DrawableRes
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.text.SimpleDateFormat
@@ -34,6 +35,22 @@ internal const val VOICE_IME_MAIN_INTERACTION_HEIGHT_DP = 130
 internal const val VOICE_IME_PAGE_CONTENT_HEIGHT_DP = 178
 internal const val VOICE_IME_MORE_ENTRY_ICON_DP = 20
 internal const val VOICE_IME_MORE_ENTRY_ICON_GAP_DP = 12
+
+/** 右側 Delete / Enter 操作區寬度；以覆蓋定位，不佔用中央內容的橫向寬度。 */
+internal const val VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP = 52
+
+/** 工具列純圖示按鈕的統一規格：相同容器高度與基準圖示尺寸。 */
+internal const val TOOLBAR_BUTTON_HEIGHT_DP = 36
+internal const val TOOLBAR_ICON_SIZE_DP = 22
+
+/** 滿版圖示（剪貼簿、翻譯）的視覺補償尺寸，避免看起來比鍵盤／設定／更多大。 */
+internal const val TOOLBAR_ICON_COMPACT_SIZE_DP = 20
+
+/**
+ * 讓圖示以 [iconSizeDp] 的視覺尺寸置中：容器高度固定時，內距 =（容器高 − 圖示尺寸）÷ 2，
+ * 搭配 CENTER_INSIDE 會把 24dp 的向量縮到該尺寸，因此所有圖示可用同一條公式統一大小。
+ */
+internal fun toolbarIconPaddingDp(iconSizeDp: Int): Int = (TOOLBAR_BUTTON_HEIGHT_DP - iconSizeDp) / 2
 private const val MORE_ENTRY_HORIZONTAL_PADDING_DP = 12
 private const val IDLE_HINT_MAX_LINES = 2
 private const val NORMAL_HINT_TEXT_SP = 11f
@@ -178,7 +195,6 @@ internal class VoiceImePanel(
     }
     internal val recordingActions = LinearLayout(context)
     internal val busyActions = LinearLayout(context)
-    private val mainInteractionRow = LinearLayout(context)
     private val voiceActionsContainer = FrameLayout(context)
     private val sideActionColumn = LinearLayout(context)
     private val busyLabel = textView(context, sizeSp = 13f, color = TEXT)
@@ -265,28 +281,24 @@ internal class VoiceImePanel(
             topToolbarRow.visibility = View.VISIBLE
             onSelectAll()
         }
-        clipboardButton.apply {
-            setImageResource(R.drawable.ic_ime_clipboard)
-            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
-            contentDescription = "剪貼簿歷史"
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = toolbarRipple(dp(context, 10))
-            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
-            setOnClickListener { showClipboardHistoryPanel(onIsSensitiveEditor()) }
-        }
+        toolbarIconButton(
+            clipboardButton,
+            R.drawable.ic_ime_clipboard,
+            "剪貼簿歷史",
+            TEXT_MUTED,
+            TOOLBAR_ICON_COMPACT_SIZE_DP
+        ) { showClipboardHistoryPanel(onIsSensitiveEditor()) }
         toolbarTextActionButton(context, clearAllButton, "清除", PINK, "清除全部文字") {
             topToolbarRow.visibility = View.GONE
             clearConfirmationPanel.visibility = View.VISIBLE
         }
-        settingsButton.apply {
-            setImageResource(R.drawable.ic_ime_settings)
-            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
-            contentDescription = "設定"
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = toolbarRipple(dp(context, 10))
-            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
-            setOnClickListener { onOpenSettings() }
-        }
+        toolbarIconButton(
+            settingsButton,
+            R.drawable.ic_ime_settings,
+            "設定",
+            TEXT_MUTED,
+            TOOLBAR_ICON_SIZE_DP
+        ) { onOpenSettings() }
         var backspacePointerActive = false
         var backspaceClickAllowed = false
         backspaceButton.apply {
@@ -362,33 +374,27 @@ internal class VoiceImePanel(
             setOnClickListener { onEnter() }
         }
 
-        translateShortcutButton.apply {
-            setImageResource(R.drawable.ic_ime_translate)
-            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
-            contentDescription = ToolbarSlot.TRANSLATE.label
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = toolbarRipple(dp(context, 10))
-            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
-            setOnClickListener { onTranslateShortcut() }
-        }
-        switchButton.apply {
-            setImageResource(R.drawable.ic_ime_keyboard)
-            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
-            contentDescription = "切換鍵盤"
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = toolbarRipple(dp(context, 10))
-            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
-            setOnClickListener { onSwitchInputMethod() }
-        }
-        moreButton.apply {
-            setImageResource(R.drawable.ic_ime_more)
-            imageTintList = ColorStateList.valueOf(LAVENDER_BRIGHT)
-            contentDescription = "更多功能"
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = toolbarRipple(dp(context, 10))
-            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
-            setOnClickListener { showMorePanel() }
-        }
+        toolbarIconButton(
+            translateShortcutButton,
+            R.drawable.ic_ime_translate,
+            ToolbarSlot.TRANSLATE.label,
+            TEXT_MUTED,
+            TOOLBAR_ICON_COMPACT_SIZE_DP
+        ) { onTranslateShortcut() }
+        toolbarIconButton(
+            switchButton,
+            R.drawable.ic_ime_keyboard,
+            "切換鍵盤",
+            TEXT_MUTED,
+            TOOLBAR_ICON_SIZE_DP
+        ) { onSwitchInputMethod() }
+        toolbarIconButton(
+            moreButton,
+            R.drawable.ic_ime_more,
+            "更多功能",
+            LAVENDER_BRIGHT,
+            TOOLBAR_ICON_SIZE_DP
+        ) { showMorePanel() }
         // 工具列順序由 ToolbarSlot 單一來源決定：鍵盤／設定／更多永遠是最後三個，
         // AI 翻譯固定緊鄰鍵盤左側，避免未來新增功能時插進固定位置。
         val toolbarViews = mapOf(
@@ -403,9 +409,12 @@ internal class VoiceImePanel(
         ToolbarSlot.entries.forEach { slot ->
             val view = toolbarViews.getValue(slot)
             val params = if (slot == ToolbarSlot.SELECT_ALL || slot == ToolbarSlot.CLEAR) {
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(context, 36))
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    dp(context, TOOLBAR_BUTTON_HEIGHT_DP)
+                )
             } else {
-                LinearLayout.LayoutParams(0, dp(context, 36), 1f)
+                LinearLayout.LayoutParams(0, dp(context, TOOLBAR_BUTTON_HEIGHT_DP), 1f)
             }
             topToolbarRow.addView(view, params)
         }
@@ -591,7 +600,7 @@ internal class VoiceImePanel(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 dp(context, BACK_BUTTON_HEIGHT_DP),
                 Gravity.TOP or Gravity.END
-            )
+            ).apply { marginEnd = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP) }
         )
 
         // 語音翻譯模式：左上角的小型語言切換晶片，沿用既有互動區，不改變 IME 高度。
@@ -679,7 +688,7 @@ internal class VoiceImePanel(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
-            )
+            ).apply { marginEnd = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP) }
         )
         audioLevelIndicator.visibility = View.GONE
         voiceActionsContainer.addView(
@@ -723,7 +732,7 @@ internal class VoiceImePanel(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
-            )
+            ).apply { marginEnd = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP) }
         )
         sideActionColumn.apply {
             orientation = LinearLayout.VERTICAL
@@ -738,23 +747,23 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(dp(context, 42), dp(context, 42))
             )
         }
-        mainInteractionRow.apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(
-                voiceActionsContainer,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
-            )
-            addView(
-                sideActionColumn,
-                LinearLayout.LayoutParams(dp(context, 52), LinearLayout.LayoutParams.MATCH_PARENT)
-            )
-        }
+        // 中央主內容（主按鈕／標題／副標題）以整個面板寬度為準置中；右側 Delete / Enter
+        // 改為獨立覆蓋定位，不再佔用橫向寬度，因此不會把中央主內容推向左邊。
+        // 需要避開側邊操作區的控制項（錄音列、忙碌列、返回）自行加右側留白，
+        // 其餘寬度與位置與修正前一致。
         mainInteractionContainer.addView(
-            mainInteractionRow,
+            voiceActionsContainer,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        mainInteractionContainer.addView(
+            sideActionColumn,
+            FrameLayout.LayoutParams(
+                dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP),
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                Gravity.END or Gravity.CENTER_VERTICAL
             )
         )
         mainPanel.addView(
@@ -2423,6 +2432,31 @@ internal class VoiceImePanel(
             solid(SURFACE, dp(context, 14)),
             null
         )
+        setOnClickListener { onClick() }
+    }
+
+    /**
+     * 統一的工具列純圖示按鈕建構方式：相同容器、相同垂直中心、相同基準圖示尺寸。
+     * 只有滿版圖示可用 [TOOLBAR_ICON_COMPACT_SIZE_DP] 做小幅視覺補償，其餘一律 [TOOLBAR_ICON_SIZE_DP]。
+     */
+    private fun toolbarIconButton(
+        button: ImageButton,
+        @DrawableRes iconRes: Int,
+        description: String,
+        tint: Int,
+        iconSizeDp: Int,
+        onClick: () -> Unit
+    ) = button.apply {
+        val iconContext = context
+        setImageResource(iconRes)
+        imageTintList = ColorStateList.valueOf(tint)
+        contentDescription = description
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        background = toolbarRipple(dp(iconContext, 10))
+        val iconPadding = dp(iconContext, toolbarIconPaddingDp(iconSizeDp))
+        setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
+        isClickable = true
+        isFocusable = true
         setOnClickListener { onClick() }
     }
 
