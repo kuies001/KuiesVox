@@ -66,6 +66,27 @@ internal object PersonalGlossaryRepository {
         }
     }
 
+    /**
+     * 批次刪除選取的詞彙。
+     *
+     * 在同一個儲存作業內重新讀取最新資料後只依穩定 ID 移除，因此：只寫入一次、不會用舊清單
+     * 覆寫期間新增或編輯的內容、未選取的項目（含啟用狀態與語境句）完全不受影響；找不到的 ID
+     * 直接忽略，所以重複送出不會再刪掉任何東西。
+     */
+    fun deleteSelected(
+        context: Context,
+        ids: Collection<String>,
+        callback: (Result<List<PersonalGlossaryTerm>>) -> Unit
+    ) {
+        if (ids.isEmpty()) {
+            load(context, callback)
+            return
+        }
+        update(context, callback) { entries ->
+            PersonalGlossaryRules.deleteAll(entries, ids)
+        }
+    }
+
     private fun update(
         context: Context,
         callback: (Result<List<PersonalGlossaryTerm>>) -> Unit,

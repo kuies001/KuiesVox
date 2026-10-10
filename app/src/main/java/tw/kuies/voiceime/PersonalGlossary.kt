@@ -69,6 +69,19 @@ internal object PersonalGlossaryRules {
         id: String
     ): List<PersonalGlossaryTerm> = entries.filterNot { it.id == id }
 
+    /**
+     * 依穩定 ID 一次刪除多筆；未選取的項目、啟用狀態與語境句一律保持不變，
+     * 找不到的 ID 直接忽略（重複呼叫不會再刪掉任何東西）。
+     */
+    fun deleteAll(
+        entries: List<PersonalGlossaryTerm>,
+        ids: Collection<String>
+    ): List<PersonalGlossaryTerm> {
+        if (ids.isEmpty()) return entries
+        val targets = ids.toSet()
+        return entries.filterNot { it.id in targets }
+    }
+
     fun keyFor(term: String): String = term.trim().lowercase(Locale.ROOT)
 
     private fun limitCodePoints(value: String): String {

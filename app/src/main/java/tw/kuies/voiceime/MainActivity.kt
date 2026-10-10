@@ -171,9 +171,11 @@ private fun VoiceImeSettingsApp(
     var glossaryTerms by remember { mutableStateOf<List<PersonalGlossaryTerm>>(emptyList()) }
     var glossaryStatus by remember { mutableStateOf("載入個人詞庫中…") }
     var glossaryLoaded by remember { mutableStateOf(false) }
+    var glossaryDeleting by remember { mutableStateOf(false) }
     var correctionRules by remember { mutableStateOf<List<TextCorrectionRule>>(emptyList()) }
     var correctionStatus by remember { mutableStateOf("載入文字修正規則中…") }
     var correctionRulesLoaded by remember { mutableStateOf(false) }
+    var correctionDeleting by remember { mutableStateOf(false) }
     var mcpConfig by remember { mutableStateOf(McpConfig()) }
     var mcpConfigLoaded by remember { mutableStateOf(false) }
     var mcpConnectionStatus by remember { mutableStateOf("載入 MCP 設定中…") }
@@ -552,15 +554,27 @@ private fun VoiceImeSettingsApp(
         }
     }
 
-    fun deleteGlossaryTerm(entry: PersonalGlossaryTerm) {
-        PersonalGlossaryRepository.delete(applicationContext, entry.id) { result ->
+    /**
+     * 批次刪除選取的詞彙：進行中會忽略重複送出，成功才回報刪除筆數，失敗只顯示錯誤，
+     * 不會假裝成功。
+     */
+    fun deleteSelectedGlossaryTerms(ids: Set<String>) {
+        if (ids.isEmpty() || glossaryDeleting) return
+        glossaryDeleting = true
+        PersonalGlossaryRepository.deleteSelected(applicationContext, ids) { result ->
             mainHandler.post {
+                glossaryDeleting = false
                 if (!screenIsActive.get()) return@post
-                result.onSuccess {
-                    glossaryTerms = it
-                    glossaryStatus = "詞彙已刪除。"
+                result.onSuccess { remaining ->
+                    glossaryTerms = remaining
+                    val deletedCount = ids.count { id -> remaining.none { it.id == id } }
+                    glossaryStatus = if (deletedCount > 0) {
+                        "已刪除 $deletedCount 筆詞彙。"
+                    } else {
+                        "沒有刪除任何詞彙，請重新選取。"
+                    }
                 }.onFailure { exception ->
-                    Log.w(MAIN_ACTIVITY_TAG, "Personal glossary delete failed: ${exception.javaClass.simpleName}")
+                    Log.w(MAIN_ACTIVITY_TAG, "Personal glossary bulk delete failed: ${exception.javaClass.simpleName}")
                     glossaryStatus = "詞庫刪除失敗，請稍後再試。"
                 }
             }
@@ -601,15 +615,26 @@ private fun VoiceImeSettingsApp(
         }
     }
 
-    fun deleteCorrectionRule(rule: TextCorrectionRule) {
-        TextCorrectionRuleRepository.delete(applicationContext, rule.id) { result ->
+    /**
+     * 批次刪除選取的修正规則：進行中會忽略重複送出，成功才回報刪除筆數，失敗只顯示錯誤。
+     */
+    fun deleteSelectedCorrectionRules(ids: Set<String>) {
+        if (ids.isEmpty() || correctionDeleting) return
+        correctionDeleting = true
+        TextCorrectionRuleRepository.deleteSelected(applicationContext, ids) { result ->
             mainHandler.post {
+                correctionDeleting = false
                 if (!screenIsActive.get()) return@post
-                result.onSuccess {
-                    correctionRules = it
-                    correctionStatus = "規則已刪除。"
+                result.onSuccess { remaining ->
+                    correctionRules = remaining
+                    val deletedCount = ids.count { id -> remaining.none { it.id == id } }
+                    correctionStatus = if (deletedCount > 0) {
+                        "已刪除 $deletedCount 條規則。"
+                    } else {
+                        "沒有刪除任何規則，請重新選取。"
+                    }
                 }.onFailure { exception ->
-                    Log.w(MAIN_ACTIVITY_TAG, "Text correction rule delete failed: ${exception.javaClass.simpleName}")
+                    Log.w(MAIN_ACTIVITY_TAG, "Text correction rule bulk delete failed: ${exception.javaClass.simpleName}")
                     correctionStatus = "規則刪除失敗，請稍後再試。"
                 }
             }
@@ -824,10 +849,12 @@ private fun VoiceImeSettingsApp(
             onAddGlossaryTerms = ::addGlossaryTerms,
             onSetGlossaryTermEnabled = ::setGlossaryTermEnabled,
             onSetGlossaryTermContextPhrases = ::setGlossaryTermContextPhrases,
-            onDeleteGlossaryTerm = ::deleteGlossaryTerm,
+            onDeleteSelectedGlossaryTerms = ::deleteSelectedGlossaryTerms,
             onAddCorrectionRules = ::addCorrectionRules,
             onSetCorrectionRuleEnabled = ::setCorrectionRuleEnabled,
-            onDeleteCorrectionRule = ::deleteCorrectionRule,
+            onDeleteSelectedCorrectionRules = ::deleteSelectedCorrectionRules,
+            glossaryDeleting = glossaryDeleting,
+            correctionDeleting = correctionDeleting,
             onBack = { destination = SettingsDestination.HOME }
         )
 

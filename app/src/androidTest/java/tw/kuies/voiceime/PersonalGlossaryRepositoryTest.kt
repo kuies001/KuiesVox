@@ -80,6 +80,37 @@ class PersonalGlossaryRepositoryTest {
         }
     }
 
+    @Test
+    fun batchDeleteRemovesOnlyTheSelectedEntriesAndIsIdempotent() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences("personal_glossary", Context.MODE_PRIVATE)
+        assertTrue(preferences.edit().remove("entries_v1").commit())
+
+        try {
+            awaitResult { callback ->
+                PersonalGlossaryRepository.add(context, listOf("甲", "乙", "丙"), callback)
+            }
+            val loaded = awaitResult { callback -> PersonalGlossaryRepository.load(context, callback) }
+            val targets = loaded.filter { it.term == "甲" || it.term == "丙" }.map { it.id }.toSet()
+
+            val remaining = awaitResult { callback ->
+                PersonalGlossaryRepository.deleteSelected(context, targets, callback)
+            }
+            assertEquals(listOf("乙"), remaining.map { it.term })
+
+            // 重複送出同一批 ID（例如連點）不會再刪掉任何東西。
+            val repeated = awaitResult { callback ->
+                PersonalGlossaryRepository.deleteSelected(context, targets, callback)
+            }
+            assertEquals(listOf("乙"), repeated.map { it.term })
+
+            val reloaded = awaitResult { callback -> PersonalGlossaryRepository.load(context, callback) }
+            assertEquals(listOf("乙"), reloaded.map { it.term })
+        } finally {
+            assertTrue(preferences.edit().remove("entries_v1").commit())
+        }
+    }
+
     private fun <T> awaitResult(register: ((Result<T>) -> Unit) -> Unit): T {
         val latch = CountDownLatch(1)
         var result: Result<T>? = null

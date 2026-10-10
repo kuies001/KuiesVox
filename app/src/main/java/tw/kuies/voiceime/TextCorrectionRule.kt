@@ -70,6 +70,16 @@ internal object TextCorrectionRules {
     fun delete(rules: List<TextCorrectionRule>, id: String): List<TextCorrectionRule> =
         rules.filterNot { it.id == id }
 
+    /**
+     * 依穩定 ID 一次刪除多筆；未選取的規則、其 enabled 狀態與內容一律保持不變，
+     * 找不到的 ID 直接忽略（重複呼叫不會再刪掉任何東西）。
+     */
+    fun deleteAll(rules: List<TextCorrectionRule>, ids: Collection<String>): List<TextCorrectionRule> {
+        if (ids.isEmpty()) return rules
+        val targets = ids.toSet()
+        return rules.filterNot { it.id in targets }
+    }
+
     fun keyFor(sourceText: String): String = sourceText.trim().lowercase(Locale.ROOT)
 
     fun apply(text: String, rules: List<TextCorrectionRule>): TextCorrectionApplication {

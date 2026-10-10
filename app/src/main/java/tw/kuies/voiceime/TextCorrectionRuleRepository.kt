@@ -49,6 +49,22 @@ internal object TextCorrectionRuleRepository {
         update(context, callback) { rules -> TextCorrectionRules.delete(rules, id) }
     }
 
+    /**
+     * 批次刪除選取的規則；契約與 [PersonalGlossaryRepository.deleteSelected] 相同：
+     * 單次讀取＋單次寫入、只依穩定 ID 移除、未選取的規則與其啟用狀態不受影響。
+     */
+    fun deleteSelected(
+        context: Context,
+        ids: Collection<String>,
+        callback: (Result<List<TextCorrectionRule>>) -> Unit
+    ) {
+        if (ids.isEmpty()) {
+            load(context, callback)
+            return
+        }
+        update(context, callback) { rules -> TextCorrectionRules.deleteAll(rules, ids) }
+    }
+
     private fun update(
         context: Context,
         callback: (Result<List<TextCorrectionRule>>) -> Unit,

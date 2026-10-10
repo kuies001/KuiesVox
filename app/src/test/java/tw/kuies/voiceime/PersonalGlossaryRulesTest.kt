@@ -48,6 +48,42 @@ class PersonalGlossaryRulesTest {
     }
 
     @Test
+    fun deleteAllRemovesOnlyTheSelectedIdsAndKeepsEverythingElse() {
+        val entries = listOf(
+            PersonalGlossaryTerm("keep-1", "保留一", enabled = false, commonPhrases = listOf("例句")),
+            PersonalGlossaryTerm("drop-1", "刪除一", enabled = true),
+            PersonalGlossaryTerm("keep-2", "保留二", enabled = true),
+            PersonalGlossaryTerm("drop-2", "刪除二", enabled = false)
+        )
+
+        val remaining = PersonalGlossaryRules.deleteAll(entries, setOf("drop-1", "drop-2"))
+
+        assertEquals(listOf("keep-1", "keep-2"), remaining.map { it.id })
+        assertFalse(remaining.first().enabled)
+        assertEquals(listOf("例句"), remaining.first().commonPhrases)
+    }
+
+    @Test
+    fun deleteAllWithNoIdsOrUnknownIdsChangesNothing() {
+        val entries = PersonalGlossaryRules.add(emptyList(), listOf("甲", "乙")).entries
+
+        assertEquals(entries, PersonalGlossaryRules.deleteAll(entries, emptySet()))
+        assertEquals(entries, PersonalGlossaryRules.deleteAll(entries, setOf("missing-id")))
+    }
+
+    @Test
+    fun deletingTheSameIdsTwiceIsIdempotentSoRepeatedTapsCannotDeleteMore() {
+        val entries = PersonalGlossaryRules.add(emptyList(), listOf("甲", "乙", "丙")).entries
+        val ids = entries.take(2).map { it.id }.toSet()
+
+        val once = PersonalGlossaryRules.deleteAll(entries, ids)
+        val twice = PersonalGlossaryRules.deleteAll(once, ids)
+
+        assertEquals(listOf("丙"), once.map { it.term })
+        assertEquals(once, twice)
+    }
+
+    @Test
     fun promptIncludesOnlyEnabledTermsAndIsNullWhenNoneAreEnabled() {
         val entries = listOf(
             PersonalGlossaryTerm("1", "DeepSeek", true),
