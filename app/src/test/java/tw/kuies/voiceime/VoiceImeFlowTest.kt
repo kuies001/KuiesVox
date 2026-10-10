@@ -108,4 +108,55 @@ class VoiceImeFlowTest {
         assertTrue(machine.transitionTo(VoiceImeState.IDLE))
         assertEquals(VoiceImeState.IDLE, machine.state)
     }
+
+    private fun machineAwaitingConfirmation(): VoiceImeStateMachine {
+        val machine = VoiceImeStateMachine()
+        machine.transitionTo(VoiceImeState.RECORDING)
+        machine.transitionTo(VoiceImeState.TRANSCRIBING)
+        machine.transitionTo(VoiceImeState.FORMATTING)
+        assertTrue(machine.transitionTo(VoiceImeState.AWAITING_CONFIRM))
+        return machine
+    }
+
+    @Test
+    fun theAiEditPreviewOnlyAppearsAfterFormatting() {
+        val machine = VoiceImeStateMachine()
+        machine.transitionTo(VoiceImeState.RECORDING)
+        machine.transitionTo(VoiceImeState.TRANSCRIBING)
+
+        // 尚未改寫就不得跳到預覽。
+        assertFalse(machine.transitionTo(VoiceImeState.AWAITING_CONFIRM))
+        assertTrue(machine.transitionTo(VoiceImeState.FORMATTING))
+        assertTrue(machine.transitionTo(VoiceImeState.AWAITING_CONFIRM))
+        assertEquals(VoiceImeState.AWAITING_CONFIRM, machine.state)
+    }
+
+    @Test
+    fun theAiEditPreviewWaitsForTheUserAndThenReturnsToIdle() {
+        val machine = machineAwaitingConfirmation()
+
+        // 確認取代成功後才離開預覽。
+        assertTrue(machine.transitionTo(VoiceImeState.SUCCESS))
+        assertTrue(machine.transitionTo(VoiceImeState.IDLE))
+        assertEquals(VoiceImeState.IDLE, machine.state)
+    }
+
+    @Test
+    fun theAiEditPreviewCanBeCancelledWithoutReplacingTheText() {
+        val machine = machineAwaitingConfirmation()
+
+        assertTrue(machine.transitionTo(VoiceImeState.CANCELLED))
+        assertTrue(machine.transitionTo(VoiceImeState.IDLE))
+        assertEquals(VoiceImeState.IDLE, machine.state)
+    }
+
+    @Test
+    fun theAiEditPreviewCannotBeEnteredFromATerminalState() {
+        val machine = VoiceImeStateMachine()
+        machine.transitionTo(VoiceImeState.RECORDING)
+        machine.transitionTo(VoiceImeState.TRANSCRIBING)
+        machine.transitionTo(VoiceImeState.SUCCESS)
+
+        assertFalse(machine.transitionTo(VoiceImeState.AWAITING_CONFIRM))
+    }
 }

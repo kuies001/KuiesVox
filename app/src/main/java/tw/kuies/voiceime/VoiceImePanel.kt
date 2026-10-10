@@ -46,7 +46,7 @@ private const val BACK_BUTTON_HORIZONTAL_PADDING_DP = 10
 internal class VoiceImePanel(
     context: Context,
     onVoiceAction: () -> Unit,
-    onCancel: () -> Unit,
+    private val onCancel: () -> Unit,
     onSwitchInputMethod: () -> Unit,
     onEnter: () -> Unit = {},
     onDelete: () -> Unit = {},
@@ -75,7 +75,9 @@ internal class VoiceImePanel(
     private val onManageSavedSnippets: (SavedSnippetManagerAction, String?) -> Unit = { _, _ -> },
     private val onIsSensitiveEditor: () -> Boolean = { true },
     private val onEnterFormatCommandMode: () -> Unit = {},
-    private val onExitFormatCommandMode: () -> Unit = {}
+    private val onExitMode: () -> Unit = {},
+    private val onEnterAiEditMode: () -> Unit = {},
+    private val onAiEditConfirmReplace: () -> Unit = {}
 ) {
     internal val statusIndicator = FrameLayout(context)
     internal val statusDot = View(context)
@@ -179,6 +181,18 @@ internal class VoiceImePanel(
     private val busyLabel = textView(context, sizeSp = 13f, color = TEXT)
     private val formatModeExitButton = LinearLayout(context)
     private val moreEntries = LinearLayout(context)
+
+    // AI 編輯預覽：沿用既有的 178dp 頁面層，不改變 IME 整體高度。
+    private val aiEditPageContainer = FrameLayout(context)
+    internal val aiEditPanel = LinearLayout(context)
+    private val aiEditTitle = textView(context, sizeSp = 14f, color = TEXT).apply {
+        setTypeface(typeface, Typeface.BOLD)
+    }
+    private val aiEditOriginalText = textView(context, sizeSp = 12f, color = TEXT)
+    private val aiEditResultText = textView(context, sizeSp = 12f, color = TEXT)
+    private val aiEditScrollView = ScrollView(context)
+    internal val aiEditStatus = textView(context, sizeSp = 11f, color = TEXT_MUTED)
+    internal val aiEditConfirmButton = textView(context, sizeSp = 12f, color = PINK)
 
     val view: View
 
@@ -555,7 +569,7 @@ internal class VoiceImePanel(
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
             )
-            setOnClickListener { onExitFormatCommandMode() }
+            setOnClickListener { onExitMode() }
         }
         voiceActionsContainer.addView(
             formatModeExitButton,
@@ -697,6 +711,7 @@ internal class VoiceImePanel(
         )
         buildHistoryPanels(context, root)
         buildSavedSnippetPanels(context, root)
+        buildAiEditPanel(context, root)
         view = root
         render(VoiceImeState.IDLE)
     }
@@ -822,6 +837,45 @@ internal class VoiceImePanel(
         updatePageVisibility()
     }
 
+    fun isShowingAiEditPreview(): Boolean = page == PanelPage.AI_EDIT_PREVIEW
+
+    /** 顯示 AI 改寫結果的預覽；原文與結果各自可在內部捲動，底部操作固定。 */
+    fun showAiEditPreview(originalText: String, resultText: String) {
+        clearSnippetDeleteConfirmation()
+        aiEditOriginalText.text = originalText
+        aiEditResultText.text = resultText
+        showAiEditStatus(null)
+        setAiEditConfirmEnabled(true)
+        page = PanelPage.AI_EDIT_PREVIEW
+        updatePageVisibility()
+        aiEditScrollView.scrollTo(0, 0)
+    }
+
+    /**
+     * 取代被拒絕時留在預覽，顯示原因並停用「確認取代」（不得退回游標插入或搜尋相同文字）。
+     * 使用者仍可複製結果或取消。
+     */
+    fun showAiEditRefusal(message: String) {
+        if (page != PanelPage.AI_EDIT_PREVIEW) return
+        showAiEditStatus(message)
+        setAiEditConfirmEnabled(false)
+    }
+
+    /** 結束預覽並回到主面板；原文不會被更動。 */
+    fun hideAiEditPreview() {
+        if (page == PanelPage.AI_EDIT_PREVIEW) showMainPanel()
+    }
+
+    private fun showAiEditStatus(message: String?) {
+        aiEditStatus.text = message.orEmpty()
+        aiEditStatus.visibility = if (message.isNullOrBlank()) View.GONE else View.VISIBLE
+    }
+
+    private fun setAiEditConfirmEnabled(enabled: Boolean) {
+        aiEditConfirmButton.isEnabled = enabled
+        aiEditConfirmButton.alpha = if (enabled) 1f else 0.5f
+    }
+
     private fun updatePageVisibility() {
         mainPanel.visibility = if (page == PanelPage.MAIN) View.VISIBLE else View.GONE
         morePanel.visibility = if (page == PanelPage.MORE) View.VISIBLE else View.GONE
@@ -829,6 +883,7 @@ internal class VoiceImePanel(
             page == PanelPage.CLIPBOARD_HISTORY || page == PanelPage.VOICE_HISTORY
         ) View.VISIBLE else View.GONE
         savedSnippetsPageContainer.visibility = if (page == PanelPage.SAVED_SNIPPETS) View.VISIBLE else View.GONE
+        aiEditPageContainer.visibility = if (page == PanelPage.AI_EDIT_PREVIEW) View.VISIBLE else View.GONE
         savedSnippetsPanel.visibility = View.VISIBLE
         if (page != PanelPage.SAVED_SNIPPETS) clearSnippetDeleteConfirmation()
         renderHistoryRows()
@@ -863,6 +918,12 @@ internal class VoiceImePanel(
         moreEntries.addView(
             moreEntry(context, R.drawable.ic_ime_format_command, "格式指令") {
                 onEnterFormatCommandMode()
+            },
+            moreEntryParams(context)
+        )
+        moreEntries.addView(
+            moreEntry(context, R.drawable.ic_ime_ai_edit, "AI 編輯") {
+                onEnterAiEditMode()
             },
             moreEntryParams(context)
         )
@@ -1177,6 +1238,141 @@ internal class VoiceImePanel(
             )
         )
     }
+
+    /**
+     * AI 編輯預覽頁：沿用既有的 178dp 頁面層，原文與修改結果在內部捲動，
+     * 底部「取消／複製結果／確認取代」固定，不改變 IME 整體高度。
+     */
+    private fun buildAiEditPanel(context: Context, root: LinearLayout) {
+        aiEditPanel.orientation = LinearLayout.VERTICAL
+
+        val header = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(
+            secondaryActionButton(context, textView(context, sizeSp = 12f, color = TEXT_MUTED), "返回", TEXT_MUTED) {
+                onCancel()
+            },
+            LinearLayout.LayoutParams(dp(context, 56), dp(context, 30)).apply { marginEnd = dp(context, 6) }
+        )
+        header.addView(
+            aiEditTitle.apply { text = "AI 編輯預覽" },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        aiEditPanel.addView(
+            header,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 32))
+        )
+
+        aiEditStatus.apply {
+            maxLines = 2
+            visibility = View.GONE
+        }
+        aiEditPanel.addView(
+            aiEditStatus,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 26))
+        )
+
+        val content = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(aiEditSectionLabel(context, "原文"))
+        aiEditOriginalText.setTextIsSelectable(true)
+        content.addView(
+            aiEditOriginalText,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        content.addView(
+            aiEditSectionLabel(context, "修改結果"),
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(context, 4) }
+        )
+        aiEditResultText.setTextIsSelectable(true)
+        content.addView(
+            aiEditResultText,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        aiEditScrollView.apply {
+            isFillViewport = false
+            clipToPadding = false
+            addView(
+                content,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        aiEditPanel.addView(
+            aiEditScrollView,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply {
+                topMargin = dp(context, 2)
+            }
+        )
+
+        val actions = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        actions.addView(
+            secondaryActionButton(context, textView(context, sizeSp = 12f, color = TEXT_MUTED), "取消", TEXT_MUTED) {
+                onCancel()
+            },
+            LinearLayout.LayoutParams(0, dp(context, 32), 1f).apply { marginEnd = dp(context, 4) }
+        )
+        actions.addView(
+            secondaryActionButton(
+                context,
+                textView(context, sizeSp = 12f, color = LAVENDER_BRIGHT),
+                "複製結果",
+                LAVENDER_BRIGHT
+            ) {
+                onCopyHistoryText(aiEditResultText.text.toString())
+            },
+            LinearLayout.LayoutParams(0, dp(context, 32), 1.2f).apply { marginEnd = dp(context, 4) }
+        )
+        actions.addView(
+            secondaryActionButton(context, aiEditConfirmButton, "確認取代", PINK) {
+                onAiEditConfirmReplace()
+            },
+            LinearLayout.LayoutParams(0, dp(context, 32), 1.4f)
+        )
+        aiEditPanel.addView(
+            actions,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 34)).apply {
+                topMargin = dp(context, 2)
+            }
+        )
+
+        aiEditPageContainer.addView(
+            aiEditPanel,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        aiEditPageContainer.visibility = View.GONE
+        root.addView(
+            aiEditPageContainer,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(context, VOICE_IME_PAGE_CONTENT_HEIGHT_DP)
+            )
+        )
+    }
+
+    private fun aiEditSectionLabel(context: Context, text: String): View =
+        textView(context, sizeSp = 10f, color = TEXT_MUTED).apply {
+            this.text = text
+            setTypeface(typeface, Typeface.BOLD)
+        }
 
     private fun renderSavedSnippets() {
         if (!isShowingSavedSnippets()) return
@@ -1801,7 +1997,8 @@ internal class VoiceImePanel(
         state: VoiceImeState,
         statusLabelOverride: String? = null,
         holdToTalkRecording: Boolean = false,
-        formatCommandMode: Boolean = false
+        formatCommandMode: Boolean = false,
+        aiEditMode: Boolean = false
     ) {
         val isTerminal = state == VoiceImeState.SUCCESS ||
             state == VoiceImeState.FORMATTING_FALLBACK ||
@@ -1816,6 +2013,7 @@ internal class VoiceImePanel(
             VoiceImeState.RECORDING -> "錄音中"
             VoiceImeState.TRANSCRIBING -> "語音辨識中"
             VoiceImeState.FORMATTING -> "智慧整理中"
+            VoiceImeState.AWAITING_CONFIRM -> "修改預覽中"
             VoiceImeState.SUCCESS -> "辨識完成"
             VoiceImeState.FORMATTING_FALLBACK -> "整理失敗，已保留辨識結果"
             VoiceImeState.CANCELLED -> "已取消"
@@ -1843,7 +2041,7 @@ internal class VoiceImePanel(
             topToolbarRow.visibility = View.VISIBLE
         }
         formatModeExitButton.visibility = if (
-            formatCommandMode && (state == VoiceImeState.IDLE || isTerminal)
+            (formatCommandMode || aiEditMode) && (state == VoiceImeState.IDLE || isTerminal)
         ) View.VISIBLE else View.GONE
         // 格式指令模式的提示必須完整顯示。互動區固定為 130dp，若同時保留 15sp 標題與
         // 可能換行的提示就會被裁掉，所以格式模式把模式名稱與範例合成單一置中標籤，
@@ -1854,6 +2052,12 @@ internal class VoiceImePanel(
             idleHint.setTextColor(TEXT)
             idleHint.text = "${FormatCommandPrompt.FORMAT_COMMAND_MODE_LABEL}　" +
                 FormatCommandPrompt.FORMAT_COMMAND_HINT
+        } else if (aiEditMode) {
+            idleTitle.visibility = View.VISIBLE
+            idleTitle.text = "AI 編輯模式"
+            idleHint.textSize = NORMAL_HINT_TEXT_SP
+            idleHint.setTextColor(TEXT_MUTED)
+            idleHint.text = if (holdToTalkRecording) "放開即辨識" else "選取文字後，說出修改要求"
         } else {
             idleTitle.visibility = View.VISIBLE
             idleTitle.text = "開始語音輸入"
@@ -1861,13 +2065,20 @@ internal class VoiceImePanel(
             idleHint.setTextColor(TEXT_MUTED)
             idleHint.text = if (holdToTalkRecording) "放開即辨識" else "點一下開始說話"
         }
-        // 格式模式改用排版圖示，讓模式只靠主按鈕就能辨識；收音中仍由狀態燈、音量回饋與
+        // 特殊模式改用專屬圖示，讓模式只靠主按鈕就能辨識；收音中仍由狀態燈、音量回饋與
         // 啟動配色（isActivated）表達，不會因此換回麥克風圖示。
         idleMicButton.setImageResource(
-            if (formatCommandMode) R.drawable.ic_ime_format_command else R.drawable.ic_ime_mic
+            when {
+                formatCommandMode -> R.drawable.ic_ime_format_command
+                aiEditMode -> R.drawable.ic_ime_ai_edit
+                else -> R.drawable.ic_ime_mic
+            }
         )
-        idleMicButton.contentDescription =
-            if (formatCommandMode) "格式指令模式錄音" else "開始語音輸入"
+        idleMicButton.contentDescription = when {
+            formatCommandMode -> "格式指令模式錄音"
+            aiEditMode -> "AI 編輯模式錄音"
+            else -> "開始語音輸入"
+        }
         idleMicButton.isActivated = holdToTalkRecording
         idleMicButton.alpha = if (holdToTalkRecording) 0.9f else 1f
         idleMicButton.background = if (holdToTalkRecording) {
@@ -1904,7 +2115,11 @@ internal class VoiceImePanel(
         }
         val isBusy = state == VoiceImeState.TRANSCRIBING || state == VoiceImeState.FORMATTING
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
-        busyLabel.text = if (formatCommandMode && isBusy) "正在處理格式指令…" else state.label
+        busyLabel.text = when {
+            formatCommandMode && isBusy -> "正在處理格式指令…"
+            aiEditMode && isBusy -> "正在套用修改…"
+            else -> state.label
+        }
     }
 
     internal fun updateAudioLevel(level: Float) {
@@ -2111,6 +2326,7 @@ internal class VoiceImePanel(
         VoiceImeState.RECORDING -> CORAL
         VoiceImeState.TRANSCRIBING -> AMBER
         VoiceImeState.FORMATTING -> AMBER
+        VoiceImeState.AWAITING_CONFIRM -> LAVENDER
         VoiceImeState.SUCCESS -> MINT
         VoiceImeState.FORMATTING_FALLBACK -> AMBER
         VoiceImeState.CANCELLED -> TEXT_MUTED
@@ -2122,7 +2338,8 @@ internal class VoiceImePanel(
         MORE,
         CLIPBOARD_HISTORY,
         VOICE_HISTORY,
-        SAVED_SNIPPETS
+        SAVED_SNIPPETS,
+        AI_EDIT_PREVIEW
     }
 
     private fun textView(context: Context, sizeSp: Float, color: Int) = TextView(context).apply {

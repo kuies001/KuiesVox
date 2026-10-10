@@ -112,6 +112,7 @@ class VoiceImePanelLayoutTest {
             VoiceImeState.RECORDING to Color.rgb(232, 153, 161),
             VoiceImeState.TRANSCRIBING to Color.rgb(255, 192, 118),
             VoiceImeState.FORMATTING to Color.rgb(255, 192, 118),
+            VoiceImeState.AWAITING_CONFIRM to Color.rgb(189, 186, 255),
             VoiceImeState.SUCCESS to Color.rgb(169, 228, 212),
             VoiceImeState.FORMATTING_FALLBACK to Color.rgb(255, 192, 118),
             VoiceImeState.CANCELLED to Color.rgb(180, 190, 206),
@@ -223,6 +224,11 @@ class VoiceImePanelLayoutTest {
         panel.showClipboardHistoryPanel(isSensitiveEditor = true)
         heights += measuredHeight(panel)
         panel.showVoiceHistoryPanel(isSensitiveEditor = true)
+        heights += measuredHeight(panel)
+        panel.showAiEditPreview(
+            originalText = "你們到底什麼時候才要處理？",
+            resultText = "想請問目前的處理進度如何？"
+        )
         heights += measuredHeight(panel)
 
         val safePanel = VoiceImePanel(
@@ -686,7 +692,7 @@ class VoiceImePanelLayoutTest {
         val density = context.resources.displayMetrics.density
         val expectedIcon = (VOICE_IME_MORE_ENTRY_ICON_DP * density).toInt()
         val expectedGap = (VOICE_IME_MORE_ENTRY_ICON_GAP_DP * density).toInt()
-        val labels = listOf("剪貼簿歷史", "語音辨識歷史", "快捷短語", "格式指令")
+        val labels = listOf("剪貼簿歷史", "語音辨識歷史", "快捷短語", "格式指令", "AI 編輯")
 
         val rows = labels.map { entryLabel ->
             val row = findMoreEntryRow(panel.view, entryLabel)
@@ -707,10 +713,60 @@ class VoiceImePanelLayoutTest {
             entry
         }
 
-        assertEquals(4, rows.size)
+        assertEquals(5, rows.size)
         assertEquals("row heights must match", 1, rows.map { it.layoutParams.height }.distinct().size)
         assertEquals("row padding must match", 1, rows.map { it.paddingLeft }.distinct().size)
         assertEquals("row padding must match", 1, rows.map { it.paddingRight }.distinct().size)
+    }
+
+    @Test
+    fun aiEditEntryAndPreviewReuseThe178dpPageLayer() {
+        var entered = 0
+        var confirms = 0
+        val holder = arrayOfNulls<VoiceImePanel>(1)
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {},
+            onEnterAiEditMode = {
+                entered += 1
+                holder[0]?.showMainPanel()
+            },
+            onAiEditConfirmReplace = { confirms += 1 }
+        )
+        holder[0] = panel
+        val originalHeight = measuredHeight(panel)
+
+        assertTrue(panel.moreButton.performClick())
+        val entry = findViewByDescription(panel.view, "AI 編輯")
+        assertTrue("the More page must offer the AI edit entry", entry != null)
+        assertTrue(entry!!.performClick())
+        assertEquals(1, entered)
+
+        panel.showAiEditPreview("原文內容", "修改後的內容")
+        layoutPanel(panel, widthDp = 360)
+        assertTrue(panel.isShowingAiEditPreview())
+        assertEquals(
+            "the preview must reuse the 178dp page layer",
+            (VOICE_IME_PAGE_CONTENT_HEIGHT_DP * context.resources.displayMetrics.density).toInt(),
+            panel.mainPanel.layoutParams.height
+        )
+        assertEquals(originalHeight, measuredHeight(panel))
+
+        val labels = allTextViews(panel.aiEditPanel).map { it.text.toString() }
+        assertTrue(labels.contains("原文內容"))
+        assertTrue(labels.contains("修改後的內容"))
+        assertTrue(labels.contains("取消"))
+        assertTrue(labels.contains("複製結果"))
+        assertTrue(labels.contains("確認取代"))
+
+        assertTrue(panel.aiEditConfirmButton.performClick())
+        assertEquals(1, confirms)
+
+        panel.showAiEditRefusal("原始選取範圍已變更，為避免覆蓋其他文字，請重新選取")
+        assertFalse("a refused replacement must not be retryable", panel.aiEditConfirmButton.isEnabled)
+        assertTrue(allTextViews(panel.aiEditPanel).any { it.text.contains("請重新選取") })
     }
 
     @Test
@@ -721,7 +777,7 @@ class VoiceImePanelLayoutTest {
             onVoiceAction = {},
             onCancel = {},
             onSwitchInputMethod = {},
-            onExitFormatCommandMode = { exited += 1 }
+            onExitMode = { exited += 1 }
         )
         val normalHeight = measuredHeight(panel)
         assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
@@ -917,6 +973,7 @@ class VoiceImePanelLayoutTest {
         VoiceImeState.RECORDING -> "錄音中"
         VoiceImeState.TRANSCRIBING -> "語音辨識中"
         VoiceImeState.FORMATTING -> "智慧整理中"
+        VoiceImeState.AWAITING_CONFIRM -> "修改預覽中"
         VoiceImeState.SUCCESS -> "辨識完成"
         VoiceImeState.FORMATTING_FALLBACK -> "整理失敗，已保留辨識結果"
         VoiceImeState.CANCELLED -> "已取消"

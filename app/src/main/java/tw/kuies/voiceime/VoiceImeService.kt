@@ -91,7 +91,15 @@ class VoiceImeService : InputMethodService() {
     @Volatile
     private var activeRawTranscript: String? = null
 
-    /** 使用者手動啟動的格式指令模式；每次處理結束後自動回到 NORMAL。 */
+    /** AI 編輯：進入模式時建立的選取文字快照，只在當次工作記憶體中存活。 */
+    @Volatile
+    private var activeSelectedTextSnapshot: SelectedTextSnapshot? = null
+
+    /** AI 編輯：等待使用者確認的改寫結果。 */
+    @Volatile
+    private var activeAiEditResult: String? = null
+
+    /** 使用者手動啟動的格式指令／AI 編輯模式；每次處理結束後自動回到 NORMAL。 */
     @Volatile
     private var inputMode = VoiceInputMode.NORMAL
     private val clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
@@ -152,7 +160,9 @@ class VoiceImeService : InputMethodService() {
             onManageSavedSnippets = ::openSavedSnippetManager,
             onIsSensitiveEditor = ::isCurrentEditorSensitive,
             onEnterFormatCommandMode = ::enterFormatCommandMode,
-            onExitFormatCommandMode = ::exitFormatCommandMode
+            onExitMode = ::exitSpecialMode,
+            onEnterAiEditMode = ::enterAiEditMode,
+            onAiEditConfirmReplace = ::confirmAiEditReplacement
         )
         voicePanel = panel
         panel.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
@@ -205,6 +215,9 @@ class VoiceImeService : InputMethodService() {
         voicePanel?.resetSavedSnippetTransientState()
         if (activeOperationId != 0L) cancelCurrentOperation()
         inputMode = VoiceInputMode.NORMAL
+        activeSelectedTextSnapshot = null
+        activeAiEditResult = null
+        voicePanel?.hideAiEditPreview()
         editorSessionId += 1
         unregisterClipboardListener()
         currentEditorInfo = null
@@ -284,7 +297,12 @@ class VoiceImeService : InputMethodService() {
         voicePanel?.resetSavedSnippetTransientState()
         voicePanel?.cancelHoldToTalkGesture()
         inputMode = VoiceInputMode.NORMAL
-        if (stateMachine.state == VoiceImeState.RECORDING) {
+        activeSelectedTextSnapshot = null
+        activeAiEditResult = null
+        voicePanel?.hideAiEditPreview()
+        if (stateMachine.state == VoiceImeState.RECORDING ||
+            stateMachine.state == VoiceImeState.AWAITING_CONFIRM
+        ) {
             cancelCurrentOperation()
         } else {
             stopAudioLevelFeedback()
@@ -833,6 +851,17 @@ class VoiceImeService : InputMethodService() {
             return false
         }
 
+        // AI 編輯：收音前重新讀取選取文字，避免用進入模式時的舊快照。
+        if (inputMode == VoiceInputMode.AI_EDIT) {
+            val refreshed = readCurrentSelectionSnapshot()
+            if (refreshed == null) {
+                Log.w(TAG, "AI edit recording refused: selection unavailable")
+                transitionStatus(VoiceImeState.ERROR, "請重新選取要修改的文字")
+                return false
+            }
+            activeSelectedTextSnapshot = refreshed
+        }
+
         val voiceSnapshot = createVoiceOperationSnapshot()
 
         var newRecorder: AudioRecord? = null
@@ -982,7 +1011,7 @@ class VoiceImeService : InputMethodService() {
     private fun cancelCurrentOperation() {
         val state = stateMachine.state
         if (state != VoiceImeState.RECORDING && state != VoiceImeState.TRANSCRIBING &&
-            state != VoiceImeState.FORMATTING
+            state != VoiceImeState.FORMATTING && state != VoiceImeState.AWAITING_CONFIRM
         ) return
 
         val file = activeAudioFile
@@ -992,7 +1021,10 @@ class VoiceImeService : InputMethodService() {
         activeVoiceOperationSnapshot = null
         activeRequestCall.cancel()
         activeRawTranscript = null
+        activeSelectedTextSnapshot = null
+        activeAiEditResult = null
         inputMode = VoiceInputMode.NORMAL
+        voicePanel?.hideAiEditPreview()
         transitionStatus(VoiceImeState.CANCELLED)
         stopRecorderAndJoin()
         recordingFailure = null
@@ -1094,15 +1126,7 @@ class VoiceImeService : InputMethodService() {
         }
         currentResolvedAppSettings = resolved
         return VoiceOperationSnapshot(
-            editorTarget = VoiceEditorTargetKey(
-                sessionId = editorSessionId,
-                packageName = AppPackageName.normalize(editorInfo?.packageName),
-                fieldId = editorInfo?.fieldId ?: 0,
-                fieldName = editorInfo?.fieldName,
-                inputType = editorInfo?.inputType ?: 0,
-                imeOptions = editorInfo?.imeOptions ?: 0,
-                connectionIdentity = currentInputConnection
-            ),
+            editorTarget = currentEditorTargetKey(),
             inputConnection = currentInputConnection,
             inputType = editorInfo?.inputType ?: 0,
             imeOptions = editorInfo?.imeOptions ?: 0,
@@ -1113,18 +1137,23 @@ class VoiceImeService : InputMethodService() {
         )
     }
 
-    private fun isOperationTargetCurrent(snapshot: VoiceOperationSnapshot): Boolean {
-        val editorInfo = currentEditorInfo ?: return false
-        val currentTarget = VoiceEditorTargetKey(
+    /** 目前編輯器欄位的識別，供快照比對與安全政策使用。 */
+    private fun currentEditorTargetKey(): VoiceEditorTargetKey {
+        val editorInfo = currentEditorInfo
+        return VoiceEditorTargetKey(
             sessionId = editorSessionId,
-            packageName = AppPackageName.normalize(editorInfo.packageName),
-            fieldId = editorInfo.fieldId,
-            fieldName = editorInfo.fieldName,
-            inputType = editorInfo.inputType,
-            imeOptions = editorInfo.imeOptions,
+            packageName = AppPackageName.normalize(editorInfo?.packageName),
+            fieldId = editorInfo?.fieldId ?: 0,
+            fieldName = editorInfo?.fieldName,
+            inputType = editorInfo?.inputType ?: 0,
+            imeOptions = editorInfo?.imeOptions ?: 0,
             connectionIdentity = currentInputConnection
         )
-        return VoiceEditorTargetPolicy.stillTargetsSameEditor(snapshot.editorTarget, currentTarget)
+    }
+
+    private fun isOperationTargetCurrent(snapshot: VoiceOperationSnapshot): Boolean {
+        currentEditorInfo ?: return false
+        return VoiceEditorTargetPolicy.stillTargetsSameEditor(snapshot.editorTarget, currentEditorTargetKey())
     }
 
     private fun isVoiceOperationTargetCurrent(operationId: Long): Boolean {
@@ -1289,6 +1318,11 @@ class VoiceImeService : InputMethodService() {
         activeRawTranscript = originalText
         if (activeVoiceOperationSnapshot?.inputMode == VoiceInputMode.FORMAT_COMMAND) {
             processFormatCommand(file, operationId, originalText, apiKey)
+            return
+        }
+        // AI 編輯：辨識結果是修改要求，直接套用在選取文字上，不進行一般逐字稿修正與整理。
+        if (activeVoiceOperationSnapshot?.inputMode == VoiceInputMode.AI_EDIT) {
+            processAiEditInstruction(operationId, originalText, apiKey)
             return
         }
         try {
@@ -1595,7 +1629,7 @@ class VoiceImeService : InputMethodService() {
 
     private fun finishSuccessfully(
         operationId: Long,
-        file: File,
+        file: File?,
         terminalState: VoiceImeState,
         statusLabel: String? = null
     ) {
@@ -1606,6 +1640,8 @@ class VoiceImeService : InputMethodService() {
         activeRequestCall.clear()
         activeAudioFile = null
         activeRawTranscript = null
+        activeSelectedTextSnapshot = null
+        activeAiEditResult = null
         recordingFailure = null
         deleteAudioFile(file)
         inputMode = VoiceInputMode.NORMAL
@@ -1626,11 +1662,14 @@ class VoiceImeService : InputMethodService() {
         activeVoiceOperationSnapshot = null
         activeRequestCall.cancel()
         activeRawTranscript = null
+        activeSelectedTextSnapshot = null
+        activeAiEditResult = null
         stopRecorderAndJoin()
         deleteAudioFile(activeAudioFile)
         activeAudioFile = null
         recordingFailure = null
         inputMode = VoiceInputMode.NORMAL
+        voicePanel?.hideAiEditPreview()
         transitionStatus(VoiceImeState.ERROR)
     }
 
@@ -1842,6 +1881,153 @@ class VoiceImeService : InputMethodService() {
         transitionStatus(VoiceImeState.ERROR, statusLabel)
     }
 
+    /**
+     * AI 編輯：把 ASR 轉出的口述要求當成編輯指令，套用在進入模式時讀取的選取文字上。
+     * 每次編輯最多一次 ASR 加一次 LLM 請求；結果一律先預覽，不直接覆蓋原文。
+     */
+    private fun processAiEditInstruction(operationId: Long, instruction: String, apiKey: String) {
+        if (!isVoiceOperationTargetCurrent(operationId)) return
+        // 選取文字已讀入快照，錄音檔不再需要，先行移除避免在預覽期間佔用空間。
+        deleteAudioFile(activeAudioFile)
+        activeAudioFile = null
+        val selection = activeSelectedTextSnapshot
+        val snapshot = activeVoiceOperationSnapshot
+        if (selection == null || snapshot == null) {
+            failAiEdit(operationId, "沒有可修改的選取文字，未修改任何文字")
+            return
+        }
+        val provider = TextFormattingProviderRegistry.forProvider(snapshot.settings.provider)
+        if (provider == null || apiKey.isBlank()) {
+            failAiEdit(operationId, "AI 編輯需要可用的 Provider 與 API Key，未修改任何文字")
+            return
+        }
+        val trimmedInstruction = instruction.trim()
+        if (!TextEditPrompt.isUsableInstruction(trimmedInstruction)) {
+            failAiEdit(operationId, "無法解讀這個修改要求，未修改任何文字")
+            return
+        }
+        if (!transitionStatus(VoiceImeState.FORMATTING)) return
+        val request = TextTransformationRequest(
+            transformationType = TextTransformationType.EDIT_SELECTED_TEXT,
+            sourceText = selection.text,
+            instruction = trimmedInstruction,
+            provider = snapshot.settings.provider,
+            model = snapshot.settings.model,
+            operationId = operationId
+        )
+        val prompt = TextTransformationCore.promptFor(request)
+        try {
+            val call = provider.format(apiKey, request.model, prompt.userMessage, prompt.systemPrompt) { result ->
+                mainHandler.post {
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
+                    activeRequestCall.clear()
+                    when (result) {
+                        is TextFormattingResult.Success -> when (
+                            val transformed = TextTransformationCore.interpretSuccess(request, result.text)
+                        ) {
+                            is TextTransformationResult.Success ->
+                                showAiEditPreview(operationId, transformed.transformedText)
+
+                            is TextTransformationResult.Failure -> {
+                                Log.w(TAG, "AI edit produced no usable text: ${transformed.kind}")
+                                failAiEdit(operationId, "AI 沒有產生可用的修改結果，未修改任何文字")
+                            }
+                        }
+
+                        is TextFormattingResult.Failure -> {
+                            val status = result.httpStatus?.let { ", http_status=$it" }.orEmpty()
+                            Log.w(TAG, "AI edit request failed: ${result.type}$status")
+                            failAiEdit(operationId, "AI 編輯處理失敗，未修改任何文字")
+                        }
+                    }
+                }
+            }
+            activeRequestCall.attach(call)
+        } catch (exception: Exception) {
+            Log.w(TAG, "AI edit setup failed: ${exception.javaClass.simpleName}")
+            failAiEdit(operationId, "AI 編輯處理失敗，未修改任何文字")
+        }
+    }
+
+    private fun showAiEditPreview(operationId: Long, resultText: String) {
+        val selection = activeSelectedTextSnapshot ?: return
+        if (!isVoiceOperationTargetCurrent(operationId)) return
+        activeAiEditResult = resultText
+        if (!transitionStatus(VoiceImeState.AWAITING_CONFIRM)) return
+        voicePanel?.showAiEditPreview(selection.text, resultText)
+    }
+
+    /**
+     * 使用者按下「確認取代」：重新讀取目前選取範圍並以 [SelectedTextPolicy.canReplace] 驗證。
+     * 只有操作、欄位、範圍與選取文字都與快照一致時才取代；否則一律拒絕，
+     * 不退回游標插入，也不搜尋文件中相同文字。
+     */
+    private fun confirmAiEditReplacement() {
+        val operationId = activeOperationId
+        val selection = activeSelectedTextSnapshot
+        val snapshot = activeVoiceOperationSnapshot
+        val result = activeAiEditResult
+        if (operationId == 0L || selection == null || snapshot == null || result == null) {
+            voicePanel?.showAiEditRefusal("原始選取範圍已變更，為避免覆蓋其他文字，請重新選取")
+            return
+        }
+        if (stateMachine.state != VoiceImeState.AWAITING_CONFIRM) return
+        if (!isOperationTargetCurrent(snapshot)) {
+            Log.w(TAG, "AI edit replacement refused: editor target changed")
+            voicePanel?.showAiEditRefusal("原始選取範圍已變更，為避免覆蓋其他文字，請重新選取")
+            return
+        }
+        val connection = try {
+            currentInputConnection
+        } catch (exception: Exception) {
+            Log.w(TAG, "AI edit input connection unavailable: ${exception.javaClass.simpleName}")
+            null
+        }
+        val current = SelectedTextReader.readCurrent(
+            connection = connection?.asSelectionReadConnection(),
+            operationId = operationId,
+            editorTarget = currentEditorTargetKey()
+        )
+        if (!SelectedTextPolicy.canReplace(selection, operationId, current)) {
+            Log.w(TAG, "AI edit replacement refused: selection changed")
+            voicePanel?.showAiEditRefusal("原始選取範圍已變更，為避免覆蓋其他文字，請重新選取")
+            return
+        }
+        val committed = try {
+            connection?.commitText(result, 1) == true
+        } catch (exception: Exception) {
+            Log.e(TAG, "AI edit replacement failed: ${exception.javaClass.simpleName}")
+            false
+        }
+        if (!committed) {
+            Log.w(TAG, "AI edit replacement unavailable")
+            voicePanel?.showAiEditRefusal("無法取代選取文字，請重新選取後再試")
+            return
+        }
+        voicePanel?.hideAiEditPreview()
+        finishSuccessfully(operationId, activeAudioFile, VoiceImeState.SUCCESS, "已取代選取文字")
+    }
+
+    private fun failAiEdit(operationId: Long, statusLabel: String) {
+        if (!isOperationCurrent(operationId)) return
+        holdToTalkRecording = false
+        Log.w(TAG, "AI edit finished without changing text")
+        requestGate.invalidate()
+        activeOperationId = 0L
+        activeVoiceOperationSnapshot = null
+        activeRequestCall.cancel()
+        activeRawTranscript = null
+        activeSelectedTextSnapshot = null
+        activeAiEditResult = null
+        inputMode = VoiceInputMode.NORMAL
+        stopRecorderAndJoin()
+        deleteAudioFile(activeAudioFile)
+        activeAudioFile = null
+        recordingFailure = null
+        voicePanel?.hideAiEditPreview()
+        transitionStatus(VoiceImeState.ERROR, statusLabel)
+    }
+
     private fun isOperationCurrent(operationId: Long): Boolean =
         !serviceDestroyed && activeOperationId == operationId && requestGate.isCurrent(operationId) &&
             activeVoiceOperationSnapshot?.editorTarget?.sessionId == editorSessionId
@@ -1891,7 +2077,8 @@ class VoiceImeService : InputMethodService() {
             stateMachine.state,
             statusLabelOverride,
             holdToTalkRecording,
-            inputMode == VoiceInputMode.FORMAT_COMMAND
+            formatCommandMode = inputMode == VoiceInputMode.FORMAT_COMMAND,
+            aiEditMode = inputMode == VoiceInputMode.AI_EDIT
         )
     }
 
@@ -1902,7 +2089,29 @@ class VoiceImeService : InputMethodService() {
         renderStatus()
     }
 
-    private fun exitFormatCommandMode() {
+    /**
+     * 進入 AI 編輯模式：先讀取目前真正選取的文字並建立安全快照。
+     * 讀不到可確認的選取（沒有選取、敏感欄位、範圍塌成游標等）時拒絕進入，
+     * 不會以游標位置或整份文字代替。
+     */
+    private fun enterAiEditMode() {
+        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || activeOperationId != 0L) return
+        val snapshot = readCurrentSelectionSnapshot()
+        if (snapshot == null) {
+            Log.w(TAG, "AI edit refused: no readable selection")
+            voicePanel?.showMainPanel()
+            transitionStatus(VoiceImeState.ERROR, "請先在文字欄位選取要修改的文字")
+            return
+        }
+        activeSelectedTextSnapshot = snapshot
+        activeAiEditResult = null
+        inputMode = VoiceInputMode.AI_EDIT
+        voicePanel?.showMainPanel()
+        renderStatus()
+    }
+
+    /** 離開格式指令／AI 編輯模式；未確認的 AI 編輯結果一律丟棄，原文不變。 */
+    private fun exitSpecialMode() {
         if (serviceDestroyed) return
         val state = stateMachine.state
         val canExit = state == VoiceImeState.IDLE || state == VoiceImeState.SUCCESS ||
@@ -1910,8 +2119,51 @@ class VoiceImeService : InputMethodService() {
             state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
         if (!canExit) return
         inputMode = VoiceInputMode.NORMAL
+        activeSelectedTextSnapshot = null
+        activeAiEditResult = null
         renderStatus()
     }
+
+    private fun readCurrentSelectionSnapshot(): SelectedTextSnapshot? =
+        SelectedTextReader.read(
+            connection = selectionReadConnection(),
+            canInspectEditorText = canInspectEditorText(currentEditorInfo),
+            isSensitiveEditor = isCurrentEditorSensitive(),
+            editorTarget = currentEditorTargetKey()
+        )
+
+    private fun selectionReadConnection(): SelectionReadConnection? {
+        val connection = try {
+            currentInputConnection
+        } catch (exception: Exception) {
+            Log.w(TAG, "Selection input connection unavailable: ${exception.javaClass.simpleName}")
+            null
+        } ?: return null
+        return connection.asSelectionReadConnection()
+    }
+
+    private fun InputConnection.asSelectionReadConnection(): SelectionReadConnection =
+        object : SelectionReadConnection {
+            override fun selectedText(): CharSequence? = try {
+                this@asSelectionReadConnection.getSelectedText(0)
+            } catch (exception: Exception) {
+                Log.w(TAG, "Selected text read failed: ${exception.javaClass.simpleName}")
+                null
+            }
+
+            override fun selectionRange(): SelectionRange? {
+                val extracted = try {
+                    this@asSelectionReadConnection.getExtractedText(ExtractedTextRequest(), 0)
+                } catch (exception: Exception) {
+                    Log.w(TAG, "Selection range read failed: ${exception.javaClass.simpleName}")
+                    null
+                } ?: return null
+                val start = extracted.selectionStart
+                val end = extracted.selectionEnd
+                if (start < 0 || end < 0) return null
+                return SelectionRange(extracted.startOffset + start, extracted.startOffset + end)
+            }
+        }
 
     private fun startAudioLevelUpdates(operationId: Long) {
         stopAudioLevelFeedback()
@@ -1981,6 +2233,8 @@ class VoiceImeService : InputMethodService() {
         requestGate.invalidate()
         activeOperationId = 0L
         activeVoiceOperationSnapshot = null
+        activeSelectedTextSnapshot = null
+        activeAiEditResult = null
         activeRequestCall.cancel()
         statusResetRunnable?.let { mainHandler.removeCallbacks(it) }
         statusResetRunnable = null

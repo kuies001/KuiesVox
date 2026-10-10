@@ -1,9 +1,10 @@
 package tw.kuies.voiceime
 
-/** 一般語音模式與手動啟動的格式指令模式。 */
+/** 一般語音輸入、手動啟動的格式指令模式，以及改寫選取文字的 AI 編輯模式。 */
 internal enum class VoiceInputMode {
     NORMAL,
-    FORMAT_COMMAND
+    FORMAT_COMMAND,
+    AI_EDIT
 }
 
 internal sealed interface FormatCommandInterpretation {

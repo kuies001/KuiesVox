@@ -1,7 +1,9 @@
 package tw.kuies.voiceime
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SelectedTextReaderTest {
@@ -91,5 +93,63 @@ class SelectedTextReaderTest {
         )
 
         assertEquals(boundary, snapshot?.text)
+    }
+
+    @Test
+    fun theCurrentStateMirrorsTheLiveConnectionForReplacementReview() {
+        val current = SelectedTextReader.readCurrent(
+            connection = FakeConnection(selectedText, validRange),
+            operationId = 99L,
+            editorTarget = target
+        )
+
+        assertEquals(99L, current.operationId)
+        assertEquals(target, current.editorTarget)
+        assertEquals(3, current.selectionStart)
+        assertEquals(17, current.selectionEnd)
+        assertEquals(selectedText, current.selectedText)
+    }
+
+    @Test
+    fun anUnreadableCurrentSelectionBecomesAFailClosedState() {
+        val current = SelectedTextReader.readCurrent(null, 99L, target)
+
+        assertNull(current.selectionStart)
+        assertNull(current.selectionEnd)
+        assertNull(current.selectedText)
+    }
+
+    @Test
+    fun theReplacementReviewAcceptsOnlyTheUnchangedSelection() {
+        val snapshot = SelectedTextReader.read(
+            connection = FakeConnection(selectedText, validRange),
+            canInspectEditorText = true,
+            isSensitiveEditor = false,
+            editorTarget = target
+        )
+
+        val unchanged = SelectedTextReader.readCurrent(
+            FakeConnection(selectedText, validRange),
+            operationId = 99L,
+            editorTarget = target
+        )
+        assertTrue(SelectedTextPolicy.canReplace(snapshot!!, 99L, unchanged))
+
+        // 選取範圍移動：即使文字相同，也不得取代。
+        val moved = SelectedTextReader.readCurrent(
+            FakeConnection(selectedText, SelectionRange(40, 54)),
+            operationId = 99L,
+            editorTarget = target
+        )
+        assertFalse(SelectedTextPolicy.canReplace(snapshot, 99L, moved))
+
+        // 選取被取消：範圍塌成游標，取不到選取文字。
+        val cancelled = SelectedTextReader.readCurrent(
+            FakeConnection(null, SelectionRange(9, 9)),
+            operationId = 99L,
+            editorTarget = target
+        )
+        assertTrue(SelectedTextPolicy.isSelectionCancelled(cancelled))
+        assertFalse(SelectedTextPolicy.canReplace(snapshot, 99L, cancelled))
     }
 }

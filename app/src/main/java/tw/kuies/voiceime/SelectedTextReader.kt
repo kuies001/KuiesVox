@@ -44,4 +44,24 @@ internal object SelectedTextReader {
             editorTarget = editorTarget
         )
     }
+
+    /**
+     * 取代前重新讀取現況：把即時 InputConnection 轉成可與快照比對的 [CurrentSelectionState]。
+     * 讀不到範圍或內容時對應欄位為 null，交由 [SelectedTextPolicy.canReplace] 拒絕取代。
+     */
+    fun readCurrent(
+        connection: SelectionReadConnection?,
+        operationId: Long,
+        editorTarget: VoiceEditorTargetKey?
+    ): CurrentSelectionState {
+        val range = runCatching { connection?.selectionRange() }.getOrNull()
+        val text = runCatching { connection?.selectedText()?.toString() }.getOrNull()
+        return CurrentSelectionState(
+            operationId = operationId,
+            editorTarget = editorTarget,
+            selectionStart = range?.start,
+            selectionEnd = range?.end,
+            selectedText = text
+        )
+    }
 }

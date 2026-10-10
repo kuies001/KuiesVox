@@ -7,6 +7,7 @@ internal enum class VoiceImeState(val label: String) {
     RECORDING("錄音中…"),
     TRANSCRIBING("正在辨識…"),
     FORMATTING("正在整理文字…"),
+    AWAITING_CONFIRM("修改預覽"),
     SUCCESS("完成"),
     FORMATTING_FALLBACK("整理失敗，已使用原文"),
     CANCELLED("已取消"),
@@ -28,8 +29,12 @@ internal class VoiceImeStateMachine {
                 next == VoiceImeState.SUCCESS || next == VoiceImeState.FORMATTING_FALLBACK ||
                 next == VoiceImeState.CANCELLED || next == VoiceImeState.ERROR
             VoiceImeState.FORMATTING -> next == VoiceImeState.SUCCESS ||
-                next == VoiceImeState.FORMATTING_FALLBACK || next == VoiceImeState.CANCELLED ||
-                next == VoiceImeState.ERROR
+                next == VoiceImeState.FORMATTING_FALLBACK || next == VoiceImeState.AWAITING_CONFIRM ||
+                next == VoiceImeState.CANCELLED || next == VoiceImeState.ERROR
+            // 修改預覽不自動逾時：等待使用者按下「確認取代」或「取消」。
+            VoiceImeState.AWAITING_CONFIRM -> next == VoiceImeState.SUCCESS ||
+                next == VoiceImeState.CANCELLED || next == VoiceImeState.ERROR ||
+                next == VoiceImeState.IDLE
             VoiceImeState.SUCCESS, VoiceImeState.FORMATTING_FALLBACK,
             VoiceImeState.CANCELLED, VoiceImeState.ERROR ->
                 next == VoiceImeState.IDLE
