@@ -164,6 +164,12 @@ private fun VoiceImeSettingsApp(
         hasRecordAudioPermission = granted
     }
 
+    val onboardingStore = remember(applicationContext) {
+        SharedPreferencesOnboardingFlagStore(applicationContext)
+    }
+    var showOnboarding by remember { mutableStateOf(OnboardingGate.shouldShowOnStartup(onboardingStore)) }
+    var imeSettingsHint by remember { mutableStateOf("") }
+
     var apiKey by remember { mutableStateOf("") }
     var apiKeySaved by remember { mutableStateOf(false) }
     var apiKeyLoaded by remember { mutableStateOf(false) }
@@ -684,6 +690,47 @@ private fun VoiceImeSettingsApp(
         }
     }
 
+    /** 完成或略過導覽：記住已完成後回到設定首頁，之後不再自動顯示。 */
+    fun finishOnboarding() {
+        showOnboarding = false
+        OnboardingStateRepository.markCompleted(applicationContext) { result ->
+            result.onFailure { exception ->
+                Log.w(MAIN_ACTIVITY_TAG, "Onboarding state could not be saved: ${exception.javaClass.simpleName}")
+            }
+        }
+    }
+
+    /** 開啟輸入法設定：先試官方的輸入法設定頁，開不起來再退回系統設定首頁。 */
+    fun openImeSettings() {
+        val launcher = object : SettingsLauncher {
+            override fun open(action: String): Boolean = try {
+                context.startActivity(Intent(action))
+                true
+            } catch (exception: Exception) {
+                Log.w(MAIN_ACTIVITY_TAG, "Could not open settings action: ${exception.javaClass.simpleName}")
+                false
+            }
+        }
+        imeSettingsHint = if (ImeSettingsLauncher.open(launcher)) "" else ImeSettingsLauncher.MANUAL_HINT
+    }
+
+    if (showOnboarding) {
+        OnboardingScreen(
+            modifier = modifier,
+            hasMicrophonePermission = hasRecordAudioPermission,
+            imeSettingsHint = imeSettingsHint,
+            onRequestMicrophonePermission = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+            onOpenGroq = { openApiKeyPage(OnboardingLinks.GROQ_API_KEYS) },
+            onOpenApiKeySettings = {
+                finishOnboarding()
+                destination = SettingsDestination.GROQ
+            },
+            onOpenImeSettings = { openImeSettings() },
+            onFinish = { finishOnboarding() }
+        )
+        return
+    }
+
     when (destination) {
         SettingsDestination.HOME -> HomeScreen(
             modifier = modifier,
@@ -709,6 +756,11 @@ private fun VoiceImeSettingsApp(
             },
             onOpenMcp = { destination = SettingsDestination.MCP },
             onOpenHistoryPrivacy = { destination = SettingsDestination.HISTORY_PRIVACY },
+            onOpenOnboarding = {
+                // 從設定頁重新查看：只顯示導覽，不會把完成狀態改回未完成。
+                imeSettingsHint = ""
+                showOnboarding = true
+            },
             onCheckForUpdates = appUpdateController::checkForUpdates,
             onDownloadUpdate = { release, version, apk ->
                 appUpdateController.download(release, version, apk)

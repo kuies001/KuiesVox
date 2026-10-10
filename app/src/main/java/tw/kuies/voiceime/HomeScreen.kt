@@ -69,6 +69,7 @@ internal fun HomeScreen(
     onOpenSavedSnippets: () -> Unit,
     onOpenMcp: () -> Unit,
     onOpenHistoryPrivacy: () -> Unit,
+    onOpenOnboarding: () -> Unit,
     onCheckForUpdates: () -> Unit,
     onDownloadUpdate: (GitHubRelease, SemanticVersion, GitHubReleaseAsset) -> Unit,
     onInstallUpdate: (GitHubRelease, Long) -> Unit,
@@ -263,6 +264,27 @@ internal fun HomeScreen(
                 accent = colors.primary,
                 contentColor = colors.onPrimary,
                 onClick = onOpenHistoryPrivacy,
+                modifier = Modifier.align(Alignment.End)
+            )
+        }
+
+        HomeFeatureCard(
+            icon = R.drawable.ic_home_voice,
+            title = "新手導覽",
+            subtitle = "麥克風、Groq API、啟用輸入法",
+            accent = colors.secondary,
+            status = "3 個步驟"
+        ) {
+            Text(
+                "第一次使用的三個設定步驟；隨時可以再打開查看。",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.onSurfaceVariant
+            )
+            ActionButton(
+                label = "查看導覽",
+                accent = colors.secondary,
+                contentColor = colors.onSecondary,
+                onClick = onOpenOnboarding,
                 modifier = Modifier.align(Alignment.End)
             )
         }
