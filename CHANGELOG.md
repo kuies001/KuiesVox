@@ -5,6 +5,7 @@
 ## 版本索引
 
 - [未發布](#unreleased)
+- [0.15.2](#v0-15-2)
 - [0.15.1](#v0-15-1)
 - [0.15.0](#v0-15-0)
 - [0.14.0](#v0-14-0)
@@ -19,6 +20,19 @@
 ## [Unreleased]
 
 此區留給下一版尚未發布的變更。
+
+<a id="v0-15-2"></a>
+## [0.15.2] - 2026-10-10
+
+### Added
+
+- 個人化的「常用詞」與「修正规則」新增批次刪除：按頁面右上角「刪除」進入選取模式，每列出現勾選框、可整列點選，並提供「全選」與「已選取 X 筆」；下方「刪除已選取（X）」在未選取時停用，按下後先顯示「確認刪除」對話框才刪除，取消則保留選取、不更動任何資料。
+- 批次刪除只會移除你勾選的項目：未選取的詞彙與規則、其啟用狀態與語境句都會原樣保留。
+
+### Changed
+
+- 常用詞與修正规則不再在每一列顯示「刪除」按鈕；啟用開關、搜尋、新增、批次匯入與「語句」編輯維持不變。
+- 選取模式的「全選」只作用於目前的搜尋結果，不會選到被搜尋條件濾掉的其他資料；切換分頁或離開頁面會清空選取。
 
 <a id="v0-15-1"></a>
 ## [0.15.1] - 2026-10-10
@@ -242,7 +256,8 @@
 
 - Groq API Key：[console.groq.com/keys](https://console.groq.com/keys)
 
-[Unreleased]: https://github.com/kuies001/KuiesVox/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/kuies001/KuiesVox/compare/v0.15.2...HEAD
+[0.15.2]: https://github.com/kuies001/KuiesVox/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/kuies001/KuiesVox/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/kuies001/KuiesVox/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/kuies001/KuiesVox/compare/v0.13.0...v0.14.0
