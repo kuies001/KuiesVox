@@ -99,7 +99,14 @@ class VoiceImeService : InputMethodService() {
     @Volatile
     private var activeAiEditResult: String? = null
 
-    /** 使用者手動啟動的格式指令／AI 編輯模式；每次處理結束後自動回到 NORMAL。 */
+    /** 語音翻譯：目前選擇的目標語言；進入模式時由設定讀取，切換時寫回。 */
+    @Volatile
+    private var translationTargetLanguage = TranslationTargetLanguage.DEFAULT
+
+    /** 語音翻譯：保證同一次操作最多只插入一次。 */
+    private val translationClaim = SingleInsertionClaim()
+
+    /** 使用者手動啟動的格式指令／AI 編輯／語音翻譯模式；每次處理結束後自動回到 NORMAL。 */
     @Volatile
     private var inputMode = VoiceInputMode.NORMAL
     private val clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
@@ -162,7 +169,9 @@ class VoiceImeService : InputMethodService() {
             onEnterFormatCommandMode = ::enterFormatCommandMode,
             onExitMode = ::exitSpecialMode,
             onEnterAiEditMode = ::enterAiEditMode,
-            onAiEditConfirmReplace = ::confirmAiEditReplacement
+            onAiEditConfirmReplace = ::confirmAiEditReplacement,
+            onEnterTranslateMode = ::enterTranslateMode,
+            onCycleTranslationLanguage = ::cycleTranslationLanguage
         )
         voicePanel = panel
         panel.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
@@ -1325,6 +1334,11 @@ class VoiceImeService : InputMethodService() {
             processAiEditInstruction(operationId, originalText, apiKey)
             return
         }
+        // 語音翻譯：辨識結果是待翻譯資料，只做一次翻譯後插入，不進行一般整理。
+        if (activeVoiceOperationSnapshot?.inputMode == VoiceInputMode.TRANSLATE) {
+            processSpeechTranslation(operationId, originalText, apiKey)
+            return
+        }
         try {
             TextCorrectionRuleRepository.load(applicationContext) { result ->
                 mainHandler.post {
@@ -2028,6 +2042,149 @@ class VoiceImeService : InputMethodService() {
         transitionStatus(VoiceImeState.ERROR, statusLabel)
     }
 
+    /**
+     * 語音翻譯：把一次 ASR 的辨識結果交給既有 AI 文字轉換核心翻譯成目標語言。
+     * 每次錄音最多一次 ASR 加一次翻譯 LLM，不為了判斷語言再多發請求。
+     */
+    private fun processSpeechTranslation(operationId: Long, sourceText: String, apiKey: String) {
+        if (!isVoiceOperationTargetCurrent(operationId)) return
+        // 辨識結果已取出，錄音檔不再需要。
+        deleteAudioFile(activeAudioFile)
+        activeAudioFile = null
+        val snapshot = activeVoiceOperationSnapshot
+        val trimmedSource = sourceText.trim()
+        if (trimmedSource.isEmpty()) {
+            failTranslation(operationId, "沒有辨識到可翻譯的內容，未插入任何文字")
+            return
+        }
+        if (snapshot == null) {
+            failTranslation(operationId, "語音翻譯處理失敗，未插入任何文字")
+            return
+        }
+        val provider = TextFormattingProviderRegistry.forProvider(snapshot.settings.provider)
+        if (provider == null || apiKey.isBlank()) {
+            failTranslation(operationId, "語音翻譯需要可用的 Provider 與 API Key，未插入任何文字")
+            return
+        }
+        if (!transitionStatus(VoiceImeState.FORMATTING)) return
+        val request = TextTransformationRequest(
+            transformationType = TextTransformationType.TRANSLATE_SPEECH,
+            sourceText = trimmedSource,
+            instruction = "",
+            provider = snapshot.settings.provider,
+            model = snapshot.settings.model,
+            operationId = operationId,
+            targetLanguage = translationTargetLanguage.promptName
+        )
+        val prompt = TextTransformationCore.promptFor(request)
+        try {
+            val call = provider.format(apiKey, request.model, prompt.userMessage, prompt.systemPrompt) { result ->
+                mainHandler.post {
+                    if (!isVoiceOperationTargetCurrent(operationId)) return@post
+                    activeRequestCall.clear()
+                    when (result) {
+                        is TextFormattingResult.Success -> when (
+                            val transformed = TextTransformationCore.interpretSuccess(request, result.text)
+                        ) {
+                            is TextTransformationResult.Success ->
+                                deliverSpeechTranslation(operationId, trimmedSource, transformed.transformedText)
+
+                            is TextTransformationResult.Failure -> {
+                                Log.w(TAG, "Speech translation produced no usable text: ${transformed.kind}")
+                                failTranslation(operationId, "AI 沒有產生可用的翻譯結果，未插入任何文字")
+                            }
+                        }
+
+                        is TextFormattingResult.Failure -> {
+                            val status = result.httpStatus?.let { ", http_status=$it" }.orEmpty()
+                            Log.w(TAG, "Speech translation request failed: ${result.type}$status")
+                            failTranslation(operationId, "語音翻譯處理失敗，未插入任何文字")
+                        }
+                    }
+                }
+            }
+            activeRequestCall.attach(call)
+        } catch (exception: Exception) {
+            Log.w(TAG, "Speech translation setup failed: ${exception.javaClass.simpleName}")
+            failTranslation(operationId, "語音翻譯處理失敗，未插入任何文字")
+        }
+    }
+
+    /**
+     * 翻譯完成後的插入：只有目標欄位仍有效、結果非空、且同一操作尚未插入過，
+     * 才把翻譯插入目前欄位；否則不插入，改為顯示結果供複製（絕不使用原始逐字稿頂替）。
+     */
+    private fun deliverSpeechTranslation(operationId: Long, sourceText: String, translatedText: String) {
+        val snapshot = activeVoiceOperationSnapshot
+        val targetValid = snapshot != null && isOperationCurrent(operationId) && isOperationTargetCurrent(snapshot)
+        val alreadyInserted = translationClaim.isClaimed(operationId)
+        when (
+            val outcome = SpeechTranslationPolicy.resolve(
+                sourceText = sourceText,
+                translatedText = translatedText,
+                targetStillValid = targetValid,
+                alreadyInserted = alreadyInserted
+            )
+        ) {
+            is SpeechTranslationOutcome.Insert -> {
+                translationClaim.claim(operationId)
+                val committed = try {
+                    snapshot?.inputConnection?.commitText(outcome.text, 1) == true
+                } catch (exception: Exception) {
+                    Log.e(TAG, "Translation delivery failed: ${exception.javaClass.simpleName}")
+                    false
+                }
+                if (committed) {
+                    finishSuccessfully(operationId, activeAudioFile, VoiceImeState.SUCCESS, "已插入翻譯結果")
+                } else {
+                    showTranslationFallback(operationId, sourceText, outcome.text)
+                }
+            }
+
+            is SpeechTranslationOutcome.Refuse -> when {
+                outcome.copyableText == null ->
+                    failTranslation(operationId, "AI 沒有產生可用的翻譯結果，未插入任何文字")
+
+                !targetValid || alreadyInserted ->
+                    Log.w(TAG, "Translation not inserted: target invalid or already inserted")
+
+                else -> showTranslationFallback(operationId, sourceText, outcome.copyableText)
+            }
+        }
+    }
+
+    /** 無法安全插入時顯示翻譯結果供複製；目前欄位與原文完全不變。 */
+    private fun showTranslationFallback(operationId: Long, sourceText: String, translatedText: String) {
+        if (!isOperationCurrent(operationId)) return
+        if (!transitionStatus(VoiceImeState.AWAITING_CONFIRM, "翻譯結果未插入")) return
+        Log.w(TAG, "Translation delivered to the copy fallback")
+        voicePanel?.showTranslationResult(
+            sourceText,
+            translatedText,
+            "目前輸入目標無法安全插入，原文未更動；可複製結果後自行貼上。"
+        )
+    }
+
+    private fun failTranslation(operationId: Long, statusLabel: String) {
+        if (!isOperationCurrent(operationId)) return
+        holdToTalkRecording = false
+        Log.w(TAG, "Speech translation finished without inserting text")
+        requestGate.invalidate()
+        activeOperationId = 0L
+        activeVoiceOperationSnapshot = null
+        activeRequestCall.cancel()
+        activeRawTranscript = null
+        activeSelectedTextSnapshot = null
+        activeAiEditResult = null
+        inputMode = VoiceInputMode.NORMAL
+        stopRecorderAndJoin()
+        deleteAudioFile(activeAudioFile)
+        activeAudioFile = null
+        recordingFailure = null
+        voicePanel?.hideAiEditPreview()
+        transitionStatus(VoiceImeState.ERROR, statusLabel)
+    }
+
     private fun isOperationCurrent(operationId: Long): Boolean =
         !serviceDestroyed && activeOperationId == operationId && requestGate.isCurrent(operationId) &&
             activeVoiceOperationSnapshot?.editorTarget?.sessionId == editorSessionId
@@ -2078,7 +2235,9 @@ class VoiceImeService : InputMethodService() {
             statusLabelOverride,
             holdToTalkRecording,
             formatCommandMode = inputMode == VoiceInputMode.FORMAT_COMMAND,
-            aiEditMode = inputMode == VoiceInputMode.AI_EDIT
+            aiEditMode = inputMode == VoiceInputMode.AI_EDIT,
+            translateMode = inputMode == VoiceInputMode.TRANSLATE,
+            translationTargetLabel = translationTargetLanguage.displayName
         )
     }
 
@@ -2121,6 +2280,32 @@ class VoiceImeService : InputMethodService() {
         inputMode = VoiceInputMode.NORMAL
         activeSelectedTextSnapshot = null
         activeAiEditResult = null
+        renderStatus()
+    }
+
+    /**
+     * 進入語音翻譯模式：不需要選取文字。沿用既有錄音與 ASR 流程，
+     * 把辨識文字翻譯成目標語言後直接插入目前欄位；目標語言沿用上次選擇。
+     */
+    private fun enterTranslateMode() {
+        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || activeOperationId != 0L) return
+        translationTargetLanguage = VoiceTranslationSettingsRepository.loadSync(applicationContext)
+        inputMode = VoiceInputMode.TRANSLATE
+        voicePanel?.showMainPanel()
+        renderStatus()
+    }
+
+    /** 在翻譯模式中快速切換目標語言，並記住這次選擇。 */
+    private fun cycleTranslationLanguage() {
+        if (serviceDestroyed || inputMode != VoiceInputMode.TRANSLATE) return
+        val next = translationTargetLanguage.next()
+        translationTargetLanguage = next
+        VoiceTranslationSettingsRepository.saveAsync(applicationContext, next) { result ->
+            if (result.isFailure) {
+                val error = result.exceptionOrNull()?.javaClass?.simpleName
+                Log.w(TAG, "Translation language save failed: $error")
+            }
+        }
         renderStatus()
     }
 

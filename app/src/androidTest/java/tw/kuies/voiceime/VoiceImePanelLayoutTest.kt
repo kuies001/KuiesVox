@@ -230,6 +230,12 @@ class VoiceImePanelLayoutTest {
             resultText = "想請問目前的處理進度如何？"
         )
         heights += measuredHeight(panel)
+        panel.showTranslationResult(
+            originalText = "你明天有空嗎？",
+            translatedText = "Are you free tomorrow?",
+            message = "目前輸入目標無法安全插入，原文未更動；可複製結果後自行貼上。"
+        )
+        heights += measuredHeight(panel)
 
         val safePanel = VoiceImePanel(
             context = context,
@@ -692,7 +698,7 @@ class VoiceImePanelLayoutTest {
         val density = context.resources.displayMetrics.density
         val expectedIcon = (VOICE_IME_MORE_ENTRY_ICON_DP * density).toInt()
         val expectedGap = (VOICE_IME_MORE_ENTRY_ICON_GAP_DP * density).toInt()
-        val labels = listOf("剪貼簿歷史", "語音辨識歷史", "快捷短語", "格式指令", "AI 編輯")
+        val labels = listOf("剪貼簿歷史", "語音辨識歷史", "快捷短語", "格式指令", "AI 編輯", "語音翻譯")
 
         val rows = labels.map { entryLabel ->
             val row = findMoreEntryRow(panel.view, entryLabel)
@@ -713,7 +719,7 @@ class VoiceImePanelLayoutTest {
             entry
         }
 
-        assertEquals(5, rows.size)
+        assertEquals(6, rows.size)
         assertEquals("row heights must match", 1, rows.map { it.layoutParams.height }.distinct().size)
         assertEquals("row padding must match", 1, rows.map { it.paddingLeft }.distinct().size)
         assertEquals("row padding must match", 1, rows.map { it.paddingRight }.distinct().size)
@@ -767,6 +773,49 @@ class VoiceImePanelLayoutTest {
         panel.showAiEditRefusal("原始選取範圍已變更，為避免覆蓋其他文字，請重新選取")
         assertFalse("a refused replacement must not be retryable", panel.aiEditConfirmButton.isEnabled)
         assertTrue(allTextViews(panel.aiEditPanel).any { it.text.contains("請重新選取") })
+    }
+
+    @Test
+    fun translationEntryShowsTheModeAndALanguageChipWithoutChangingHeight() {
+        var entered = 0
+        var cycles = 0
+        val holder = arrayOfNulls<VoiceImePanel>(1)
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {},
+            onEnterTranslateMode = {
+                entered += 1
+                holder[0]?.showMainPanel()
+            },
+            onCycleTranslationLanguage = { cycles += 1 }
+        )
+        holder[0] = panel
+        val originalHeight = measuredHeight(panel)
+
+        assertTrue(panel.moreButton.performClick())
+        val entry = findViewByDescription(panel.view, "語音翻譯")
+        assertTrue("the More page must offer the voice translation entry", entry != null)
+        assertTrue(entry!!.performClick())
+        assertEquals(1, entered)
+
+        panel.render(VoiceImeState.IDLE, translateMode = true, translationTargetLabel = "英文")
+        layoutPanel(panel, widthDp = 320)
+        assertEquals(View.VISIBLE, panel.idleTitle.visibility)
+        assertEquals("語音翻譯模式", panel.idleTitle.text.toString())
+        assertEquals("翻譯成：英文", panel.idleHint.text.toString())
+        assertEquals("語音翻譯模式錄音", panel.idleMicButton.contentDescription)
+        assertEquals(View.VISIBLE, panel.translateLanguageButton.visibility)
+        assertEquals(View.VISIBLE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
+
+        assertTrue(panel.translateLanguageButton.performClick())
+        assertEquals(1, cycles)
+
+        // 離開翻譯模式後語言晶片必須收起，且高度不變。
+        panel.render(VoiceImeState.IDLE)
+        assertEquals(View.GONE, panel.translateLanguageButton.visibility)
+        assertEquals(originalHeight, measuredHeight(panel))
     }
 
     @Test

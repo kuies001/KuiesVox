@@ -20,7 +20,7 @@ internal data class TextTransformationRequest(
     val provider: TextFormattingProviderId,
     val model: String,
     val operationId: Long,
-    /** 未來語音翻譯使用；本階段不啟用。 */
+    /** 語音翻譯使用：目標語言名稱；其他型別為 null。 */
     val targetLanguage: String? = null
 )
 
@@ -61,8 +61,14 @@ internal object TextTransformationCore {
                     sourceContent = request.sourceText
                 )
             )
+            TextTransformationType.TRANSLATE_SPEECH -> TextTransformationPrompt(
+                systemPrompt = TextTranslatePrompt.SYSTEM_PROMPT,
+                userMessage = TextTranslatePrompt.buildUserMessage(
+                    sourceContent = request.sourceText,
+                    targetLanguage = request.targetLanguage.orEmpty()
+                )
+            )
             // 尚未開發的模式不得悄悄使用編輯 prompt。
-            TextTransformationType.TRANSLATE_SPEECH,
             TextTransformationType.TRANSFORM_CLIPBOARD -> TextTransformationPrompt(
                 systemPrompt = TextEditPrompt.SYSTEM_PROMPT,
                 userMessage = TextEditPrompt.buildUserMessage(

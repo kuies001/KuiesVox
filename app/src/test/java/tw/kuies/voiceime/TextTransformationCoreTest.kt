@@ -58,4 +58,71 @@ class TextTransformationCoreTest {
             TextTransformationCore.interpretFailure(request, "network_error")
         )
     }
+
+    private val translateRequest = TextTransformationRequest(
+        transformationType = TextTransformationType.TRANSLATE_SPEECH,
+        sourceText = "你明天有空嗎？",
+        instruction = "",
+        provider = TextFormattingProviderId.GROQ,
+        model = "fake-model",
+        operationId = 7L,
+        targetLanguage = "English"
+    )
+
+    @Test
+    fun translationUsesTheTranslatePromptNotTheEditPrompt() {
+        val prompt = TextTransformationCore.promptFor(translateRequest)
+
+        assertEquals(TextTranslatePrompt.SYSTEM_PROMPT, prompt.systemPrompt)
+        assertTrue(prompt.userMessage.contains("TARGET LANGUAGE:"))
+        assertTrue(prompt.userMessage.contains("English"))
+        assertTrue(prompt.userMessage.contains("你明天有空嗎？"))
+    }
+
+    @Test
+    fun aTranslationMakesExactlyOneProviderCallAndCarriesTheTranslationThrough() {
+        val expected = "Are you free tomorrow?"
+        val provider = FakeFormattingProvider(expected)
+        var result: TextFormattingResult? = null
+
+        val prompt = TextTransformationCore.promptFor(translateRequest)
+        provider.format("test-key", translateRequest.model, prompt.userMessage, prompt.systemPrompt) { result = it }
+
+        val transformed = TextTransformationCore.interpretSuccess(
+            translateRequest,
+            (result as TextFormattingResult.Success).text
+        )
+
+        assertEquals(TextTransformationResult.Success(expected, 7L), transformed)
+        assertEquals(1, provider.requestCount)
+        assertEquals(TextTranslatePrompt.SYSTEM_PROMPT, provider.lastSystemPrompt)
+    }
+
+    @Test
+    fun aMixedCjkAndTechnologySentenceIsCarriedThroughUnchangedByThePipeline() {
+        val expected = "I will update the GitHub README today, then test the API."
+        val provider = FakeFormattingProvider(expected)
+        val mixedRequest = translateRequest.copy(
+            sourceText = "我今天要更新 GitHub README，然後測試 API。"
+        )
+        var result: TextFormattingResult? = null
+
+        val prompt = TextTransformationCore.promptFor(mixedRequest)
+        provider.format("test-key", mixedRequest.model, prompt.userMessage, prompt.systemPrompt) { result = it }
+        val transformed = TextTransformationCore.interpretSuccess(
+            mixedRequest,
+            (result as TextFormattingResult.Success).text
+        )
+
+        assertEquals(TextTransformationResult.Success(expected, 7L), transformed)
+        assertTrue(prompt.userMessage.contains("GitHub README"))
+    }
+
+    @Test
+    fun aBlankTranslationIsAFailureNotTheSourceTranscript() {
+        assertEquals(
+            TextTransformationResult.Failure(TextTransformationFailure.EMPTY_RESULT, 7L),
+            TextTransformationCore.interpretSuccess(translateRequest, "  ")
+        )
+    }
 }

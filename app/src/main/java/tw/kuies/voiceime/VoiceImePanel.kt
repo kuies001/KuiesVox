@@ -77,7 +77,9 @@ internal class VoiceImePanel(
     private val onEnterFormatCommandMode: () -> Unit = {},
     private val onExitMode: () -> Unit = {},
     private val onEnterAiEditMode: () -> Unit = {},
-    private val onAiEditConfirmReplace: () -> Unit = {}
+    private val onAiEditConfirmReplace: () -> Unit = {},
+    private val onEnterTranslateMode: () -> Unit = {},
+    private val onCycleTranslationLanguage: () -> Unit = {}
 ) {
     internal val statusIndicator = FrameLayout(context)
     internal val statusDot = View(context)
@@ -180,6 +182,7 @@ internal class VoiceImePanel(
     private val sideActionColumn = LinearLayout(context)
     private val busyLabel = textView(context, sizeSp = 13f, color = TEXT)
     private val formatModeExitButton = LinearLayout(context)
+    internal val translateLanguageButton = LinearLayout(context)
     private val moreEntries = LinearLayout(context)
 
     // AI 編輯預覽：沿用既有的 178dp 頁面層，不改變 IME 整體高度。
@@ -580,6 +583,57 @@ internal class VoiceImePanel(
             )
         )
 
+        // 語音翻譯模式：左上角的小型語言切換晶片，沿用既有互動區，不改變 IME 高度。
+        translateLanguageButton.apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            contentDescription = "切換翻譯目標語言"
+            setPadding(
+                dp(context, BACK_BUTTON_HORIZONTAL_PADDING_DP),
+                0,
+                dp(context, BACK_BUTTON_HORIZONTAL_PADDING_DP),
+                0
+            )
+            isClickable = true
+            isFocusable = true
+            visibility = View.GONE
+            background = RippleDrawable(
+                ColorStateList.valueOf(0x33FFFFFF),
+                solid(SURFACE, dp(context, 14)),
+                null
+            )
+            addView(
+                ImageView(context).apply {
+                    setImageResource(R.drawable.ic_ime_translate)
+                    imageTintList = ColorStateList.valueOf(LAVENDER_BRIGHT)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    contentDescription = null
+                },
+                LinearLayout.LayoutParams(dp(context, BACK_ICON_DP), dp(context, BACK_ICON_DP)).apply {
+                    marginEnd = dp(context, BACK_ICON_GAP_DP)
+                }
+            )
+            addView(
+                textView(context, sizeSp = NORMAL_HINT_TEXT_SP, color = LAVENDER_BRIGHT).apply {
+                    text = "切換語言"
+                    setTypeface(typeface, Typeface.BOLD)
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            setOnClickListener { onCycleTranslationLanguage() }
+        }
+        voiceActionsContainer.addView(
+            translateLanguageButton,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                dp(context, BACK_BUTTON_HEIGHT_DP),
+                Gravity.TOP or Gravity.START
+            )
+        )
+
         recordingActions.apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -841,10 +895,27 @@ internal class VoiceImePanel(
 
     /** 顯示 AI 改寫結果的預覽；原文與結果各自可在內部捲動，底部操作固定。 */
     fun showAiEditPreview(originalText: String, resultText: String) {
+        showResultPreview("AI 編輯預覽", originalText, resultText, message = null, showConfirm = true)
+    }
+
+    /** 語音翻譯無法安全插入時顯示結果；只提供「複製結果／取消」，不提供取代。 */
+    fun showTranslationResult(originalText: String, translatedText: String, message: String?) {
+        showResultPreview("語音翻譯結果", originalText, translatedText, message, showConfirm = false)
+    }
+
+    private fun showResultPreview(
+        title: String,
+        originalText: String,
+        resultText: String,
+        message: String?,
+        showConfirm: Boolean
+    ) {
         clearSnippetDeleteConfirmation()
+        aiEditTitle.text = title
         aiEditOriginalText.text = originalText
         aiEditResultText.text = resultText
-        showAiEditStatus(null)
+        showAiEditStatus(message)
+        aiEditConfirmButton.visibility = if (showConfirm) View.VISIBLE else View.GONE
         setAiEditConfirmEnabled(true)
         page = PanelPage.AI_EDIT_PREVIEW
         updatePageVisibility()
@@ -924,6 +995,12 @@ internal class VoiceImePanel(
         moreEntries.addView(
             moreEntry(context, R.drawable.ic_ime_ai_edit, "AI 編輯") {
                 onEnterAiEditMode()
+            },
+            moreEntryParams(context)
+        )
+        moreEntries.addView(
+            moreEntry(context, R.drawable.ic_ime_translate, "語音翻譯") {
+                onEnterTranslateMode()
             },
             moreEntryParams(context)
         )
@@ -1998,7 +2075,9 @@ internal class VoiceImePanel(
         statusLabelOverride: String? = null,
         holdToTalkRecording: Boolean = false,
         formatCommandMode: Boolean = false,
-        aiEditMode: Boolean = false
+        aiEditMode: Boolean = false,
+        translateMode: Boolean = false,
+        translationTargetLabel: String? = null
     ) {
         val isTerminal = state == VoiceImeState.SUCCESS ||
             state == VoiceImeState.FORMATTING_FALLBACK ||
@@ -2041,8 +2120,14 @@ internal class VoiceImePanel(
             topToolbarRow.visibility = View.VISIBLE
         }
         formatModeExitButton.visibility = if (
-            (formatCommandMode || aiEditMode) && (state == VoiceImeState.IDLE || isTerminal)
+            (formatCommandMode || aiEditMode || translateMode) &&
+            (state == VoiceImeState.IDLE || isTerminal)
         ) View.VISIBLE else View.GONE
+        translateLanguageButton.visibility = if (translateMode && (state == VoiceImeState.IDLE || isTerminal)) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
         // 格式指令模式的提示必須完整顯示。互動區固定為 130dp，若同時保留 15sp 標題與
         // 可能換行的提示就會被裁掉，所以格式模式把模式名稱與範例合成單一置中標籤，
         // 最多 2 行，並且不動麥克風、Delete、Enter 與音量回饋的配置。
@@ -2058,6 +2143,16 @@ internal class VoiceImePanel(
             idleHint.textSize = NORMAL_HINT_TEXT_SP
             idleHint.setTextColor(TEXT_MUTED)
             idleHint.text = if (holdToTalkRecording) "放開即辨識" else "選取文字後，說出修改要求"
+        } else if (translateMode) {
+            idleTitle.visibility = View.VISIBLE
+            idleTitle.text = "語音翻譯模式"
+            idleHint.textSize = NORMAL_HINT_TEXT_SP
+            idleHint.setTextColor(TEXT_MUTED)
+            idleHint.text = if (holdToTalkRecording) {
+                "放開即辨識"
+            } else {
+                "翻譯成：${translationTargetLabel.orEmpty()}"
+            }
         } else {
             idleTitle.visibility = View.VISIBLE
             idleTitle.text = "開始語音輸入"
@@ -2071,12 +2166,14 @@ internal class VoiceImePanel(
             when {
                 formatCommandMode -> R.drawable.ic_ime_format_command
                 aiEditMode -> R.drawable.ic_ime_ai_edit
+                translateMode -> R.drawable.ic_ime_translate
                 else -> R.drawable.ic_ime_mic
             }
         )
         idleMicButton.contentDescription = when {
             formatCommandMode -> "格式指令模式錄音"
             aiEditMode -> "AI 編輯模式錄音"
+            translateMode -> "語音翻譯模式錄音"
             else -> "開始語音輸入"
         }
         idleMicButton.isActivated = holdToTalkRecording
@@ -2118,6 +2215,7 @@ internal class VoiceImePanel(
         busyLabel.text = when {
             formatCommandMode && isBusy -> "正在處理格式指令…"
             aiEditMode && isBusy -> "正在套用修改…"
+            translateMode && isBusy -> "正在翻譯…"
             else -> state.label
         }
     }
