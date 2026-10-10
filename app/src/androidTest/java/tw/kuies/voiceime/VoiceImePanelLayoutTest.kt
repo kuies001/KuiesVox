@@ -28,8 +28,10 @@ class VoiceImePanelLayoutTest {
     @Test
     fun statusAndSingleRowToolbarAreVisuallySeparatedInTheRequiredOrder() {
         val panel = panel()
-        panel.setSwitchAvailable(true)
         val row = panel.topToolbarRow
+
+        // 鍵盤按鈕不再依 shouldOfferSwitchingToNextInputMethod() 顯示或隱藏。
+        assertEquals(View.VISIBLE, panel.switchButton.visibility)
 
         assertEquals(2, panel.topAreaRow.childCount)
         assertEquals(panel.statusIndicator, panel.topAreaRow.getChildAt(0))
@@ -139,7 +141,6 @@ class VoiceImePanelLayoutTest {
     @Test
     fun imePanelUsesTheFullDisplayViewportWidthAcrossItsParents() {
         val panel = panel()
-        panel.setSwitchAvailable(true)
         val root = panel.view
         val viewportWidth = context.resources.displayMetrics.widthPixels
         val density = context.resources.displayMetrics.density
@@ -361,7 +362,6 @@ class VoiceImePanelLayoutTest {
             onSwitchInputMethod = { switched = true },
             onOpenSettings = { settingsOpened = true }
         )
-        panel.setSwitchAvailable(true)
 
         assertTrue(panel.switchButton.performClick())
         assertTrue(panel.settingsButton.performClick())
@@ -369,6 +369,31 @@ class VoiceImePanelLayoutTest {
         assertTrue(settingsOpened)
         assertEquals("切換鍵盤", panel.switchButton.contentDescription)
         assertEquals("設定", panel.settingsButton.contentDescription)
+    }
+
+    @Test
+    fun keyboardSwitchIsAlwaysVisibleAcrossStatesAndNeedsNoAvailabilityHint() {
+        // 任何已啟用 KuiesVox 的手機都必須看到鍵盤切換圖示：按鈕建立後即可見，
+        // 面板也不再提供任何依系統輸入法數量隱藏它的方法，位置固定在倒數第三。
+        val panel = panel()
+
+        assertEquals(7, panel.topToolbarRow.childCount)
+        assertEquals(panel.switchButton, panel.topToolbarRow.getChildAt(4))
+        assertEquals(4, panel.topToolbarRow.indexOfChild(panel.switchButton))
+        assertEquals("切換鍵盤", panel.switchButton.contentDescription)
+        assertTrue(panel.switchButton.isClickable)
+
+        listOf(
+            VoiceImeState.IDLE,
+            VoiceImeState.RECORDING,
+            VoiceImeState.TRANSCRIBING,
+            VoiceImeState.FORMATTING,
+            VoiceImeState.SUCCESS,
+            VoiceImeState.ERROR
+        ).forEach { state ->
+            panel.render(state)
+            assertEquals(state.name, View.VISIBLE, panel.switchButton.visibility)
+        }
     }
 
     @Test

@@ -21,6 +21,7 @@ import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -51,6 +52,23 @@ class VoiceImeService : InputMethodService() {
         onDelete = ::deleteOneBeforeCursor,
         canRepeat = { !serviceDestroyed }
     )
+
+    /**
+     * 工具列鍵盤按鈕的兩個 Android 官方動作；按鈕一律可見，這裡只決定點擊後要做什麼，
+     * 兩者都不需要額外權限，也不涉及 AccessibilityService。
+     */
+    private val keyboardSwitchHost = object : KeyboardSwitchHost {
+        override fun switchToNextInputMethod(): Boolean =
+            this@VoiceImeService.switchToNextInputMethod(false)
+
+        override fun showSystemInputMethodPicker(): Boolean {
+            val manager = getSystemService(InputMethodManager::class.java) ?: return false
+            manager.showInputMethodPicker()
+            return true
+        }
+    }
+
+    private val keyboardSwitcher = KeyboardSwitcher(keyboardSwitchHost)
 
     @Volatile
     private var activeOperationId = 0L
@@ -139,7 +157,7 @@ class VoiceImeService : InputMethodService() {
                 }
             },
             onCancel = ::cancelCurrentOperation,
-            onSwitchInputMethod = { switchToNextInputMethod(false) },
+            onSwitchInputMethod = ::onKeyboardSwitchRequested,
             onEnter = ::insertNewline,
             onDelete = ::deleteOneBeforeCursor,
             onBackspacePressed = backspaceRepeater::start,
@@ -174,7 +192,6 @@ class VoiceImeService : InputMethodService() {
             onTranslateShortcut = ::toggleTranslateMode
         )
         voicePanel = panel
-        panel.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
         renderStatus()
         return panel.view
     }
@@ -199,7 +216,6 @@ class VoiceImeService : InputMethodService() {
         super.onStartInputView(info, restarting)
         voicePanel?.resetSavedSnippetTransientState()
         updateEditorInfo(info, restarting = true, fromInputView = true)
-        voicePanel?.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
         if (isCurrentEditorSensitive()) {
             when {
                 voicePanel?.isShowingClipboardHistory() == true ->
@@ -2239,6 +2255,23 @@ class VoiceImeService : InputMethodService() {
             translateMode = inputMode == VoiceInputMode.TRANSLATE,
             translationTargetLabel = translationTargetLanguage.displayName
         )
+    }
+
+    /**
+     * 工具列鍵盤按鈕：按鈕永久可見，這裡只決定切換策略。
+     *
+     * Android 允許直接切換時呼叫 switchToNextInputMethod；否則（或切換失敗時）改開
+     * 系統輸入法選擇器讓使用者自己選。兩者都不可用時留下簡短提示，不會自行改動
+     * 使用者的預設鍵盤，也不會跳去系統設定頁。
+     */
+    private fun onKeyboardSwitchRequested() {
+        val outcome = keyboardSwitcher.perform(shouldOfferSwitchingToNextInputMethod())
+        if (outcome != KeyboardSwitchOutcome.UNAVAILABLE) return
+        Log.w(TAG, "Keyboard switch unavailable: no next input method and no system picker")
+        // 只在待命狀態顯示提示，避免影響進行中的錄音或辨識。
+        if (stateMachine.state == VoiceImeState.IDLE) {
+            transitionStatus(VoiceImeState.ERROR, "無法切換輸入法，請確認已啟用其他輸入法")
+        }
     }
 
     private fun enterFormatCommandMode() {

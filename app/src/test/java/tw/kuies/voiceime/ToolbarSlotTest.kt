@@ -35,4 +35,14 @@ class ToolbarSlotTest {
 
         assertEquals(ToolbarSlot.TRANSLATE, slots[slots.indexOf(ToolbarSlot.KEYBOARD) - 1])
     }
+
+    @Test
+    fun theKeyboardShortcutIsAlwaysThirdFromLast() {
+        val slots = ToolbarSlot.entries
+
+        assertEquals(7, slots.size)
+        assertEquals(ToolbarSlot.KEYBOARD, slots[slots.size - 3])
+        assertEquals(ToolbarSlot.SETTINGS, slots[slots.size - 2])
+        assertEquals(ToolbarSlot.MORE, slots[slots.size - 1])
+    }
 }

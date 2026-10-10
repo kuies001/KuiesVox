@@ -392,7 +392,7 @@ internal class VoiceImePanel(
         toolbarIconButton(
             switchButton,
             R.drawable.ic_ime_keyboard,
-            "切換鍵盤",
+            ToolbarSlot.KEYBOARD.label,
             TEXT_MUTED,
             TOOLBAR_ICON_SIZE_DP
         ) { onSwitchInputMethod() }
@@ -816,10 +816,6 @@ internal class VoiceImePanel(
         buildAiEditPanel(context, root)
         view = root
         render(VoiceImeState.IDLE)
-    }
-
-    fun setSwitchAvailable(available: Boolean) {
-        switchButton.visibility = if (available) View.VISIBLE else View.GONE
     }
 
     fun showMainPanel() {
