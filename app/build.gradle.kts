@@ -50,7 +50,9 @@ android {
             }
             optimization {
                 enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
+                // packageScope turns on partial R8 shrinking. It produced a package-private
+                // kotlin.text class that another package extends, so the release APK died at
+                // startup with IllegalAccessError. Leave it unset (defaults to all packages).
             }
         }
     }
