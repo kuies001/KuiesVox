@@ -522,21 +522,6 @@ private fun VoiceImeSettingsApp(
         }
     }
 
-    fun importDefaultGlossary() {
-        PersonalGlossaryRepository.importDefaults(applicationContext) { result ->
-            mainHandler.post {
-                if (!screenIsActive.get()) return@post
-                result.onSuccess { importResult ->
-                    glossaryTerms = importResult.entries
-                    glossaryStatus = "預設詞庫匯入完成，新增 ${importResult.addedCount} 筆。"
-                }.onFailure { exception ->
-                    Log.w(MAIN_ACTIVITY_TAG, "Default glossary import failed: ${exception.javaClass.simpleName}")
-                    glossaryStatus = "預設詞庫匯入失敗，請稍後再試。"
-                }
-            }
-        }
-    }
-
     fun setGlossaryTermEnabled(entry: PersonalGlossaryTerm, enabled: Boolean) {
         PersonalGlossaryRepository.setEnabled(applicationContext, entry.id, enabled) { result ->
             mainHandler.post {
@@ -596,21 +581,6 @@ private fun VoiceImeSettingsApp(
                 }.onFailure { exception ->
                     Log.w(MAIN_ACTIVITY_TAG, "Text correction rule save failed: ${exception.javaClass.simpleName}")
                     correctionStatus = "規則儲存失敗，請稍後再試。"
-                }
-            }
-        }
-    }
-
-    fun importDefaultCorrectionRules() {
-        TextCorrectionRuleRepository.importDefaults(applicationContext) { result ->
-            mainHandler.post {
-                if (!screenIsActive.get()) return@post
-                result.onSuccess { importResult ->
-                    correctionRules = importResult.rules
-                    correctionStatus = "預設修正规則匯入完成，新增 ${importResult.addedCount} 筆。"
-                }.onFailure { exception ->
-                    Log.w(MAIN_ACTIVITY_TAG, "Default correction rules import failed: ${exception.javaClass.simpleName}")
-                    correctionStatus = "預設修正规則匯入失敗，請稍後再試。"
                 }
             }
         }
@@ -852,12 +822,10 @@ private fun VoiceImeSettingsApp(
             correctionRulesLoaded = correctionRulesLoaded,
             correctionStatus = correctionStatus,
             onAddGlossaryTerms = ::addGlossaryTerms,
-            onImportDefaultGlossary = ::importDefaultGlossary,
             onSetGlossaryTermEnabled = ::setGlossaryTermEnabled,
             onSetGlossaryTermContextPhrases = ::setGlossaryTermContextPhrases,
             onDeleteGlossaryTerm = ::deleteGlossaryTerm,
             onAddCorrectionRules = ::addCorrectionRules,
-            onImportDefaultCorrectionRules = ::importDefaultCorrectionRules,
             onSetCorrectionRuleEnabled = ::setCorrectionRuleEnabled,
             onDeleteCorrectionRule = ::deleteCorrectionRule,
             onBack = { destination = SettingsDestination.HOME }

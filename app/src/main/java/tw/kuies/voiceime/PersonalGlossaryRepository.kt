@@ -1,15 +1,17 @@
 package tw.kuies.voiceime
 
 import android.content.Context
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.IOException
-import java.util.UUID
 
+/**
+ * 個人常用詞的本機儲存。
+ *
+ * 讀取只還原使用者自己存放的內容（[PersonalGlossaryCodec]），不再有任何內建預設或
+ * 版本遷移植入，因此新安裝一定是空詞庫，覆蓋安裝也不會動到既有資料。
+ */
 internal object PersonalGlossaryRepository {
     private const val PREFERENCES_NAME = "personal_glossary"
     private const val ENTRIES_KEY = "entries_v1"
-    private const val DEFAULT_DATA_VERSION_KEY = "default_data_version"
 
     fun load(
         context: Context,
@@ -27,19 +29,6 @@ internal object PersonalGlossaryRepository {
             val appContext = context.applicationContext
             val currentEntries = readEntries(appContext)
             val result = PersonalGlossaryRules.add(currentEntries, rawTerms)
-            if (result.addedCount > 0) persistEntries(appContext, result.entries)
-            result
-        }
-    }
-
-    fun importDefaults(
-        context: Context,
-        callback: (Result<PersonalGlossaryAddResult>) -> Unit
-    ) {
-        submit(callback) {
-            val appContext = context.applicationContext
-            val currentEntries = readStoredEntries(appContext)
-            val result = DefaultGlossaryData.importMissing(currentEntries)
             if (result.addedCount > 0) persistEntries(appContext, result.entries)
             result
         }
@@ -98,82 +87,17 @@ internal object PersonalGlossaryRepository {
         AppStorageExecutor.submit(operation, callback)
     }
 
-    private fun readEntries(context: Context): List<PersonalGlossaryTerm> {
-        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-        val storedVersion = preferences.getInt(DEFAULT_DATA_VERSION_KEY, 0)
-        val entries = readStoredEntries(context)
+    private fun preferences(context: Context) =
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
-        val migration = DefaultGlossaryData.migrate(entries, storedVersion)
-        if (migration.version != storedVersion) {
-            persistEntries(context, migration.values, migration.version)
-        }
-        return migration.values
-    }
+    private fun readEntries(context: Context): List<PersonalGlossaryTerm> =
+        PersonalGlossaryCodec.decode(preferences(context).getString(ENTRIES_KEY, null))
 
-    private fun readStoredEntries(context: Context): List<PersonalGlossaryTerm> {
-        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-        val storedJson = preferences.getString(ENTRIES_KEY, null)
-
-        val jsonEntries = storedJson?.takeIf(String::isNotBlank)?.let(::JSONArray) ?: JSONArray()
-        val entries = mutableListOf<PersonalGlossaryTerm>()
-        val knownTerms = mutableSetOf<String>()
-        val knownIds = mutableSetOf<String>()
-
-        for (index in 0 until jsonEntries.length()) {
-            val jsonEntry = jsonEntries.optJSONObject(index) ?: continue
-            val term = jsonEntry.optString("term", "").trim()
-            if (term.isEmpty() || !knownTerms.add(PersonalGlossaryRules.keyFor(term))) continue
-
-            val storedId = jsonEntry.optString("id", "").trim()
-            val id = storedId.takeIf { it.isNotEmpty() && knownIds.add(it) }
-                ?: UUID.randomUUID().toString().also { knownIds.add(it) }
-            entries += PersonalGlossaryTerm(
-                id = id,
-                term = term,
-                enabled = jsonEntry.optBoolean("enabled", true),
-                commonPhrases = jsonEntry.optJSONArray("commonPhrases")?.let { phrases ->
-                    buildList {
-                        for (phraseIndex in 0 until phrases.length()) {
-                            phrases.optString(phraseIndex).trim()
-                                .takeIf(String::isNotEmpty)?.let(::add)
-                        }
-                    }.distinctBy(PersonalGlossaryRules::keyFor)
-                        .take(PersonalGlossaryRules.MAX_COMMON_PHRASES)
-                        .map { phrase ->
-                            val end = phrase.offsetByCodePoints(
-                                0,
-                                minOf(phrase.codePointCount(0, phrase.length), PersonalGlossaryRules.MAX_PHRASE_CODE_POINTS)
-                            )
-                            phrase.substring(0, end)
-                        }
-                }.orEmpty()
-            )
-        }
-
-        return entries
-    }
-
-    private fun persistEntries(
-        context: Context,
-        entries: List<PersonalGlossaryTerm>,
-        defaultDataVersion: Int? = null
-    ) {
-        val jsonEntries = JSONArray()
-        entries.forEach { entry ->
-            jsonEntries.put(
-                JSONObject()
-                    .put("id", entry.id)
-                    .put("term", entry.term)
-                    .put("enabled", entry.enabled)
-                    .put("commonPhrases", JSONArray(entry.commonPhrases))
-            )
-        }
-
-        val editor = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    private fun persistEntries(context: Context, entries: List<PersonalGlossaryTerm>) {
+        val saved = preferences(context)
             .edit()
-            .putString(ENTRIES_KEY, jsonEntries.toString())
-        defaultDataVersion?.let { editor.putInt(DEFAULT_DATA_VERSION_KEY, it) }
-        val saved = editor.commit()
+            .putString(ENTRIES_KEY, PersonalGlossaryCodec.encode(entries))
+            .commit()
         if (!saved) throw IOException("Personal glossary could not be persisted")
     }
 }

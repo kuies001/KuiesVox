@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12（API 31）以上的備份與裝置轉移排除清單。
+  cloud-backup 與 device-transfer 採同一套政策：憑證、個人化資料（個人詞庫、修正规則、
+  App 專屬 Profile）與歷史紀錄預設都不離開裝置。內容需與 backup_rules.xml 一致。
+-->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="secure_credentials.xml" />
@@ -7,6 +12,9 @@
         <exclude domain="sharedpref" path="mcp_settings.xml" />
         <exclude domain="sharedpref" path="mcp_config.xml" />
         <exclude domain="sharedpref" path="mcp_context_cache.xml" />
+        <exclude domain="sharedpref" path="personal_glossary.xml" />
+        <exclude domain="sharedpref" path="text_correction_rules.xml" />
+        <exclude domain="sharedpref" path="app_voice_profiles.xml" />
         <exclude domain="database" path="kuiesvox_history.db" />
         <exclude domain="database" path="kuiesvox_history.db-wal" />
         <exclude domain="database" path="kuiesvox_history.db-shm" />
@@ -20,6 +28,9 @@
         <exclude domain="sharedpref" path="mcp_settings.xml" />
         <exclude domain="sharedpref" path="mcp_config.xml" />
         <exclude domain="sharedpref" path="mcp_context_cache.xml" />
+        <exclude domain="sharedpref" path="personal_glossary.xml" />
+        <exclude domain="sharedpref" path="text_correction_rules.xml" />
+        <exclude domain="sharedpref" path="app_voice_profiles.xml" />
         <exclude domain="database" path="kuiesvox_history.db" />
         <exclude domain="database" path="kuiesvox_history.db-wal" />
         <exclude domain="database" path="kuiesvox_history.db-shm" />

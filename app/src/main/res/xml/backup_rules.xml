@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11（API 30）以下的 Auto Backup 排除清單；Android 12 以上由
+  data_extraction_rules.xml 負責，兩者必須保持一致。
+  原則：憑證、個人化資料與歷史紀錄預設不外傳。
+-->
 <full-backup-content>
     <exclude domain="sharedpref" path="secure_credentials.xml" />
     <exclude domain="sharedpref" path="groq_settings.xml" />
@@ -6,6 +11,9 @@
     <exclude domain="sharedpref" path="mcp_settings.xml" />
     <exclude domain="sharedpref" path="mcp_config.xml" />
     <exclude domain="sharedpref" path="mcp_context_cache.xml" />
+    <exclude domain="sharedpref" path="personal_glossary.xml" />
+    <exclude domain="sharedpref" path="text_correction_rules.xml" />
+    <exclude domain="sharedpref" path="app_voice_profiles.xml" />
     <exclude domain="database" path="kuiesvox_history.db" />
     <exclude domain="database" path="kuiesvox_history.db-wal" />
     <exclude domain="database" path="kuiesvox_history.db-shm" />

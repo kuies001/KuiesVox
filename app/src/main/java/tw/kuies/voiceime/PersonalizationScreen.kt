@@ -49,12 +49,10 @@ internal fun PersonalizationScreen(
     correctionRulesLoaded: Boolean,
     correctionStatus: String,
     onAddGlossaryTerms: (List<String>) -> Unit,
-    onImportDefaultGlossary: () -> Unit,
     onSetGlossaryTermEnabled: (PersonalGlossaryTerm, Boolean) -> Unit,
     onSetGlossaryTermContextPhrases: (PersonalGlossaryTerm, List<String>) -> Unit,
     onDeleteGlossaryTerm: (PersonalGlossaryTerm) -> Unit,
     onAddCorrectionRules: (List<Pair<String, String>>) -> Unit,
-    onImportDefaultCorrectionRules: () -> Unit,
     onSetCorrectionRuleEnabled: (TextCorrectionRule, Boolean) -> Unit,
     onDeleteCorrectionRule: (TextCorrectionRule) -> Unit,
     onBack: () -> Unit
@@ -103,7 +101,6 @@ internal fun PersonalizationScreen(
                 onSearchChange = { glossarySearch = it },
                 onAdd = { dialog = EditorDialog.ADD_GLOSSARY },
                 onBatchImport = { dialog = EditorDialog.BATCH_GLOSSARY },
-                onImportDefaults = onImportDefaultGlossary,
                 onToggle = onSetGlossaryTermEnabled,
                 onEditContext = { entry ->
                     contextEntry = entry
@@ -120,7 +117,6 @@ internal fun PersonalizationScreen(
                 onSearchChange = { correctionSearch = it },
                 onAdd = { dialog = EditorDialog.ADD_RULE },
                 onBatchImport = { dialog = EditorDialog.BATCH_RULES },
-                onImportDefaults = onImportDefaultCorrectionRules,
                 onToggle = onSetCorrectionRuleEnabled,
                 onDelete = onDeleteCorrectionRule
             )
@@ -292,7 +288,6 @@ private fun GlossaryTab(
     onSearchChange: (String) -> Unit,
     onAdd: () -> Unit,
     onBatchImport: () -> Unit,
-    onImportDefaults: () -> Unit,
     onToggle: (PersonalGlossaryTerm, Boolean) -> Unit,
     onEditContext: (PersonalGlossaryTerm) -> Unit,
     onDelete: (PersonalGlossaryTerm) -> Unit
@@ -322,11 +317,6 @@ private fun GlossaryTab(
                 Text("批次匯入", maxLines = 1)
             }
         }
-        TextButton(
-            onClick = onImportDefaults,
-            enabled = loaded,
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("匯入預設詞庫") }
         Text("總數 ${terms.size} 個 · 啟用 ${terms.count { it.enabled }} 個")
         if (status.isNotBlank()) {
             Text(status, style = MaterialTheme.typography.bodySmall)
@@ -383,7 +373,6 @@ private fun CorrectionRulesTab(
     onSearchChange: (String) -> Unit,
     onAdd: () -> Unit,
     onBatchImport: () -> Unit,
-    onImportDefaults: () -> Unit,
     onToggle: (TextCorrectionRule, Boolean) -> Unit,
     onDelete: (TextCorrectionRule) -> Unit
 ) {
@@ -415,11 +404,6 @@ private fun CorrectionRulesTab(
                 Text("批次匯入", maxLines = 1)
             }
         }
-        TextButton(
-            onClick = onImportDefaults,
-            enabled = loaded,
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("匯入預設修正规則") }
         Text("總數 ${rules.size} 條 · 啟用 ${rules.count { it.enabled }} 條")
         if (status.isNotBlank()) {
             Text(status, style = MaterialTheme.typography.bodySmall)
