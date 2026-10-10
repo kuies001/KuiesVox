@@ -5,6 +5,7 @@
 ## 版本索引
 
 - [未發布](#unreleased)
+- [0.15.3](#v0-15-3)
 - [0.15.2](#v0-15-2)
 - [0.15.1](#v0-15-1)
 - [0.15.0](#v0-15-0)
@@ -20,6 +21,20 @@
 ## [Unreleased]
 
 此區留給下一版尚未發布的變更。
+
+<a id="v0-15-3"></a>
+## [0.15.3] - 2026-10-11
+
+### Added
+
+- 新增「新手導覽」：第一次安裝並開啟 KuiesVox 時會顯示三頁導覽，帶你開啟麥克風權限、申請 Groq API Key，以及到系統設定啟用 KuiesVox 輸入法；完成或略過後不會再自動顯示，之後可從設定首頁的「新手導覽」隨時重新查看。
+- 個人化的批次刪除新增「全選目前搜尋結果」：有輸入搜尋關鍵字時，全選只會選取符合條件的項目，不會選到被搜尋條件濾掉的其他資料。
+
+### Changed
+
+- 批次刪除的全選文字與作用範圍會依搜尋框內容切換：沒有關鍵字時顯示「全選」並選取整個分頁，搜尋 0 筆時停用；三態勾選只反映目前作用範圍。
+- 跨搜尋條件累積的選取會顯示總筆數，並在選取包含目前搜尋結果以外的項目時提示「包含其他搜尋條件下選取的項目」。
+- 確認刪除前會再次核對選取的項目是否仍存在，確認框顯示實際要刪除的總筆數。
 
 <a id="v0-15-2"></a>
 ## [0.15.2] - 2026-10-10
@@ -256,7 +271,8 @@
 
 - Groq API Key：[console.groq.com/keys](https://console.groq.com/keys)
 
-[Unreleased]: https://github.com/kuies001/KuiesVox/compare/v0.15.2...HEAD
+[Unreleased]: https://github.com/kuies001/KuiesVox/compare/v0.15.3...HEAD
+[0.15.3]: https://github.com/kuies001/KuiesVox/compare/v0.15.2...v0.15.3
 [0.15.2]: https://github.com/kuies001/KuiesVox/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/kuies001/KuiesVox/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/kuies001/KuiesVox/compare/v0.14.0...v0.15.0
