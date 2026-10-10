@@ -3,7 +3,7 @@
 **KuiesVox 是以繁體中文與中英混合輸入為重點的 Android AI 語音輸入法。** 在聊天、工作回覆、長文與技術溝通時，把說出的話轉成文字，再依個人設定進行校對、標點與段落整理。
 
 <!-- KUIESVOX_VERSION_START -->
-目前版本：v0.14.0 Beta（測試版）
+目前版本：v0.15.0 Beta（測試版）
 <!-- KUIESVOX_VERSION_END -->
 
 [下載最新 APK（GitHub Releases）](https://github.com/kuies001/KuiesVox/releases) · [版本更新紀錄](CHANGELOG.md)
