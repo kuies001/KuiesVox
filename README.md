@@ -1,66 +1,124 @@
-# KuiesVox
+# KuiesVox 🎙️
 
-KuiesVox 是 Android 語音輸入法。
+**KuiesVox 是以繁體中文與中英混合輸入為重點的 Android AI 語音輸入法。** 在聊天、工作回覆、長文與技術溝通時，把說出的話轉成文字，再依個人設定進行校對、標點與段落整理。
 
 <!-- KUIESVOX_VERSION_START -->
 目前版本：v0.14.0 Beta（測試版）
 <!-- KUIESVOX_VERSION_END -->
 
-## 版本與下載
+[下載最新 APK（GitHub Releases）](https://github.com/kuies001/KuiesVox/releases) · [版本更新紀錄](CHANGELOG.md)
 
-查看[版本更新紀錄](CHANGELOG.md)，或前往 [GitHub Releases](https://github.com/kuies001/KuiesVox/releases) 下載 APK。
+> 此專案持續開發中。語音辨識需要網路、麥克風權限及使用者自行設定的 Groq API Key；辨識與 AI 整理的文字可能傳送至所設定的服務商，請避免輸入機敏資料。
 
-## 功能
+## 🚀 快速開始
 
-- 使用 Groq Whisper 語音辨識，可選 Whisper Large V3 或 Whisper Large V3 Turbo。
-- 錄音、停止與取消語音流程，並可在輸入法面板直接插入換行。
-- 使用個人詞庫與修正规則改善辨識結果，並可選擇 MCP Context。
-- Groq 智慧文字整理；Gemini 與 OpenAI 提供 Provider、模型與 API Key 設定欄位，目前尚未串接 API，使用時會採用本機修正結果。
-- 可設定句尾句號為智慧判斷、加入或不加入。
-- 精簡深色輸入面板提供設定、刪除、換行與切換鍵盤工具，退格支援長按連續刪除。
-- 顯示輸入狀態與最近結果。
+1. 到 [GitHub Releases](https://github.com/kuies001/KuiesVox/releases) 下載對應版本的 APK 並安裝。Android 可能要求允許此來源安裝應用程式。
+2. 開啟 KuiesVox，允許麥克風權限，在設定中填入自行申請的 [Groq API Key](https://console.groq.com/keys)。
+3. 在 Android 的「設定 → 系統 → 語言與輸入」（名稱依廠牌不同）啟用 **KuiesVox**，並切換為目前輸入法。
+4. 打開 LINE、Email 或其他可輸入文字的 App，點選文字欄位，開啟 KuiesVox。
+5. 點擊中央主按鈕開始錄音，說完後點「停止」，辨識結果就會輸入目前欄位。也可以長按錄音鍵，放開後結束錄音並辨識。
 
-## 系統需求
+## ✨ 功能與使用時機
 
-- Android 8.0（API 26）或更新版本
-- 網路連線與麥克風權限
-- 使用 Groq 語音辨識前需自行設定 Groq API Key
+| 功能 | 什麼時候用？ | 如何使用？ |
+| --- | --- | --- |
+| **一般語音輸入** | LINE、Email、搜尋欄及日常訊息 | 點麥克風開始說話，點「停止」後辨識並插入文字；「取消」可放棄當次錄音 |
+| **長按錄音** | 只想短暫講一句、不想切換開始／停止 | 按住麥克風說話，放開後結束錄音；依畫面操作取消 |
+| **即時音量回饋** | 想知道麥克風是否真的收到聲音 | 錄音時觀察動態音量指示，音量依收到的聲音變化 |
+| **ASR 模型選擇** | 想比較辨識效果或速度 | 在設定選擇 Groq Whisper Large V3 或 Large V3 Turbo |
+| **中英混合輸入** | 說話夾雜 API、GitHub、commit 等英文 | 在語音辨識設定選擇適當語言模式，並搭配個人詞庫保留專有名詞 |
+| **AI 智慧文字整理** | 需要去除贅詞、校對、整理較長的口述內容 | 在設定啟用智慧文字整理及可用 Provider；一般模式依設定與既有長度政策處理 |
+| **上下文智慧糾錯** | 「住手／助手」等近音詞容易辨錯 | 在智慧整理設定啟用，搭配個人詞庫提供語境；模型判斷不保證每次正確 |
+| **智慧標點與段落** | 問句需要問號、長文需要自然分段 | 啟用智慧標點與段落整理，依句型判斷標點，而非單看「嗎／為什麼」等詞 |
+| **台灣繁體中文用字偏好** | 希望輸出「影片、滑鼠、軟體」等台灣慣用語 | 在智慧文字整理設定啟用，依語境保留專有名詞 |
+| **句尾句號設定** | 聊天不想被強制加句號，或工作訊息需要完整標點 | 在設定選擇智慧判斷／加入／不加入 |
+| **個人詞庫** | 人名、產品、技術名稱常被辨識錯誤 | 在個人化設定新增常用詞與可選的情境範例，提供辨識參考 |
+| **文字修正规則** | 同一錯字反覆發生，需要明確替換 | 在個人化設定新增「原文字 → 修正文字」，例如限定完整語句的「你給我助手 → 你給我住手」；避免把所有「助手」全域換掉 |
+| **App 專屬 Profile** | LINE 想保留口語、工作或技術 App 想用另一種整理方式 | 到「App 專屬設定」新增 App，針對 ASR、語言、整理風格等項目選擇覆蓋或繼承；未設定 App 使用全域預設 |
+| **剪貼簿歷史與釘選** | 需要再次貼上之前複製的地址、連結或文字 | 點頂部剪貼簿圖示，查看、插入或釘選紀錄 |
+| **語音辨識歷史** | 想找回先前辨識過的句子或重新插入 | 點「更多 → 語音辨識歷史」查看紀錄；依現有介面進行插入、複製與刪除 |
+| **快捷短語** | Email、地址、網址、固定格式等不適合逐字口述的內容 | 點「更多 → 快捷短語」，管理收藏的文字，點選項目插入；可搜尋、收藏、依最近使用檢視及多選刪除 |
+| **格式指令模式** | 想用語音插入換行、空行、清單或標題 | 點「更多 → 格式指令」，說完一則格式指令後自動返回一般模式，或按「返回」離開 |
+| **MCP Context（選用）** | 有自己的 MCP 內容服務，希望補充辨識上下文 | 在 MCP 設定中連接支援的服務；僅作唯讀 Context，不執行 MCP tools |
+| **App 內更新** | 想檢查有沒有新版 APK | 在設定頁檢查版本、下載，最後由 Android 系統安裝器確認 |
 
-## 安裝與啟用
+### 🎤 一般語音模式與格式指令模式的差別
 
-1. 從 [GitHub Releases](https://github.com/kuies001/KuiesVox/releases) 下載最新的 `KuiesVox-vX.Y.Z.apk`。
-2. 在 Android 設定中允許目前使用的瀏覽器或檔案管理器安裝未知來源 App，然後開啟 APK 安裝。
-3. 開啟 KuiesVox，在 Groq 設定頁輸入並儲存自己的 Groq API Key，並允許麥克風權限。
-4. 到 Android 的「設定 → 系統 → 語言與輸入」啟用 KuiesVox，再將它選為目前輸入法。不同廠牌的設定名稱可能不同。
-5. 在文字欄位切換到 KuiesVox，點大圓形麥克風按鈕開始語音輸入；完成後按停止。也可使用工具列刪除、換行或切換鍵盤。
+**一般語音模式**適合直接輸入聊天、提問或工作訊息。當你說「這個問題有沒有解決方法」，KuiesVox 的工作是**輸入與整理這句話**，不是回答問題。
 
-此版本仍是測試版。Debug APK 會作為 GitHub Release asset 提供。
+**格式指令模式**必須手動從「更多」開啟，專門輸出純文字排版結果：
 
-## App 更新
+| 你說的話 | 預期文字效果 |
+| --- | --- |
+| 「換行」 | 在游標處插入換行 |
+| 「空一行」 | 插入段落間隔 |
+| 「列成三點，第一點更新系統，第二點測試 API，第三點確認備份」 | 產生三行編號清單 |
+| 「用項目符號列出牛奶、雞蛋、麵包」 | 產生三行項目符號 |
+| 「標題是今日工作紀錄，內容是完成系統更新」 | 產生標題、空白行與內文 |
 
-KuiesVox 支援在 App 內檢查 GitHub Releases 新版本、下載新版 APK，並呼叫 Android 系統安裝器；設定首頁也提供前往 GitHub Releases 手動下載的入口。
+簡單換行指令可在本機處理，較複雜的清單／標題指令需要可用的文字整理 Provider。此模式只排版並插入文字，不會真的執行口述的系統操作，也不是聊天問答。格式效果取決於目標 App 對純文字與換行的支援。
 
-Android 基於安全限制，下載完成後仍需由使用者確認安裝。App 內直接更新需要允許 KuiesVox 安裝未知來源應用程式。
+## 🧰 輸入法面板操作
 
-更新需要相同的 `applicationId`、相同的 APK signing certificate，以及較高的 `versionCode`。若簽章不同，Android 會拒絕覆蓋安裝。
+主畫面上方是**獨立狀態燈**與單排工具列。功能順序：
 
-## API Key 與資料處理
+**剪貼簿 → 全選 → 清除 → 切換鍵盤 → 設定 → 更多**
 
-API Key 由使用者自行申請並儲存在 App 私有設定中，不包含在 APK 內，也不會顯示完整金鑰。Groq 語音辨識與 Groq 文字整理可共用 Groq Key。Gemini 與 OpenAI 的 Key 欄位目前僅供設定保存，不會呼叫對應 API。
+- **狀態燈**：待命顯示綠色，錄音中顯示紅色。
+- **全選**：選取目前編輯欄位的文字。
+- **清除**：清除目前文字欄位內容；執行前需再次確認。
+- **切換鍵盤**：改用其他已啟用的 Android 輸入法。
+- **設定**：進入 KuiesVox 設定。
+- **更多**：開啟剪貼簿／語音歷史、快捷短語及格式指令入口。
+- **右側退格鍵**：單擊刪除，長按可連續刪除。
+- **右側 Enter 鍵**：依目前文字欄位與輸入動作提供換行／Enter 行為。
 
-- Groq：[申請 API Key](https://console.groq.com/keys)
-- Google Gemini：[申請 API Key](https://aistudio.google.com/apikey)
-- OpenAI：[申請 API Key](https://platform.openai.com/api-keys)
+## 📝 常見使用情境
 
-## 建置
+**聊天訊息**：使用一般語音模式口述：「你今天有去健身房嗎」，搭配智慧標點輸出自然問句。
 
-使用 Android Studio 開啟專案，或執行：
+**工作紀錄**：開啟智慧整理，口述一天的處理事項，讓文字依內容加入必要標點與段落。
+
+**技術溝通**：將專案名稱、API、commit、GitHub 等加入個人詞庫，再依 App Profile 選擇適合的輸入設定。
+
+**常用地址或 Email**：這些字串容易被 ASR 聽錯，可放入快捷短語，從「更多」開啟後直接插入。**請勿保存密碼、OTP、API Key 等機敏性資料。**
+
+**條列工作事項**：手動開啟格式指令模式，口述「列成三點……」，一次產生編號清單。
+
+## ⚙️ 全域設定與 App 專屬 Profile
+
+- **全域預設**：所有未指定 App 會使用這套設定。
+- **App 專屬設定**：針對某個 App 選擇要覆蓋的項目；其他項目自動繼承全域預設。
+- **例子**：LINE 偏日常口語，Email 偏正式，技術 App 盡量保留英文技術詞彙。
+- **注意**：App 辨識與部分輸入欄位功能仍取決於 Android 及目標 App 的實作。密碼等敏感欄位會受到安全限制。
+
+## 🔐 資料、安全與限制
+
+- API Key 由使用者自行申請，儲存在 App 的私有安全儲存機制中，不應提交至 GitHub 或分享給其他人。
+- 語音辨識使用 Groq Whisper，音訊必須送往 Groq 服務處理；啟用雲端 AI 文字整理時，相關文字也可能傳送至所選服務商。
+- 目前 **Groq 智慧文字整理可使用**。**Gemini 與 OpenAI 雖提供 Provider／模型／API Key 設定欄位，但目前尚未完成對應 API 串接**；選用時不代表會實際呼叫該 Provider。
+- 剪貼簿、語音歷史與快捷短語以本機資料管理；敏感欄位及 Android 標記的敏感剪貼簿內容有額外限制。
+- 個人詞庫與 AI 智慧糾錯只能協助改善辨識品質，不能保證每句完全正確。
+- 沒有網路或有效 Groq Key 時，無法使用雲端語音辨識。
+- Beta 版本及不同 Android 裝置、App 的輸入元件可能存在相容性差異。
+
+## 📥 App 更新
+
+KuiesVox 可從官方 GitHub Releases 檢查版本並下載 APK，交由 Android 系統安裝器確認安裝。App 內更新可能需要允許 KuiesVox 安裝未知來源應用程式。
+
+覆蓋更新必須具有相同的 `applicationId`、相同簽署憑證與較高的 `versionCode`。亦可直接到 [GitHub Releases](https://github.com/kuies001/KuiesVox/releases) 手動下載。
+
+## 🛠️ 開發與建置
+
+系統需求：Android 8.0（API 26）以上。使用 Android Studio 開啟專案，或執行：
 
 ```shell
 ./gradlew testDebugUnitTest
 ./gradlew assembleDebug
 ```
 
-Debug APK 預設輸出於 `app/build/outputs/apk/debug/app-debug.apk`。正式 Release APK 由 GitHub Actions 建置並以 `KuiesVox-vX.Y.Z.apk` 命名。
+Debug APK 預設輸出於 `app/build/outputs/apk/debug/app-debug.apk`。正式發版流程參閱 [.github/RELEASING.md](.github/RELEASING.md)。
 
-發版指令、DryRun 與簽署設定請參閱[發版流程說明](.github/RELEASING.md)。
+---
+
+**版本更新**：[CHANGELOG.md](CHANGELOG.md) · **APK 下載**：[GitHub Releases](https://github.com/kuies001/KuiesVox/releases) · **Groq API Key**：[Groq Console](https://console.groq.com/keys)
