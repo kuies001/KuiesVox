@@ -5,6 +5,7 @@
 ## 版本索引
 
 - [未發布](#unreleased)
+- [0.15.1](#v0-15-1)
 - [0.15.0](#v0-15-0)
 - [0.14.0](#v0-14-0)
 - [0.13.0](#v0-13-0)
@@ -18,6 +19,24 @@
 ## [Unreleased]
 
 此區留給下一版尚未發布的變更。
+
+<a id="v0-15-1"></a>
+## [0.15.1] - 2026-10-10
+
+### Fixed
+
+- 修正新安裝會自動帶入內建預設詞庫與修正规則的問題；現在詞庫與修正规則預設都是空的，只有使用者自己新增的內容會存在，覆蓋安裝也不會更動既有資料。
+- 修正 Android 系統設定中的 KuiesVox 項目點了沒有反應的問題；現在會直接開啟 KuiesVox 設定首頁。
+- 修正部分手機看不到「切換鍵盤」圖示的問題；圖示改為固定顯示，Android 無法直接切換時改為開啟系統輸入法選擇器。
+
+### Changed
+
+- 移除個人化設定中的「匯入預設詞庫」與「匯入預設修正规則」入口，因為已不再提供內建預設資料。
+
+### Security
+
+- 個人詞庫、修正规則與 App 專屬 Profile 納入雲端備份與裝置轉移的排除清單，個人化資料預設不離開裝置；API Key、MCP 設定與歷史紀錄的既有保護不變。
+- 自本版起不再內建任何個人化預設資料；含舊內建預設詞庫的 v0.15.0 APK 附件已自 GitHub Releases 移除，避免繼續散布。
 
 <a id="v0-15-0"></a>
 ## [0.15.0] - 2026-10-10
@@ -223,7 +242,8 @@
 
 - Groq API Key：[console.groq.com/keys](https://console.groq.com/keys)
 
-[Unreleased]: https://github.com/kuies001/KuiesVox/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/kuies001/KuiesVox/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/kuies001/KuiesVox/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/kuies001/KuiesVox/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/kuies001/KuiesVox/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/kuies001/KuiesVox/compare/v0.12.0...v0.13.0
