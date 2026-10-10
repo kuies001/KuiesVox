@@ -97,4 +97,39 @@ class SelectedTextPolicyTest {
         assertFalse(SelectedTextPolicy.canReplace(expected, 99L, current(text = "已經改過的文字")))
         assertFalse(SelectedTextPolicy.canReplace(expected, 99L, current(text = null)))
     }
+
+    @Test
+    fun aSelectionCancelledByAnImeStateChangeIsNeverReplacedAtTheCursor() {
+        val expected = snapshot()
+
+        // App 因切換 IME 狀態取消選取：範圍塌成游標位置，取不到選取文字。
+        val collapsedAtCursor = current(start = 9, end = 9, text = "")
+        assertTrue(SelectedTextPolicy.isSelectionCancelled(collapsedAtCursor))
+        assertFalse(SelectedTextPolicy.canReplace(expected, 99L, collapsedAtCursor))
+
+        // 範圍或內容取不到
+        assertTrue(SelectedTextPolicy.isSelectionCancelled(current(start = null, end = null)))
+        assertTrue(SelectedTextPolicy.isSelectionCancelled(current(text = null)))
+        assertTrue(SelectedTextPolicy.isSelectionCancelled(current(text = "")))
+        assertFalse(SelectedTextPolicy.canReplace(expected, 99L, current(start = null, end = null)))
+        assertFalse(SelectedTextPolicy.canReplace(expected, 99L, current(text = "")))
+
+        // 即使文字相同，只要範圍塌成游標就不得取代（不得偷偷改成游標插入）。
+        assertFalse(
+            SelectedTextPolicy.canReplace(expected, 99L, current(start = 9, end = 9, text = selectedText))
+        )
+    }
+
+    @Test
+    fun replacementIsNeverGrantedByMatchingTheSameTextElsewhereInTheDocument() {
+        val expected = snapshot()
+
+        assertTrue(SelectedTextPolicy.canReplace(expected, 99L, current()))
+
+        // 文件他處出現相同文字不構成許可：範圍必須與快照完全相同。
+        assertFalse(SelectedTextPolicy.canReplace(expected, 99L, current(start = 40, end = 54)))
+        assertFalse(
+            SelectedTextPolicy.canReplace(expected, 99L, current(start = 40, end = 54, text = selectedText))
+        )
+    }
 }
