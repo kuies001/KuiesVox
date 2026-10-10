@@ -57,7 +57,8 @@ class VoiceImePanelLayoutTest {
             (12 * context.resources.displayMetrics.density).toInt(),
             statusParams.marginEnd
         )
-        listOf(0, 3, 4, 5, 6).forEach { index ->
+        // 全部項目等寬（weight=1）：圖示與文字項目共用同一節奏。
+        (0 until row.childCount).forEach { index ->
             val params = row.getChildAt(index).layoutParams as LinearLayout.LayoutParams
             assertEquals(0, params.width)
             assertEquals(1f, params.weight)
@@ -699,7 +700,7 @@ class VoiceImePanelLayoutTest {
         val density = context.resources.displayMetrics.density
         val expectedIcon = (VOICE_IME_MORE_ENTRY_ICON_DP * density).toInt()
         val expectedGap = (VOICE_IME_MORE_ENTRY_ICON_GAP_DP * density).toInt()
-        val labels = listOf("剪貼簿歷史", "語音辨識歷史", "快捷短語", "格式指令", "AI 編輯", "語音翻譯")
+        val labels = listOf("剪貼簿歷史", "語音辨識歷史", "快捷短語", "格式指令", "AI 編輯")
 
         val rows = labels.map { entryLabel ->
             val row = findMoreEntryRow(panel.view, entryLabel)
@@ -720,7 +721,7 @@ class VoiceImePanelLayoutTest {
             entry
         }
 
-        assertEquals(6, rows.size)
+        assertEquals(5, rows.size)
         assertEquals("row heights must match", 1, rows.map { it.layoutParams.height }.distinct().size)
         assertEquals("row padding must match", 1, rows.map { it.paddingLeft }.distinct().size)
         assertEquals("row padding must match", 1, rows.map { it.paddingRight }.distinct().size)
@@ -777,8 +778,8 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
-    fun translationEntryShowsTheModeAndALanguageChipWithoutChangingHeight() {
-        var entered = 0
+    fun translationShortcutShowsTheModeAndALanguageChipWithoutChangingHeight() {
+        var toggled = 0
         var cycles = 0
         val holder = arrayOfNulls<VoiceImePanel>(1)
         val panel = VoiceImePanel(
@@ -786,20 +787,17 @@ class VoiceImePanelLayoutTest {
             onVoiceAction = {},
             onCancel = {},
             onSwitchInputMethod = {},
-            onEnterTranslateMode = {
-                entered += 1
+            onCycleTranslationLanguage = { cycles += 1 },
+            onTranslateShortcut = {
+                toggled += 1
                 holder[0]?.showMainPanel()
-            },
-            onCycleTranslationLanguage = { cycles += 1 }
+            }
         )
         holder[0] = panel
         val originalHeight = measuredHeight(panel)
 
-        assertTrue(panel.moreButton.performClick())
-        val entry = findViewByDescription(panel.view, "語音翻譯")
-        assertTrue("the More page must offer the voice translation entry", entry != null)
-        assertTrue(entry!!.performClick())
-        assertEquals(1, entered)
+        assertTrue(panel.translateShortcutButton.performClick())
+        assertEquals(1, toggled)
 
         panel.render(VoiceImeState.IDLE, translateMode = true, translationTargetLabel = "英文")
         layoutPanel(panel, widthDp = 320)
@@ -973,6 +971,133 @@ class VoiceImePanelLayoutTest {
         }
         return centre
     }
+
+    @Test
+    fun theRecordingControlsStayFullyInsideThePanelAndCentred() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        val density = context.resources.displayMetrics.density
+        val sideSafePx = (VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP * density).toInt()
+
+        listOf(320, 360, 411).forEach { widthDp ->
+            panel.render(VoiceImeState.RECORDING)
+            layoutPanel(panel, widthDp = widthDp)
+
+            val stop = findViewByDescription(panel.recordingActions, "停止")
+            val cancel = findViewByDescription(panel.recordingActions, "取消")
+            assertTrue("$widthDp：需要停止按鈕", stop != null)
+            assertTrue("$widthDp：需要取消按鈕", cancel != null)
+
+            val stopLeft = centreInRoot(panel.view, stop!!) - stop.width / 2
+            val stopRight = stopLeft + stop.width
+            val cancelLeft = centreInRoot(panel.view, cancel!!) - cancel.width / 2
+            val cancelRight = cancelLeft + cancel.width
+
+            assertTrue("$widthDp：停止不得超出左緣 left=$stopLeft", stopLeft >= 0)
+            assertTrue("$widthDp：取消不得超出右緣 right=$cancelRight", cancelRight <= panel.view.width)
+            assertTrue("$widthDp：停止與取消不得重疊", stopRight <= cancelLeft)
+            assertTrue(
+                "$widthDp：整組不得侵入右側 Delete/Enter 安全區",
+                cancelRight <= panel.view.width - panel.view.paddingRight - sideSafePx
+            )
+            val groupCentre = (stopLeft + cancelRight) / 2
+            assertTrue(
+                "$widthDp：錄音群組必須以面板中心置中 group=$groupCentre panel=${panel.view.width / 2}",
+                kotlin.math.abs(groupCentre - panel.view.width / 2) <= 1
+            )
+        }
+    }
+
+    @Test
+    fun switchingBetweenIdleRecordingAndProcessingKeepsTheSameImeHeight() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        val heights = mutableSetOf<Int>()
+        heights += measuredHeight(panel)
+        panel.render(VoiceImeState.RECORDING)
+        heights += measuredHeight(panel)
+        panel.render(VoiceImeState.TRANSCRIBING)
+        heights += measuredHeight(panel)
+        panel.render(VoiceImeState.FORMATTING)
+        heights += measuredHeight(panel)
+        panel.render(VoiceImeState.IDLE)
+        heights += measuredHeight(panel)
+
+        assertEquals("Idle/Recording/Processing 高度必須一致：$heights", 1, heights.size)
+    }
+
+    @Test
+    fun theTranslateShortcutKeepsIdenticalBoundsWhenSelected() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+
+        panel.render(VoiceImeState.IDLE)
+        layoutPanel(panel, widthDp = 360)
+        val unselected = boundsOf(panel.translateShortcutButton)
+
+        panel.render(VoiceImeState.IDLE, translateMode = true, translationTargetLabel = "英文")
+        layoutPanel(panel, widthDp = 360)
+        val selected = boundsOf(panel.translateShortcutButton)
+
+        assertEquals("selected/unselected 的 Layout Bounds 必須完全相同", unselected, selected)
+        assertEquals(VoiceModePalette.TRANSLATE_MINT, panel.translateShortcutButton.imageTintList?.defaultColor)
+
+        panel.render(VoiceImeState.IDLE)
+        assertEquals(0xFFB4BECE.toInt(), panel.translateShortcutButton.imageTintList?.defaultColor)
+    }
+
+    @Test
+    fun everyToolbarItemSharesTheSameContainerWidthAndSpacing() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        layoutPanel(panel, widthDp = 360)
+
+        val children = (0 until panel.topToolbarRow.childCount).map { panel.topToolbarRow.getChildAt(it) }
+        assertEquals("所有工具列項目必須等寬", 1, children.map { it.width }.distinct().size)
+        assertEquals("所有工具列項目必須等高", 1, children.map { it.height }.distinct().size)
+        for (index in 0 until children.size - 1) {
+            assertTrue("工具列項目不得重疊", children[index].right <= children[index + 1].left)
+        }
+        // 翻譯與左右相鄰項目同寬 → 間距一致。
+        assertEquals(panel.clearAllButton.width, panel.translateShortcutButton.width)
+        assertEquals(panel.translateShortcutButton.width, panel.switchButton.width)
+    }
+
+    @Test
+    fun theMorePageNoLongerOffersAVoiceTranslationEntry() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        assertTrue(panel.moreButton.performClick())
+
+        val texts = allTextViews(panel.view).map { it.text.toString() }
+        assertTrue("更多頁不應再有語音翻譯入口", texts.none { it == "語音翻譯" })
+        listOf("剪貼簿歷史", "語音辨識歷史", "快捷短語", "格式指令", "AI 編輯").forEach { label ->
+            assertTrue("$label 入口必須保留", texts.contains(label))
+        }
+    }
+
+    private fun boundsOf(view: View): List<Int> =
+        listOf(view.left, view.top, view.right, view.bottom, view.width, view.height)
 
     @Test
     fun formatCommandModeShowsAModeHintAndAnExplicitExitControlWithoutChangingHeight() {

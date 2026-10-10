@@ -95,7 +95,6 @@ internal class VoiceImePanel(
     private val onExitMode: () -> Unit = {},
     private val onEnterAiEditMode: () -> Unit = {},
     private val onAiEditConfirmReplace: () -> Unit = {},
-    private val onEnterTranslateMode: () -> Unit = {},
     private val onCycleTranslationLanguage: () -> Unit = {},
     private val onTranslateShortcut: () -> Unit = {}
 ) {
@@ -407,16 +406,12 @@ internal class VoiceImePanel(
             ToolbarSlot.MORE to moreButton
         )
         ToolbarSlot.entries.forEach { slot ->
-            val view = toolbarViews.getValue(slot)
-            val params = if (slot == ToolbarSlot.SELECT_ALL || slot == ToolbarSlot.CLEAR) {
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    dp(context, TOOLBAR_BUTTON_HEIGHT_DP)
-                )
-            } else {
+            // 全部項目等寬（weight=1）：圖示與文字項目共用同一節奏，中心間距一致；
+            // 也讓 selected / unselected 不會改變任何項目的寬度或高度。
+            topToolbarRow.addView(
+                toolbarViews.getValue(slot),
                 LinearLayout.LayoutParams(0, dp(context, TOOLBAR_BUTTON_HEIGHT_DP), 1f)
-            }
-            topToolbarRow.addView(view, params)
+            )
         }
 
         listOf(confirmClearAllButton, cancelClearAllButton).forEach { button ->
@@ -682,13 +677,19 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(0, dp(context, 48), 1f)
             )
         }
+        // 錄音控制群組（停止＋取消）在自己的安全可用區內置中。FrameLayout 對
+        // CENTER_HORIZONTAL 的子項是以「(父寬−子寬)/2 + leftMargin − rightMargin」定位，
+        // 所以左右留白必須對稱，否則整組會被推向左邊（單邊 marginEnd 曾造成 Stop 超出畫面）。
         voiceActionsContainer.addView(
             recordingActions,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
-            ).apply { marginEnd = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP) }
+            ).apply {
+                marginStart = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP)
+                marginEnd = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP)
+            }
         )
         audioLevelIndicator.visibility = View.GONE
         voiceActionsContainer.addView(
@@ -726,13 +727,17 @@ internal class VoiceImePanel(
                 LinearLayout.LayoutParams(dp(context, 84), dp(context, 42))
             )
         }
+        // 處理中群組同理：左右對稱留白，中心維持在面板中心線且不侵入右側操作區。
         voiceActionsContainer.addView(
             busyActions,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
-            ).apply { marginEnd = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP) }
+            ).apply {
+                marginStart = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP)
+                marginEnd = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP)
+            }
         )
         sideActionColumn.apply {
             orientation = LinearLayout.VERTICAL
@@ -1016,12 +1021,7 @@ internal class VoiceImePanel(
             },
             moreEntryParams(context)
         )
-        moreEntries.addView(
-            moreEntry(context, R.drawable.ic_ime_translate, "語音翻譯") {
-                onEnterTranslateMode()
-            },
-            moreEntryParams(context)
-        )
+        // 語音翻譯已改由頂部工具列的翻譯圖示作為唯一入口，不在「更多」頁重複提供。
         morePanel.addView(
             ScrollView(context).apply {
                 isFillViewport = true
@@ -2133,16 +2133,11 @@ internal class VoiceImePanel(
         moreButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
         translateShortcutButton.isEnabled = bulkActionsEnabled
         translateShortcutButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
-        // AI 翻譯快捷圖示：模式啟用時給明確的選取狀態（薄荷底＋深色圖示），退出後恢復正常。
-        if (translateMode) {
-            translateShortcutButton.imageTintList =
-                ColorStateList.valueOf(VoiceModePalette.TRANSLATE_ICON)
-            translateShortcutButton.background =
-                solid(VoiceModePalette.TRANSLATE_MINT, dp(translateShortcutButton.context, 10))
-        } else {
-            translateShortcutButton.imageTintList = ColorStateList.valueOf(TEXT_MUTED)
-            translateShortcutButton.background = toolbarRipple(dp(translateShortcutButton.context, 10))
-        }
+        // AI 翻譯快捷圖示：啟用時只把圖示改成薄荷綠（改變 tint），背景與其他工具列項目
+        // 完全相同，因此 selected / unselected 的 Layout Bounds 一致，不會膨脹成大方框。
+        translateShortcutButton.imageTintList = ColorStateList.valueOf(
+            if (translateMode) VoiceModePalette.TRANSLATE_MINT else TEXT_MUTED
+        )
         if (!bulkActionsEnabled) {
             clearConfirmationPanel.visibility = View.GONE
             topToolbarRow.visibility = View.VISIBLE

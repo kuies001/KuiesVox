@@ -170,7 +170,6 @@ class VoiceImeService : InputMethodService() {
             onExitMode = ::exitSpecialMode,
             onEnterAiEditMode = ::enterAiEditMode,
             onAiEditConfirmReplace = ::confirmAiEditReplacement,
-            onEnterTranslateMode = ::enterTranslateMode,
             onCycleTranslationLanguage = ::cycleTranslationLanguage,
             onTranslateShortcut = ::toggleTranslateMode
         )
