@@ -21,14 +21,15 @@ internal data class PersonalizationSelection(
         }
 
     /**
-     * 全選只作用在傳入的可見項目（目前搜尋結果），不會動到被搜尋條件濾掉的其他選取。
+     * 全選只作用在傳入的作用範圍（沒有搜尋條件時是整個分頁，有條件時是搜尋結果），
+     * 不會動到範圍外的其他選取。
      */
-    fun selectVisible(visibleIds: Collection<String>): PersonalizationSelection =
-        copy(selectedIds = selectedIds + visibleIds)
+    fun selectScope(scopeIds: Collection<String>): PersonalizationSelection =
+        copy(selectedIds = selectedIds + scopeIds)
 
-    /** 取消全選同樣只作用在可見項目，與 [selectVisible] 對稱。 */
-    fun deselectVisible(visibleIds: Collection<String>): PersonalizationSelection =
-        copy(selectedIds = selectedIds - visibleIds.toSet())
+    /** 取消全選同樣只作用在作用範圍內，與 [selectScope] 對稱。 */
+    fun deselectScope(scopeIds: Collection<String>): PersonalizationSelection =
+        copy(selectedIds = selectedIds - scopeIds.toSet())
 
     fun clearAll(): PersonalizationSelection = PersonalizationSelection()
 
@@ -39,11 +40,27 @@ internal data class PersonalizationSelection(
         return if (kept.size == selectedIds.size) this else copy(selectedIds = kept)
     }
 
-    fun isAllVisibleSelected(visibleIds: Collection<String>): Boolean =
-        visibleIds.isNotEmpty() && visibleIds.all { it in selectedIds }
+    /** 刪除前再次核對：只保留目前仍存在的選取 ID。 */
+    fun existingSelection(existingIds: Collection<String>): Set<String> =
+        selectedIds intersect existingIds.toSet()
 
-    fun hasPartialVisibleSelection(visibleIds: Collection<String>): Boolean =
-        visibleIds.any { it in selectedIds } && !isAllVisibleSelected(visibleIds)
+    /** 作用範圍內是否全部已選取（範圍為空時不算全部選取）。 */
+    fun isAllSelectedIn(scopeIds: Collection<String>): Boolean =
+        scopeIds.isNotEmpty() && scopeIds.all { it in selectedIds }
+
+    /** 作用範圍內部分選取。 */
+    fun hasPartialSelectionIn(scopeIds: Collection<String>): Boolean =
+        scopeIds.any { it in selectedIds } && !isAllSelectedIn(scopeIds)
+
+    /**
+     * 選取內容是否包含目前作用範圍之外的項目（例如在先前搜尋條件下選取的資料），
+     * 用來提示刪除筆數可能多於畫面上看到的筆數。
+     */
+    fun hasSelectionOutside(scopeIds: Collection<String>): Boolean {
+        if (selectedIds.isEmpty()) return false
+        val scope = scopeIds.toSet()
+        return selectedIds.any { it !in scope }
+    }
 
     /**
      * 刪除成功後所有選取項目都不再存在 → 可以離開選取模式；
@@ -59,4 +76,22 @@ internal data class PersonalizationSelection(
      */
     fun afterDataChange(existingIds: Collection<String>): PersonalizationSelection? =
         if (shouldLeaveSelectionMode(existingIds)) null else retainExisting(existingIds)
+}
+
+/**
+ * 批次選取工具列的「全選」控制：文字與可用狀態依搜尋框內容決定。
+ *
+ * 空白與只有空格的查詢都視為沒有搜尋條件（判斷前一律 trim）。
+ */
+internal object PersonalizationSelectAllPolicy {
+    const val ALL_LABEL = "全選"
+    const val SEARCH_LABEL = "全選目前搜尋結果"
+
+    fun hasSearchQuery(search: String): Boolean = search.trim().isNotEmpty()
+
+    fun labelFor(search: String): String =
+        if (hasSearchQuery(search)) SEARCH_LABEL else ALL_LABEL
+
+    /** 作用範圍沒有項目時（例如搜尋 0 筆）不能按，避免誤以為已全選。 */
+    fun isEnabled(scopeSize: Int): Boolean = scopeSize > 0
 }

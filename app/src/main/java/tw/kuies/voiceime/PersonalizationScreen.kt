@@ -315,23 +315,37 @@ internal fun PersonalizationScreen(
     }
 
     if (confirmDelete) {
-        val selectedCount = activeBulk.selection.count
+        // 確認前再次核對選取 ID 是否仍存在，只刪除真的還在的資料（跨搜尋條件累積的選取也在內）。
+        val existingIds = if (selectedTab == 0) {
+            glossaryTerms.map { it.id }
+        } else {
+            correctionRules.map { it.id }
+        }
+        val idsToDelete = activeBulk.selection.existingSelection(existingIds)
         val targetLabel = if (selectedTab == 0) "筆常用詞" else "條修正规則"
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("確認刪除") },
-            text = { Text("確定要刪除選取的 $selectedCount $targetLabel 嗎？刪除後無法復原。") },
+            text = {
+                Text(
+                    if (idsToDelete.isEmpty()) {
+                        "選取的項目已不存在，請重新選取。"
+                    } else {
+                        "確定要刪除選取的 ${idsToDelete.size} $targetLabel 嗎？刪除後無法復原。"
+                    }
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
                         confirmDelete = false
-                        val ids = activeBulk.selection.selectedIds
                         if (selectedTab == 0) {
-                            onDeleteSelectedGlossaryTerms(ids)
+                            onDeleteSelectedGlossaryTerms(idsToDelete)
                         } else {
-                            onDeleteSelectedCorrectionRules(ids)
+                            onDeleteSelectedCorrectionRules(idsToDelete)
                         }
-                    }
+                    },
+                    enabled = idsToDelete.isNotEmpty()
                 ) { Text("確定刪除") }
             },
             dismissButton = {
@@ -375,29 +389,42 @@ internal fun PersonalizationScreen(
     }
 }
 
-/** 選取模式工具列：全選（三態）與已選取筆數。 */
+/**
+ * 選取模式工具列：依搜尋狀態切換全選的文字與作用範圍（三態）、顯示已選取總筆數，
+ * 並在選取內容包含目前搜尋結果以外的項目時加一行提示。
+ */
 @Composable
 private fun SelectionToolbar(
+    label: String,
+    enabled: Boolean,
     selectedCount: Int,
-    allVisibleSelected: Boolean,
+    allScopeSelected: Boolean,
     partiallySelected: Boolean,
+    hasSelectionOutsideScope: Boolean,
     onToggleSelectAll: () -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        TriStateCheckbox(
-            state = when {
-                allVisibleSelected -> ToggleableState.On
-                partiallySelected -> ToggleableState.Indeterminate
-                else -> ToggleableState.Off
-            },
-            onClick = onToggleSelectAll
-        )
-        Text("全選")
-        Spacer(Modifier.weight(1f))
-        Text("已選取 $selectedCount 筆", style = MaterialTheme.typography.bodyMedium)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TriStateCheckbox(
+                state = when {
+                    allScopeSelected -> ToggleableState.On
+                    partiallySelected -> ToggleableState.Indeterminate
+                    else -> ToggleableState.Off
+                },
+                onClick = if (enabled) onToggleSelectAll else null,
+                enabled = enabled
+            )
+            Text(label)
+            Spacer(Modifier.weight(1f))
+            Text("已選取 $selectedCount 筆", style = MaterialTheme.typography.bodyMedium)
+        }
+        if (hasSelectionOutsideScope) {
+            Text(
+                "包含其他搜尋條件下選取的項目",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -474,8 +501,10 @@ private fun <T> PersonalizationTab(
     onRequestDelete: () -> Unit,
     row: @Composable RowScope.(T) -> Unit
 ) {
-    val visibleIds = visibleItems.map(idOf)
-    val allVisibleSelected = selection.isAllVisibleSelected(visibleIds)
+    // 沒有搜尋條件時「全選」作用於整個分頁；有搜尋條件時只作用於目前的搜尋結果。
+    val hasSearchQuery = PersonalizationSelectAllPolicy.hasSearchQuery(search)
+    val scopeIds = if (hasSearchQuery) visibleItems.map(idOf) else allItems.map(idOf)
+    val allScopeSelected = selection.isAllSelectedIn(scopeIds)
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -505,15 +534,18 @@ private fun <T> PersonalizationTab(
         Spacer(Modifier.height(4.dp))
         if (selecting) {
             SelectionToolbar(
+                label = PersonalizationSelectAllPolicy.labelFor(search),
+                enabled = PersonalizationSelectAllPolicy.isEnabled(scopeIds.size),
                 selectedCount = selection.count,
-                allVisibleSelected = allVisibleSelected,
-                partiallySelected = selection.hasPartialVisibleSelection(visibleIds),
+                allScopeSelected = allScopeSelected,
+                partiallySelected = selection.hasPartialSelectionIn(scopeIds),
+                hasSelectionOutsideScope = selection.hasSelectionOutside(scopeIds),
                 onToggleSelectAll = {
                     onSelectionChange(
-                        if (allVisibleSelected) {
-                            selection.deselectVisible(visibleIds)
+                        if (allScopeSelected) {
+                            selection.deselectScope(scopeIds)
                         } else {
-                            selection.selectVisible(visibleIds)
+                            selection.selectScope(scopeIds)
                         }
                     )
                 }
