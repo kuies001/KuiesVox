@@ -79,7 +79,8 @@ internal class VoiceImePanel(
     private val onEnterAiEditMode: () -> Unit = {},
     private val onAiEditConfirmReplace: () -> Unit = {},
     private val onEnterTranslateMode: () -> Unit = {},
-    private val onCycleTranslationLanguage: () -> Unit = {}
+    private val onCycleTranslationLanguage: () -> Unit = {},
+    private val onTranslateShortcut: () -> Unit = {}
 ) {
     internal val statusIndicator = FrameLayout(context)
     internal val statusDot = View(context)
@@ -183,6 +184,8 @@ internal class VoiceImePanel(
     private val busyLabel = textView(context, sizeSp = 13f, color = TEXT)
     private val formatModeExitButton = LinearLayout(context)
     internal val translateLanguageButton = LinearLayout(context)
+    internal val translateShortcutButton = ImageButton(context)
+    internal val busyProgressIndicator = ProgressBar(context, null, android.R.attr.progressBarStyleSmall)
     private val moreEntries = LinearLayout(context)
 
     // AI 編輯預覽：沿用既有的 178dp 頁面層，不改變 IME 整體高度。
@@ -359,6 +362,15 @@ internal class VoiceImePanel(
             setOnClickListener { onEnter() }
         }
 
+        translateShortcutButton.apply {
+            setImageResource(R.drawable.ic_ime_translate)
+            imageTintList = ColorStateList.valueOf(TEXT_MUTED)
+            contentDescription = ToolbarSlot.TRANSLATE.label
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = toolbarRipple(dp(context, 10))
+            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
+            setOnClickListener { onTranslateShortcut() }
+        }
         switchButton.apply {
             setImageResource(R.drawable.ic_ime_keyboard)
             imageTintList = ColorStateList.valueOf(TEXT_MUTED)
@@ -377,27 +389,26 @@ internal class VoiceImePanel(
             setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 4))
             setOnClickListener { showMorePanel() }
         }
-        topToolbarRow.addView(
-            clipboardButton,
-            LinearLayout.LayoutParams(0, dp(context, 36), 1f)
+        // 工具列順序由 ToolbarSlot 單一來源決定：鍵盤／設定／更多永遠是最後三個，
+        // AI 翻譯固定緊鄰鍵盤左側，避免未來新增功能時插進固定位置。
+        val toolbarViews = mapOf(
+            ToolbarSlot.CLIPBOARD to clipboardButton,
+            ToolbarSlot.SELECT_ALL to selectAllButton,
+            ToolbarSlot.CLEAR to clearAllButton,
+            ToolbarSlot.TRANSLATE to translateShortcutButton,
+            ToolbarSlot.KEYBOARD to switchButton,
+            ToolbarSlot.SETTINGS to settingsButton,
+            ToolbarSlot.MORE to moreButton
         )
-        topToolbarRow.addView(
-            selectAllButton,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(context, 36))
-        )
-        topToolbarRow.addView(
-            clearAllButton,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(context, 36))
-        )
-        topToolbarRow.addView(
-            switchButton,
-            LinearLayout.LayoutParams(0, dp(context, 36), 1f)
-        )
-        topToolbarRow.addView(
-            settingsButton,
-            LinearLayout.LayoutParams(0, dp(context, 36), 1f)
-        )
-        topToolbarRow.addView(moreButton, LinearLayout.LayoutParams(0, dp(context, 36), 1f))
+        ToolbarSlot.entries.forEach { slot ->
+            val view = toolbarViews.getValue(slot)
+            val params = if (slot == ToolbarSlot.SELECT_ALL || slot == ToolbarSlot.CLEAR) {
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(context, 36))
+            } else {
+                LinearLayout.LayoutParams(0, dp(context, 36), 1f)
+            }
+            topToolbarRow.addView(view, params)
+        }
 
         listOf(confirmClearAllButton, cancelClearAllButton).forEach { button ->
             button.textSize = 12f
@@ -681,10 +692,8 @@ internal class VoiceImePanel(
         busyActions.apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            val progress = ProgressBar(context, null, android.R.attr.progressBarStyleSmall).apply {
-                indeterminateTintList = ColorStateList.valueOf(LAVENDER)
-            }
-            addView(progress, LinearLayout.LayoutParams(dp(context, 22), dp(context, 22)))
+            busyProgressIndicator.indeterminateTintList = ColorStateList.valueOf(LAVENDER)
+            addView(busyProgressIndicator, LinearLayout.LayoutParams(dp(context, 22), dp(context, 22)))
             busyLabel.apply {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -2113,6 +2122,18 @@ internal class VoiceImePanel(
         clearAllButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
         moreButton.isEnabled = bulkActionsEnabled
         moreButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
+        translateShortcutButton.isEnabled = bulkActionsEnabled
+        translateShortcutButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
+        // AI 翻譯快捷圖示：模式啟用時給明確的選取狀態（薄荷底＋深色圖示），退出後恢復正常。
+        if (translateMode) {
+            translateShortcutButton.imageTintList =
+                ColorStateList.valueOf(VoiceModePalette.TRANSLATE_ICON)
+            translateShortcutButton.background =
+                solid(VoiceModePalette.TRANSLATE_MINT, dp(translateShortcutButton.context, 10))
+        } else {
+            translateShortcutButton.imageTintList = ColorStateList.valueOf(TEXT_MUTED)
+            translateShortcutButton.background = toolbarRipple(dp(translateShortcutButton.context, 10))
+        }
         if (!bulkActionsEnabled) {
             clearConfirmationPanel.visibility = View.GONE
             topToolbarRow.visibility = View.VISIBLE
@@ -2178,10 +2199,21 @@ internal class VoiceImePanel(
         }
         idleMicButton.isActivated = holdToTalkRecording
         idleMicButton.alpha = if (holdToTalkRecording) 0.9f else 1f
-        idleMicButton.background = if (holdToTalkRecording) {
-            solid(CORAL, dp(idleMicButton.context, 100))
-        } else {
-            circleRipple(idleMicButton.context)
+        // 翻譯模式的主按鈕改用薄荷青綠底色與深色圖示；待命、錄音中與處理中都維持同一識別，
+        // 不會因錄音或處理就回到一般模式的淡紫色。其他模式維持既有配色。
+        val translateAccent = VoiceModePalette.centralButtonAccentOrNull(translateMode)
+        idleMicButton.imageTintList = ColorStateList.valueOf(
+            if (translateAccent != null) VoiceModePalette.TRANSLATE_ICON else BUTTON_TEXT
+        )
+        idleMicButton.background = when {
+            translateAccent != null -> circleRipple(
+                idleMicButton.context,
+                translateAccent,
+                VoiceModePalette.TRANSLATE_MINT_BRIGHT
+            )
+
+            holdToTalkRecording -> solid(CORAL, dp(idleMicButton.context, 100))
+            else -> circleRipple(idleMicButton.context)
         }
         idleActions.visibility = if (
             state == VoiceImeState.IDLE || isTerminal || holdToTalkRecording
@@ -2212,6 +2244,10 @@ internal class VoiceImePanel(
         }
         val isBusy = state == VoiceImeState.TRANSCRIBING || state == VoiceImeState.FORMATTING
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
+        // 翻譯模式的辨識／翻譯處理中也維持薄荷綠識別，不回到一般模式的淡紫。
+        busyProgressIndicator.indeterminateTintList = ColorStateList.valueOf(
+            if (translateMode) VoiceModePalette.TRANSLATE_MINT else LAVENDER
+        )
         busyLabel.text = when {
             formatCommandMode && isBusy -> "正在處理格式指令…"
             aiEditMode && isBusy -> "正在套用修改…"
@@ -2465,11 +2501,15 @@ internal class VoiceImePanel(
         rounded(intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT), radius, stroke, dp(context, 1))
     )
 
-    private fun circleRipple(context: Context) = RippleDrawable(
+    private fun circleRipple(
+        context: Context,
+        gradientStart: Int = LAVENDER,
+        gradientEnd: Int = LAVENDER_BRIGHT
+    ) = RippleDrawable(
         ColorStateList.valueOf(0x44FFFFFF),
         GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
-            intArrayOf(LAVENDER, LAVENDER_BRIGHT)
+            intArrayOf(gradientStart, gradientEnd)
         ).apply { shape = GradientDrawable.OVAL },
         GradientDrawable().apply {
             shape = GradientDrawable.OVAL

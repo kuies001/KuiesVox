@@ -171,7 +171,8 @@ class VoiceImeService : InputMethodService() {
             onEnterAiEditMode = ::enterAiEditMode,
             onAiEditConfirmReplace = ::confirmAiEditReplacement,
             onEnterTranslateMode = ::enterTranslateMode,
-            onCycleTranslationLanguage = ::cycleTranslationLanguage
+            onCycleTranslationLanguage = ::cycleTranslationLanguage,
+            onTranslateShortcut = ::toggleTranslateMode
         )
         voicePanel = panel
         panel.setSwitchAvailable(shouldOfferSwitchingToNextInputMethod())
@@ -2293,6 +2294,16 @@ class VoiceImeService : InputMethodService() {
         inputMode = VoiceInputMode.TRANSLATE
         voicePanel?.showMainPanel()
         renderStatus()
+    }
+
+    /** 頂部 AI 翻譯快捷圖示：未啟用時進入翻譯模式，已啟用（待命）時再按一次離開。 */
+    private fun toggleTranslateMode() {
+        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || activeOperationId != 0L) return
+        if (inputMode == VoiceInputMode.TRANSLATE) {
+            exitSpecialMode()
+        } else {
+            enterTranslateMode()
+        }
     }
 
     /** 在翻譯模式中快速切換目標語言，並記住這次選擇。 */

@@ -34,13 +34,14 @@ class VoiceImePanelLayoutTest {
         assertEquals(2, panel.topAreaRow.childCount)
         assertEquals(panel.statusIndicator, panel.topAreaRow.getChildAt(0))
         assertEquals(panel.toolbarContainer, panel.topAreaRow.getChildAt(1))
-        assertEquals(6, row.childCount)
+        assertEquals(7, row.childCount)
         assertEquals(panel.clipboardButton, row.getChildAt(0))
         assertEquals(panel.selectAllButton, row.getChildAt(1))
         assertEquals(panel.clearAllButton, row.getChildAt(2))
-        assertEquals(panel.switchButton, row.getChildAt(3))
-        assertEquals(panel.settingsButton, row.getChildAt(4))
-        assertEquals(panel.moreButton, row.getChildAt(5))
+        assertEquals(panel.translateShortcutButton, row.getChildAt(3))
+        assertEquals(panel.switchButton, row.getChildAt(4))
+        assertEquals(panel.settingsButton, row.getChildAt(5))
+        assertEquals(panel.moreButton, row.getChildAt(6))
         assertEquals(2, panel.toolbarContainer.childCount)
         assertEquals(2, panel.mainPanel.childCount)
         assertEquals(2, allTextViews(row).size)
@@ -56,7 +57,7 @@ class VoiceImePanelLayoutTest {
             (12 * context.resources.displayMetrics.density).toInt(),
             statusParams.marginEnd
         )
-        listOf(0, 3, 4, 5).forEach { index ->
+        listOf(0, 3, 4, 5, 6).forEach { index ->
             val params = row.getChildAt(index).layoutParams as LinearLayout.LayoutParams
             assertEquals(0, params.width)
             assertEquals(1f, params.weight)
@@ -816,6 +817,90 @@ class VoiceImePanelLayoutTest {
         panel.render(VoiceImeState.IDLE)
         assertEquals(View.GONE, panel.translateLanguageButton.visibility)
         assertEquals(originalHeight, measuredHeight(panel))
+    }
+
+    @Test
+    fun topToolbarKeepsTheFixedOrderWithTranslateLeftOfTheKeyboard() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        layoutPanel(panel, widthDp = 320)
+
+        val descriptions = (0 until panel.topToolbarRow.childCount).map { index ->
+            panel.topToolbarRow.getChildAt(index).contentDescription?.toString().orEmpty()
+        }
+        assertEquals(
+            listOf(
+                "剪貼簿歷史",
+                "全選輸入文字",
+                "清除全部文字",
+                "AI 語音翻譯",
+                "切換鍵盤",
+                "設定",
+                "更多功能"
+            ),
+            descriptions
+        )
+        assertEquals(7, panel.topToolbarRow.childCount)
+        assertEquals(panel.translateShortcutButton, panel.topToolbarRow.getChildAt(3))
+        assertEquals(panel.switchButton, panel.topToolbarRow.getChildAt(4))
+        assertEquals(panel.settingsButton, panel.topToolbarRow.getChildAt(5))
+        assertEquals(panel.moreButton, panel.topToolbarRow.getChildAt(6))
+    }
+
+    @Test
+    fun theTranslateShortcutShowsASelectedStateOnlyWhileTheModeIsActive() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        val idleTint = panel.translateShortcutButton.imageTintList?.defaultColor
+
+        panel.render(VoiceImeState.IDLE, translateMode = true, translationTargetLabel = "英文")
+        assertEquals(VoiceModePalette.TRANSLATE_ICON, panel.translateShortcutButton.imageTintList?.defaultColor)
+
+        // 模式啟用中即使正在錄音，也維持選取狀態。
+        panel.render(VoiceImeState.RECORDING, translateMode = true, translationTargetLabel = "英文")
+        assertEquals(VoiceModePalette.TRANSLATE_ICON, panel.translateShortcutButton.imageTintList?.defaultColor)
+
+        panel.render(VoiceImeState.IDLE)
+        assertEquals(idleTint, panel.translateShortcutButton.imageTintList?.defaultColor)
+    }
+
+    @Test
+    fun theCentralButtonKeepsTheTranslateColourAcrossStates() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        val normalIcon = 0xFF252342.toInt()
+
+        panel.render(VoiceImeState.IDLE, translateMode = true, translationTargetLabel = "英文")
+        assertEquals(VoiceModePalette.TRANSLATE_ICON, panel.idleMicButton.imageTintList?.defaultColor)
+
+        panel.render(
+            VoiceImeState.RECORDING,
+            translateMode = true,
+            translationTargetLabel = "英文",
+            holdToTalkRecording = true
+        )
+        assertEquals(VoiceModePalette.TRANSLATE_ICON, panel.idleMicButton.imageTintList?.defaultColor)
+
+        panel.render(VoiceImeState.TRANSCRIBING, translateMode = true, translationTargetLabel = "英文")
+        assertEquals(
+            VoiceModePalette.TRANSLATE_MINT,
+            panel.busyProgressIndicator.indeterminateTintList?.defaultColor
+        )
+
+        panel.render(VoiceImeState.IDLE)
+        assertEquals(normalIcon, panel.idleMicButton.imageTintList?.defaultColor)
     }
 
     @Test
