@@ -1099,6 +1099,141 @@ class VoiceImePanelLayoutTest {
     private fun boundsOf(view: View): List<Int> =
         listOf(view.left, view.top, view.right, view.bottom, view.width, view.height)
 
+    private fun leftInRoot(root: View, child: View): Int = centreInRoot(root, child) - child.width / 2
+
+    private fun topInRoot(root: View, child: View): Int {
+        var top = 0
+        var current: View? = child
+        while (current != null && current !== root) {
+            top += current.top
+            current = current.parent as? View
+        }
+        return top
+    }
+
+    @Test
+    fun theFormatTextStaysInsideTheContentSafeAreaAndIsNotClipped() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        panel.render(VoiceImeState.IDLE, formatCommandMode = true)
+        val density = context.resources.displayMetrics.density
+        val sideSafePx = (VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP * density).toInt()
+
+        listOf(320, 360).forEach { widthDp ->
+            layoutPanel(panel, widthDp = widthDp)
+            val railLeft = panel.view.width - panel.view.paddingRight - sideSafePx
+            listOf("主標題" to panel.idleTitle, "說明" to panel.idleHint).forEach { (name, text) ->
+                val left = leftInRoot(panel.view, text)
+                val right = left + text.width
+                assertTrue(
+                    "$widthDp：$name 不得進入右側 Enter action rail right=$right railLeft=$railLeft",
+                    right <= railLeft
+                )
+                assertTrue("$widthDp：$name 不得超出左緣", left >= panel.view.paddingLeft)
+            }
+            assertTrue("$widthDp：說明不得超過 2 行", panel.idleHint.layout.lineCount in 1..2)
+            assertTrue(
+                "$widthDp：說明不得被裁切",
+                panel.idleHint.height >= panel.idleHint.layout.height
+            )
+            assertTrue(
+                "$widthDp：格式內容（大圓＋標題＋說明）不得超出互動區",
+                panel.idleActions.height <= panel.mainInteractionContainer.height
+            )
+        }
+    }
+
+    @Test
+    fun formatModeUsesItsOwnCentralButtonColour() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        panel.render(VoiceImeState.IDLE, formatCommandMode = true)
+        assertEquals(VoiceModePalette.FORMAT_ICON, panel.idleMicButton.imageTintList?.defaultColor)
+
+        panel.render(VoiceImeState.IDLE)
+        assertEquals(0xFF252342.toInt(), panel.idleMicButton.imageTintList?.defaultColor)
+    }
+
+    @Test
+    fun theRecordingButtonsShareOneSizeAndCentreTheirContent() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        panel.render(VoiceImeState.RECORDING)
+        layoutPanel(panel, widthDp = 360)
+
+        val stop = findViewByDescription(panel.recordingActions, "停止") as LinearLayout
+        val cancel = findViewByDescription(panel.recordingActions, "取消") as LinearLayout
+
+        assertEquals("停止/取消外框同寬", stop.width, cancel.width)
+        assertEquals("停止/取消外框同高", stop.height, cancel.height)
+
+        listOf("停止" to stop, "取消" to cancel).forEach { (name, button) ->
+            val icon = button.getChildAt(0)
+            val label = button.getChildAt(1)
+            assertEquals("$name icon 需為正方形", icon.width, icon.height)
+            assertTrue(
+                "$name icon 必須垂直置中",
+                kotlin.math.abs(icon.top + icon.height / 2 - button.height / 2) <= 1
+            )
+            assertTrue(
+                "$name 文字必須垂直置中",
+                kotlin.math.abs(label.top + label.height / 2 - button.height / 2) <= 1
+            )
+            assertEquals("$name icon 與文字需共用垂直中心", icon.top + icon.height / 2, label.top + label.height / 2)
+        }
+        assertEquals(
+            "停止/取消 的 icon 尺寸需一致",
+            (stop.getChildAt(0) as View).width,
+            (cancel.getChildAt(0) as View).width
+        )
+    }
+
+    @Test
+    fun eachModeKeepsTheMainVoiceGroupBalancedInTheSafeArea() {
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = {},
+            onSwitchInputMethod = {}
+        )
+        val modes = listOf<Pair<String, () -> Unit>>(
+            "一般" to { panel.render(VoiceImeState.IDLE) },
+            "翻譯" to { panel.render(VoiceImeState.IDLE, translateMode = true, translationTargetLabel = "英文") },
+            "格式" to { panel.render(VoiceImeState.IDLE, formatCommandMode = true) }
+        )
+
+        listOf(320, 360).forEach { widthDp ->
+            modes.forEach { (label, render) ->
+                render()
+                layoutPanel(panel, widthDp = widthDp)
+                val safeTop = topInRoot(panel.view, panel.topAreaRow) + panel.topAreaRow.height
+                val safeBottom =
+                    topInRoot(panel.view, panel.mainInteractionContainer) + panel.mainInteractionContainer.height
+                val groupTop = topInRoot(panel.view, panel.idleActions)
+                val groupBottom = groupTop + panel.idleActions.height
+                val above = groupTop - safeTop
+                val below = safeBottom - groupBottom
+
+                assertTrue(
+                    "$widthDp/$label：主內容上下留白需接近平衡 above=$above below=$below",
+                    kotlin.math.abs(above - below) <= 2
+                )
+            }
+        }
+    }
+
     @Test
     fun formatCommandModeShowsAModeHintAndAnExplicitExitControlWithoutChangingHeight() {
         var exited = 0
@@ -1113,11 +1248,10 @@ class VoiceImePanelLayoutTest {
         assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
 
         panel.render(VoiceImeState.IDLE, formatCommandMode = true)
-        assertEquals(View.GONE, panel.idleTitle.visibility)
-        assertEquals(
-            "${FormatCommandPrompt.FORMAT_COMMAND_MODE_LABEL}　${FormatCommandPrompt.FORMAT_COMMAND_HINT}",
-            panel.idleHint.text.toString()
-        )
+        // 格式指令模式：模式名稱與說明分成兩個區塊（第一行標題、第二行次要說明）。
+        assertEquals(View.VISIBLE, panel.idleTitle.visibility)
+        assertEquals(FormatCommandPrompt.FORMAT_COMMAND_MODE_LABEL, panel.idleTitle.text.toString())
+        assertEquals(FormatCommandPrompt.FORMAT_COMMAND_HINT, panel.idleHint.text.toString())
         assertEquals(2, panel.idleHint.maxLines)
         assertEquals(null, panel.idleHint.ellipsize)
         assertEquals(Gravity.CENTER, panel.idleHint.gravity)

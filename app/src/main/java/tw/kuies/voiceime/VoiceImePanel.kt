@@ -54,11 +54,20 @@ internal fun toolbarIconPaddingDp(iconSizeDp: Int): Int = (TOOLBAR_BUTTON_HEIGHT
 private const val MORE_ENTRY_HORIZONTAL_PADDING_DP = 12
 private const val IDLE_HINT_MAX_LINES = 2
 private const val NORMAL_HINT_TEXT_SP = 11f
-private const val FORMAT_MODE_HINT_TEXT_SP = 12f
+private const val FORMAT_MODE_HINT_TEXT_SP = 11f
+private const val IDLE_TITLE_TOP_MARGIN_DP = 6
+private const val IDLE_HINT_TOP_MARGIN_DP = 3
 private const val BACK_ICON_DP = 14
 private const val BACK_ICON_GAP_DP = 4
 private const val BACK_BUTTON_HEIGHT_DP = 26
 private const val BACK_BUTTON_HORIZONTAL_PADDING_DP = 10
+
+/** 錄音狀態的停止／取消：共用同一組規格，比一般 action 更飽滿、好按。 */
+private const val RECORDING_ACTION_HEIGHT_DP = 54
+private const val RECORDING_ACTION_ICON_DP = 22
+private const val RECORDING_ACTION_LABEL_SP = 15f
+private const val RECORDING_ACTION_LABEL_GAP_DP = 8
+private const val RECORDING_ACTION_GROUP_GAP_DP = 12
 
 internal class VoiceImePanel(
     context: Context,
@@ -499,6 +508,14 @@ internal class VoiceImePanel(
         idleActions.apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
+            // 左右對稱留白＝右側 Delete/Enter action rail 的寬度：文字被限制在中央內容
+            // 安全區內（不會被 Enter 吃掉），但因為左右對稱，大圓仍維持在整個面板的中心線。
+            setPadding(
+                dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP),
+                0,
+                dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP),
+                0
+            )
             idleMicButton.apply {
                 setImageResource(R.drawable.ic_ime_mic)
                 imageTintList = ColorStateList.valueOf(BUTTON_TEXT)
@@ -518,24 +535,26 @@ internal class VoiceImePanel(
             idleTitle.apply {
                 text = "開始語音輸入"
                 gravity = Gravity.CENTER
+                includeFontPadding = false
             }
             addView(
                 idleTitle,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(context, 6) }
+                ).apply { topMargin = dp(context, IDLE_TITLE_TOP_MARGIN_DP) }
             )
             idleHint.apply {
                 text = "點一下開始說話"
                 gravity = Gravity.CENTER
+                includeFontPadding = false
             }
             addView(
                 idleHint,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(context, 3) }
+                ).apply { topMargin = dp(context, IDLE_HINT_TOP_MARGIN_DP) }
             )
         }
         voiceActionsContainer.addView(
@@ -659,10 +678,13 @@ internal class VoiceImePanel(
                     "停止",
                     BUTTON_TEXT,
                     solid(CORAL, dp(context, 50)),
-                    onVoiceAction
+                    onVoiceAction,
+                    iconSizeDp = RECORDING_ACTION_ICON_DP,
+                    labelSizeSp = RECORDING_ACTION_LABEL_SP,
+                    labelGapDp = RECORDING_ACTION_LABEL_GAP_DP
                 ),
-                LinearLayout.LayoutParams(0, dp(context, 48), 1f).apply {
-                    marginEnd = dp(context, 8)
+                LinearLayout.LayoutParams(0, dp(context, RECORDING_ACTION_HEIGHT_DP), 1f).apply {
+                    marginEnd = dp(context, RECORDING_ACTION_GROUP_GAP_DP)
                 }
             )
             addView(
@@ -672,9 +694,12 @@ internal class VoiceImePanel(
                     "取消",
                     TEXT,
                     solid(SURFACE_VARIANT, dp(context, 50)),
-                    onCancel
+                    onCancel,
+                    iconSizeDp = RECORDING_ACTION_ICON_DP,
+                    labelSizeSp = RECORDING_ACTION_LABEL_SP,
+                    labelGapDp = RECORDING_ACTION_LABEL_GAP_DP
                 ),
-                LinearLayout.LayoutParams(0, dp(context, 48), 1f)
+                LinearLayout.LayoutParams(0, dp(context, RECORDING_ACTION_HEIGHT_DP), 1f)
             )
         }
         // 錄音控制群組（停止＋取消）在自己的安全可用區內置中。FrameLayout 對
@@ -2153,24 +2178,31 @@ internal class VoiceImePanel(
         } else {
             View.GONE
         }
-        // 格式指令模式的提示必須完整顯示。互動區固定為 130dp，若同時保留 15sp 標題與
-        // 可能換行的提示就會被裁掉，所以格式模式把模式名稱與範例合成單一置中標籤，
-        // 最多 2 行，並且不動麥克風、Delete、Enter 與音量回饋的配置。
+        // 各模式共用同一個 Main Content Safe Area；只有中央內容不同。文字一律被 idleActions
+        // 的對稱左右留白限制在中央內容安全區內，因此不會被右側 Delete / Enter action rail 遮住。
         if (formatCommandMode) {
-            idleTitle.visibility = View.GONE
+            // 格式指令模式：模式名稱（主標題）與說明（次要字級）分成兩個區塊，兩行都置中。
+            // 為了在固定 130dp 內同時放得下大圓＋標題＋可能換行的說明，格式模式把兩個
+            // 區塊的上緣間距設為 0（純高度預算考量，不是視覺 offset）。
+            idleTitle.visibility = View.VISIBLE
+            idleTitle.text = FormatCommandPrompt.FORMAT_COMMAND_MODE_LABEL
+            applyTopMargin(idleTitle, 0)
             idleHint.textSize = FORMAT_MODE_HINT_TEXT_SP
-            idleHint.setTextColor(TEXT)
-            idleHint.text = "${FormatCommandPrompt.FORMAT_COMMAND_MODE_LABEL}　" +
-                FormatCommandPrompt.FORMAT_COMMAND_HINT
+            idleHint.setTextColor(TEXT_MUTED)
+            idleHint.text = FormatCommandPrompt.FORMAT_COMMAND_HINT
+            applyTopMargin(idleHint, 0)
         } else if (aiEditMode) {
             idleTitle.visibility = View.VISIBLE
             idleTitle.text = "AI 編輯模式"
+            applyTopMargin(idleTitle, dp(idleTitle.context, IDLE_TITLE_TOP_MARGIN_DP))
             idleHint.textSize = NORMAL_HINT_TEXT_SP
             idleHint.setTextColor(TEXT_MUTED)
             idleHint.text = if (holdToTalkRecording) "放開即辨識" else "選取文字後，說出修改要求"
+            applyTopMargin(idleHint, dp(idleHint.context, IDLE_HINT_TOP_MARGIN_DP))
         } else if (translateMode) {
             idleTitle.visibility = View.VISIBLE
             idleTitle.text = "語音翻譯模式"
+            applyTopMargin(idleTitle, dp(idleTitle.context, IDLE_TITLE_TOP_MARGIN_DP))
             idleHint.textSize = NORMAL_HINT_TEXT_SP
             idleHint.setTextColor(TEXT_MUTED)
             idleHint.text = if (holdToTalkRecording) {
@@ -2178,12 +2210,15 @@ internal class VoiceImePanel(
             } else {
                 "翻譯成：${translationTargetLabel.orEmpty()}"
             }
+            applyTopMargin(idleHint, dp(idleHint.context, IDLE_HINT_TOP_MARGIN_DP))
         } else {
             idleTitle.visibility = View.VISIBLE
             idleTitle.text = "開始語音輸入"
+            applyTopMargin(idleTitle, dp(idleTitle.context, IDLE_TITLE_TOP_MARGIN_DP))
             idleHint.textSize = NORMAL_HINT_TEXT_SP
             idleHint.setTextColor(TEXT_MUTED)
             idleHint.text = if (holdToTalkRecording) "放開即辨識" else "點一下開始說話"
+            applyTopMargin(idleHint, dp(idleHint.context, IDLE_HINT_TOP_MARGIN_DP))
         }
         // 特殊模式改用專屬圖示，讓模式只靠主按鈕就能辨識；收音中仍由狀態燈、音量回饋與
         // 啟動配色（isActivated）表達，不會因此換回麥克風圖示。
@@ -2203,19 +2238,12 @@ internal class VoiceImePanel(
         }
         idleMicButton.isActivated = holdToTalkRecording
         idleMicButton.alpha = if (holdToTalkRecording) 0.9f else 1f
-        // 翻譯模式的主按鈕改用薄荷青綠底色與深色圖示；待命、錄音中與處理中都維持同一識別，
-        // 不會因錄音或處理就回到一般模式的淡紫色。其他模式維持既有配色。
-        val translateAccent = VoiceModePalette.centralButtonAccentOrNull(translateMode)
-        idleMicButton.imageTintList = ColorStateList.valueOf(
-            if (translateAccent != null) VoiceModePalette.TRANSLATE_ICON else BUTTON_TEXT
-        )
+        // 模式色集中在 VoiceModePalette：翻譯＝薄荷綠、格式指令＝玫瑰紫，待命、錄音中與
+        // 處理中都維持同一模式識別；一般語音維持既有淡紫漸層。
+        val modeAccent = VoiceModePalette.accentForMode(translateMode, formatCommandMode)
+        idleMicButton.imageTintList = ColorStateList.valueOf(modeAccent?.icon ?: BUTTON_TEXT)
         idleMicButton.background = when {
-            translateAccent != null -> circleRipple(
-                idleMicButton.context,
-                translateAccent,
-                VoiceModePalette.TRANSLATE_MINT_BRIGHT
-            )
-
+            modeAccent != null -> circleRipple(idleMicButton.context, modeAccent.base, modeAccent.bright)
             holdToTalkRecording -> solid(CORAL, dp(idleMicButton.context, 100))
             else -> circleRipple(idleMicButton.context)
         }
@@ -2248,9 +2276,9 @@ internal class VoiceImePanel(
         }
         val isBusy = state == VoiceImeState.TRANSCRIBING || state == VoiceImeState.FORMATTING
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
-        // 翻譯模式的辨識／翻譯處理中也維持薄荷綠識別，不回到一般模式的淡紫。
+        // 處理中也維持目前模式的識別色，不回到一般模式的淡紫。
         busyProgressIndicator.indeterminateTintList = ColorStateList.valueOf(
-            if (translateMode) VoiceModePalette.TRANSLATE_MINT else LAVENDER
+            VoiceModePalette.accentForMode(translateMode, formatCommandMode)?.base ?: LAVENDER
         )
         busyLabel.text = when {
             formatCommandMode && isBusy -> "正在處理格式指令…"
@@ -2376,7 +2404,10 @@ internal class VoiceImePanel(
         label: String,
         foregroundColor: Int,
         background: android.graphics.drawable.Drawable,
-        onClick: () -> Unit
+        onClick: () -> Unit,
+        iconSizeDp: Int = 18,
+        labelSizeSp: Float = 14f,
+        labelGapDp: Int = 7
     ): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
@@ -2392,8 +2423,8 @@ internal class VoiceImePanel(
             setImageResource(icon)
             imageTintList = ColorStateList.valueOf(foregroundColor)
         }
-        addView(iconView, LinearLayout.LayoutParams(dp(context, 18), dp(context, 18)))
-        val labelView = textView(context, sizeSp = 14f, color = foregroundColor).apply {
+        addView(iconView, LinearLayout.LayoutParams(dp(context, iconSizeDp), dp(context, iconSizeDp)))
+        val labelView = textView(context, sizeSp = labelSizeSp, color = foregroundColor).apply {
             text = label
             setTypeface(typeface, Typeface.BOLD)
             maxLines = 1
@@ -2404,7 +2435,7 @@ internal class VoiceImePanel(
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginStart = dp(context, 7) }
+            ).apply { marginStart = dp(context, labelGapDp) }
         )
         setOnClickListener { onClick() }
     }
@@ -2529,6 +2560,14 @@ internal class VoiceImePanel(
         solid(color, radius),
         rounded(intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT), radius, stroke, dp(context, 1))
     )
+
+    /** 設定（或還原）標題／說明與上方內容的間距；只在需要調整高度預算時使用。 */
+    private fun applyTopMargin(view: View, marginPx: Int) {
+        val params = view.layoutParams as? LinearLayout.LayoutParams ?: return
+        if (params.topMargin == marginPx) return
+        params.topMargin = marginPx
+        view.layoutParams = params
+    }
 
     private fun circleRipple(
         context: Context,
