@@ -539,6 +539,46 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
+    fun toolbarRemainsAvailableWhenMicUnavailableAndInTerminalStates() {
+        val panel = panel()
+
+        // 麥克風未授權（micAvailable = false）時，設定、更多、剪貼簿、全選、清除、鍵盤切換與翻譯快捷鍵皆必須可用
+        panel.render(VoiceImeState.IDLE, micAvailable = false)
+        assertTrue("麥克風未就緒時設定按鈕必須可用", panel.settingsButton.isEnabled)
+        assertTrue("麥克風未就緒時更多按鈕必須可用", panel.moreButton.isEnabled)
+        assertTrue("麥克風未就緒時剪貼簿按鈕必須可用", panel.clipboardButton.isEnabled)
+        assertTrue("麥克風未就緒時全選按鈕必須可用", panel.selectAllButton.isEnabled)
+        assertTrue("麥克風未就緒時清除按鈕必須可用", panel.clearAllButton.isEnabled)
+        assertTrue("麥克風未就緒時切換鍵盤按鈕必須可用", panel.switchButton.isEnabled)
+        assertTrue("麥克風未就緒時翻譯快捷按鈕必須可用", panel.translateShortcutButton.isEnabled)
+
+        // 終止狀態（SUCCESS、ERROR、CANCELLED）不應連帶鎖住無關功能
+        val terminalStates = listOf(
+            VoiceImeState.SUCCESS,
+            VoiceImeState.ERROR,
+            VoiceImeState.CANCELLED,
+            VoiceImeState.FORMATTING_FALLBACK
+        )
+        for (terminal in terminalStates) {
+            panel.render(terminal)
+            assertTrue("終止狀態 $terminal 下設定按鈕必須可用", panel.settingsButton.isEnabled)
+            assertTrue("終止狀態 $terminal 下更多按鈕必須可用", panel.moreButton.isEnabled)
+            assertTrue("終止狀態 $terminal 下剪貼簿按鈕必須可用", panel.clipboardButton.isEnabled)
+            assertTrue("終止狀態 $terminal 下全選按鈕必須可用", panel.selectAllButton.isEnabled)
+            assertTrue("終止狀態 $terminal 下清除按鈕必須可用", panel.clearAllButton.isEnabled)
+            assertTrue("終止狀態 $terminal 下切換鍵盤按鈕必須可用", panel.switchButton.isEnabled)
+            assertTrue("終止狀態 $terminal 下翻譯快捷按鈕必須可用", panel.translateShortcutButton.isEnabled)
+        }
+
+        // 錄音中或辨識中，文字操作與模式選單應被安全停用以避免競態
+        panel.render(VoiceImeState.RECORDING)
+        assertFalse("錄音中全選按鈕應停用", panel.selectAllButton.isEnabled)
+        assertFalse("錄音中清除按鈕應停用", panel.clearAllButton.isEnabled)
+        assertFalse("錄音中更多按鈕應停用", panel.moreButton.isEnabled)
+        assertFalse("錄音中翻譯快捷應停用", panel.translateShortcutButton.isEnabled)
+    }
+
+    @Test
     fun recordingStopAndCancelButtonsUseBalancedSharedStyle() {
         val panel = panel()
         panel.render(VoiceImeState.RECORDING)

@@ -2116,26 +2116,30 @@ internal class VoiceImePanel(
         formatCommandMode: Boolean = false,
         aiEditMode: Boolean = false,
         translateMode: Boolean = false,
-        translationTargetLabel: String? = null
+        translationTargetLabel: String? = null,
+        micAvailable: Boolean = true
     ) {
-        val isTerminal = state == VoiceImeState.SUCCESS ||
-            state == VoiceImeState.FORMATTING_FALLBACK ||
-            state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
-        val accent = accentFor(state)
+        val isTerminal = VoiceImeActionAvailabilityPolicy.isTerminal(state)
+        val accent = when {
+            state == VoiceImeState.IDLE && !micAvailable -> TEXT_MUTED
+            else -> accentFor(state)
+        }
         statusDot.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(accent)
         }
-        val stateDescription = when (state) {
-            VoiceImeState.IDLE -> "待命"
-            VoiceImeState.RECORDING -> "錄音中"
-            VoiceImeState.TRANSCRIBING -> "語音辨識中"
-            VoiceImeState.FORMATTING -> "智慧整理中"
-            VoiceImeState.AWAITING_CONFIRM -> "修改預覽中"
-            VoiceImeState.SUCCESS -> "辨識完成"
-            VoiceImeState.FORMATTING_FALLBACK -> "整理失敗，已保留辨識結果"
-            VoiceImeState.CANCELLED -> "已取消"
-            VoiceImeState.ERROR -> "發生錯誤"
+        val stateDescription = when {
+            state == VoiceImeState.IDLE && !micAvailable -> "麥克風未授權"
+            state == VoiceImeState.IDLE -> "待命"
+            state == VoiceImeState.RECORDING -> "錄音中"
+            state == VoiceImeState.TRANSCRIBING -> "語音辨識中"
+            state == VoiceImeState.FORMATTING -> "智慧整理中"
+            state == VoiceImeState.AWAITING_CONFIRM -> "修改預覽中"
+            state == VoiceImeState.SUCCESS -> "辨識完成"
+            state == VoiceImeState.FORMATTING_FALLBACK -> "整理失敗，已保留辨識結果"
+            state == VoiceImeState.CANCELLED -> "已取消"
+            state == VoiceImeState.ERROR -> "發生錯誤"
+            else -> "待命"
         }
         statusIndicator.contentDescription = if (statusLabelOverride.isNullOrBlank()) {
             stateDescription
@@ -2143,17 +2147,32 @@ internal class VoiceImePanel(
             "$stateDescription，$statusLabelOverride"
         }
 
-        settingsButton.isEnabled = state == VoiceImeState.IDLE
-        settingsButton.alpha = if (settingsButton.isEnabled) 1f else 0.5f
-        val bulkActionsEnabled = state == VoiceImeState.IDLE
+        val settingsEnabled = VoiceImeActionAvailabilityPolicy.isSettingsAvailable(state)
+        settingsButton.isEnabled = settingsEnabled
+        settingsButton.alpha = if (settingsEnabled) 1f else 0.5f
+
+        val bulkActionsEnabled = VoiceImeActionAvailabilityPolicy.isBulkTextActionAvailable(state)
         selectAllButton.isEnabled = bulkActionsEnabled
         clearAllButton.isEnabled = bulkActionsEnabled
         selectAllButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
         clearAllButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
-        moreButton.isEnabled = bulkActionsEnabled
-        moreButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
-        translateShortcutButton.isEnabled = bulkActionsEnabled
-        translateShortcutButton.alpha = if (bulkActionsEnabled) 1f else 0.5f
+
+        val moreEnabled = VoiceImeActionAvailabilityPolicy.isMoreMenuAvailable(state)
+        moreButton.isEnabled = moreEnabled
+        moreButton.alpha = if (moreEnabled) 1f else 0.5f
+
+        val translateEnabled = VoiceImeActionAvailabilityPolicy.isTranslateShortcutAvailable(state)
+        translateShortcutButton.isEnabled = translateEnabled
+        translateShortcutButton.alpha = if (translateEnabled) 1f else 0.5f
+
+        val clipboardEnabled = VoiceImeActionAvailabilityPolicy.isClipboardHistoryAvailable(state)
+        clipboardButton.isEnabled = clipboardEnabled
+        clipboardButton.alpha = if (clipboardEnabled) 1f else 0.5f
+
+        val switchEnabled = VoiceImeActionAvailabilityPolicy.isKeyboardSwitchAvailable(state)
+        switchButton.isEnabled = switchEnabled
+        switchButton.alpha = if (switchEnabled) 1f else 0.5f
+
         // AI 翻譯快捷圖示：啟用時只把圖示改成薄荷綠（改變 tint），背景與其他工具列項目
         // 完全相同，因此 selected / unselected 的 Layout Bounds 一致，不會膨脹成大方框。
         translateShortcutButton.imageTintList = ColorStateList.valueOf(
@@ -2213,7 +2232,11 @@ internal class VoiceImePanel(
             applyTopMargin(idleTitle, dp(idleTitle.context, IDLE_TITLE_TOP_MARGIN_DP))
             idleHint.textSize = NORMAL_HINT_TEXT_SP
             idleHint.setTextColor(TEXT_MUTED)
-            idleHint.text = if (holdToTalkRecording) "放開即辨識" else "點一下開始說話"
+            idleHint.text = when {
+                !micAvailable -> "麥克風未授權，點一下授權"
+                holdToTalkRecording -> "放開即辨識"
+                else -> "點一下開始說話"
+            }
             applyTopMargin(idleHint, dp(idleHint.context, IDLE_HINT_TOP_MARGIN_DP))
         }
         // 特殊模式改用專屬圖示，讓模式只靠主按鈕就能辨識；收音中仍由狀態燈、音量回饋與

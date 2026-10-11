@@ -302,7 +302,12 @@ class VoiceImeService : InputMethodService() {
     }
 
     private fun openSettings() {
-        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || activeOperationId != 0L) return
+        if (serviceDestroyed) return
+        if (VoiceImeActionAvailabilityPolicy.isVoiceOperationInFlight(stateMachine.state) || activeOperationId != 0L) {
+            cancelCurrentOperation()
+        } else {
+            resetTerminalStatus()
+        }
         try {
             startActivity(
                 Intent(this, MainActivity::class.java)
@@ -434,6 +439,7 @@ class VoiceImeService : InputMethodService() {
 
     private fun openClipboardHistory() {
         if (isCurrentEditorSensitive()) return
+        resetTerminalStatus()
         captureCurrentClipboard(allowWithoutListener = true)
         refreshClipboardHistory()
     }
@@ -465,6 +471,7 @@ class VoiceImeService : InputMethodService() {
 
     private fun openVoiceHistory() {
         if (isCurrentEditorSensitive()) return
+        resetTerminalStatus()
         UserHistoryRepository.loadVoiceAsync(applicationContext) { result ->
             mainHandler.post {
                 val panel = voicePanel ?: return@post
@@ -563,6 +570,7 @@ class VoiceImeService : InputMethodService() {
             voicePanel?.hideSavedSnippetsForPrivacy()
             return
         }
+        resetTerminalStatus()
         refreshSavedSnippets()
     }
 
@@ -591,7 +599,8 @@ class VoiceImeService : InputMethodService() {
     }
 
     private fun insertSavedSnippet(snippet: SavedSnippet): Boolean {
-        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE) return false
+        if (serviceDestroyed || VoiceImeActionAvailabilityPolicy.isVoiceOperationInFlight(stateMachine.state)) return false
+        resetTerminalStatus()
         if (isCurrentEditorSensitive()) {
             voicePanel?.hideSavedSnippetsForPrivacy()
             return false
@@ -610,10 +619,11 @@ class VoiceImeService : InputMethodService() {
     }
 
     private fun openSavedSnippetManager(action: SavedSnippetManagerAction, snippetId: String?) {
-        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || isCurrentEditorSensitive()) {
+        if (serviceDestroyed || VoiceImeActionAvailabilityPolicy.isVoiceOperationInFlight(stateMachine.state) || isCurrentEditorSensitive()) {
             if (isCurrentEditorSensitive()) voicePanel?.hideSavedSnippetsForPrivacy()
             return
         }
+        resetTerminalStatus()
         try {
             startActivity(
                 Intent(this, MainActivity::class.java)
@@ -717,7 +727,8 @@ class VoiceImeService : InputMethodService() {
     private fun clearAllInputText() = performBulkTextAction(clearAll = true)
 
     private fun performBulkTextAction(clearAll: Boolean) {
-        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE) return
+        if (serviceDestroyed || VoiceImeActionAvailabilityPolicy.isVoiceOperationInFlight(stateMachine.state)) return
+        resetTerminalStatus()
         val inputConnection = try {
             currentInputConnection
         } catch (exception: Exception) {
@@ -872,7 +883,7 @@ class VoiceImeService : InputMethodService() {
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "Recording unavailable: microphone_permission_missing")
-            transitionStatus(VoiceImeState.ERROR)
+            transitionStatus(VoiceImeState.ERROR, "未授權麥克風，請至設定開啟權限")
             return false
         }
 
@@ -2246,6 +2257,7 @@ class VoiceImeService : InputMethodService() {
     }
 
     private fun renderStatus() {
+        val hasMicPermission = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         voicePanel?.render(
             stateMachine.state,
             statusLabelOverride,
@@ -2253,7 +2265,8 @@ class VoiceImeService : InputMethodService() {
             formatCommandMode = inputMode == VoiceInputMode.FORMAT_COMMAND,
             aiEditMode = inputMode == VoiceInputMode.AI_EDIT,
             translateMode = inputMode == VoiceInputMode.TRANSLATE,
-            translationTargetLabel = translationTargetLanguage.displayName
+            translationTargetLabel = translationTargetLanguage.displayName,
+            micAvailable = hasMicPermission
         )
     }
 
@@ -2265,6 +2278,11 @@ class VoiceImeService : InputMethodService() {
      * 使用者的預設鍵盤，也不會跳去系統設定頁。
      */
     private fun onKeyboardSwitchRequested() {
+        if (VoiceImeActionAvailabilityPolicy.isVoiceOperationInFlight(stateMachine.state)) {
+            cancelCurrentOperation()
+        } else {
+            resetTerminalStatus()
+        }
         val outcome = keyboardSwitcher.perform(shouldOfferSwitchingToNextInputMethod())
         if (outcome != KeyboardSwitchOutcome.UNAVAILABLE) return
         Log.w(TAG, "Keyboard switch unavailable: no next input method and no system picker")
@@ -2275,7 +2293,8 @@ class VoiceImeService : InputMethodService() {
     }
 
     private fun enterFormatCommandMode() {
-        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE) return
+        if (serviceDestroyed || VoiceImeActionAvailabilityPolicy.isVoiceOperationInFlight(stateMachine.state)) return
+        resetTerminalStatus()
         inputMode = VoiceInputMode.FORMAT_COMMAND
         voicePanel?.showMainPanel()
         renderStatus()
@@ -2287,7 +2306,8 @@ class VoiceImeService : InputMethodService() {
      * 不會以游標位置或整份文字代替。
      */
     private fun enterAiEditMode() {
-        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || activeOperationId != 0L) return
+        if (serviceDestroyed || VoiceImeActionAvailabilityPolicy.isVoiceOperationInFlight(stateMachine.state) || activeOperationId != 0L) return
+        resetTerminalStatus()
         val snapshot = readCurrentSelectionSnapshot()
         if (snapshot == null) {
             Log.w(TAG, "AI edit refused: no readable selection")
@@ -2306,10 +2326,9 @@ class VoiceImeService : InputMethodService() {
     private fun exitSpecialMode() {
         if (serviceDestroyed) return
         val state = stateMachine.state
-        val canExit = state == VoiceImeState.IDLE || state == VoiceImeState.SUCCESS ||
-            state == VoiceImeState.FORMATTING_FALLBACK ||
-            state == VoiceImeState.CANCELLED || state == VoiceImeState.ERROR
+        val canExit = !VoiceImeActionAvailabilityPolicy.isVoiceOperationInFlight(state)
         if (!canExit) return
+        resetTerminalStatus()
         inputMode = VoiceInputMode.NORMAL
         activeSelectedTextSnapshot = null
         activeAiEditResult = null
@@ -2321,7 +2340,8 @@ class VoiceImeService : InputMethodService() {
      * 把辨識文字翻譯成目標語言後直接插入目前欄位；目標語言沿用上次選擇。
      */
     private fun enterTranslateMode() {
-        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || activeOperationId != 0L) return
+        if (serviceDestroyed || VoiceImeActionAvailabilityPolicy.isVoiceOperationInFlight(stateMachine.state) || activeOperationId != 0L) return
+        resetTerminalStatus()
         translationTargetLanguage = VoiceTranslationSettingsRepository.loadSync(applicationContext)
         inputMode = VoiceInputMode.TRANSLATE
         voicePanel?.showMainPanel()
@@ -2330,7 +2350,7 @@ class VoiceImeService : InputMethodService() {
 
     /** 頂部 AI 翻譯快捷圖示：未啟用時進入翻譯模式，已啟用（待命）時再按一次離開。 */
     private fun toggleTranslateMode() {
-        if (serviceDestroyed || stateMachine.state != VoiceImeState.IDLE || activeOperationId != 0L) return
+        if (serviceDestroyed || VoiceImeActionAvailabilityPolicy.isVoiceOperationInFlight(stateMachine.state) || activeOperationId != 0L) return
         if (inputMode == VoiceInputMode.TRANSLATE) {
             exitSpecialMode()
         } else {

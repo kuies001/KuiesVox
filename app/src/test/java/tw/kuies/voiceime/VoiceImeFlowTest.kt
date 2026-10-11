@@ -159,4 +159,31 @@ class VoiceImeFlowTest {
 
         assertFalse(machine.transitionTo(VoiceImeState.AWAITING_CONFIRM))
     }
+
+    @Test
+    fun terminalStatesTransitionDirectlyToIdleWithoutBypassingValidation() {
+        val terminalStates = listOf(
+            VoiceImeState.SUCCESS,
+            VoiceImeState.FORMATTING_FALLBACK,
+            VoiceImeState.CANCELLED,
+            VoiceImeState.ERROR
+        )
+
+        for (terminal in terminalStates) {
+            val machine = VoiceImeStateMachine()
+            if (terminal == VoiceImeState.ERROR) {
+                machine.transitionTo(VoiceImeState.ERROR)
+            } else {
+                machine.transitionTo(VoiceImeState.RECORDING)
+                machine.transitionTo(VoiceImeState.TRANSCRIBING)
+                if (terminal == VoiceImeState.FORMATTING_FALLBACK) {
+                    machine.transitionTo(VoiceImeState.FORMATTING)
+                }
+                machine.transitionTo(terminal)
+            }
+            assertEquals(terminal, machine.state)
+            assertTrue("Terminal state $terminal must be able to reset to IDLE", machine.transitionTo(VoiceImeState.IDLE))
+            assertEquals(VoiceImeState.IDLE, machine.state)
+        }
+    }
 }
