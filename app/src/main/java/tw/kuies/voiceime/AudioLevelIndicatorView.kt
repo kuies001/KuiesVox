@@ -17,7 +17,7 @@ internal class AudioLevelIndicatorView(context: Context) : View(context) {
     private val barFactors = floatArrayOf(0.65f, 0.85f, 1f, 0.85f, 0.65f)
     private val rect = RectF()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFCDC9FF.toInt()
+        color = VoiceModePalette.NORMAL_CREAM
         style = Paint.Style.FILL
     }
 
@@ -29,6 +29,12 @@ internal class AudioLevelIndicatorView(context: Context) : View(context) {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         isFocusable = false
         isClickable = false
+    }
+
+    fun setColor(color: Int) {
+        if (paint.color == color) return
+        paint.color = color
+        invalidate()
     }
 
     fun setLevel(level: Float) {

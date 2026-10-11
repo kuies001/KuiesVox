@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -32,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
@@ -166,7 +168,8 @@ internal fun OnboardingScreen(
             Spacer(Modifier.weight(1f))
             if (OnboardingFlow.canGoBack(page)) {
                 OutlinedButton(
-                    onClick = { goTo(OnboardingFlow.previousPage(page)) }
+                    onClick = { goTo(OnboardingFlow.previousPage(page)) },
+                    shape = RoundedCornerShape(14.dp)
                 ) { Text("上一步") }
                 Spacer(Modifier.width(8.dp))
             }
@@ -177,7 +180,8 @@ internal fun OnboardingScreen(
                     } else {
                         goTo(OnboardingFlow.nextPage(page))
                     }
-                }
+                },
+                shape = RoundedCornerShape(14.dp)
             ) { Text(OnboardingFlow.primaryLabel(page)) }
         }
     }
@@ -188,13 +192,28 @@ private fun MicrophoneOnboardingPage(
     granted: Boolean,
     onRequestPermission: () -> Unit
 ) {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_home_voice),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(28.dp)
+        )
+    }
     OnboardingPageTexts(
         title = "開啟麥克風權限",
-        body = "KuiesVox 需要使用麥克風，才能將你的語音轉成文字。"
+        body = "讓 KuiesVox 聽見你的聲音，幫你轉成文字。"
     )
     Button(
         onClick = onRequestPermission,
         enabled = !granted,
+        shape = RoundedCornerShape(14.dp),
         modifier = Modifier.fillMaxWidth()
     ) { Text(if (granted) "已授權" else "授權麥克風") }
     OnboardingHint(
@@ -212,22 +231,42 @@ private fun GroqOnboardingPage(
     onOpenApiKeySettings: () -> Unit,
     onContinue: () -> Unit
 ) {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_home_groq),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(28.dp)
+        )
+    }
     OnboardingPageTexts(
         title = "申請 Groq API",
         body = "KuiesVox 使用 Groq Whisper 進行語音辨識。你可以先申請 API Key，之後再回來設定。"
     )
     GroqStepsCard()
-    Button(onClick = onOpenGroq, modifier = Modifier.fillMaxWidth()) { Text("前往 Groq") }
+    Button(
+        onClick = onOpenGroq,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) { Text("前往 Groq") }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         OutlinedButton(
             onClick = onOpenApiKeySettings,
+            shape = RoundedCornerShape(14.dp),
             modifier = Modifier.weight(1f)
         ) { Text("前往 API 設定", maxLines = 1) }
         OutlinedButton(
             onClick = onContinue,
+            shape = RoundedCornerShape(14.dp),
             modifier = Modifier.weight(1f)
         ) { Text("稍後設定", maxLines = 1) }
     }
@@ -239,55 +278,107 @@ private fun ImeOnboardingPage(
     hint: String,
     onOpenImeSettings: () -> Unit
 ) {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_ime_keyboard),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(28.dp)
+        )
+    }
     OnboardingPageTexts(
         title = "開啟 KuiesVox 輸入法",
-        body = "請到「設定 → 一般管理 → 鍵盤」中啟用 KuiesVox。不同手機的名稱可能略有不同。"
+        body = "到手機設定中開啟 KuiesVox，就可以開始使用。"
     )
-    Button(onClick = onOpenImeSettings, modifier = Modifier.fillMaxWidth()) { Text("前往輸入法設定") }
-    if (hint.isNotBlank()) {
-        OnboardingHint(hint)
-    }
+    Button(
+        onClick = onOpenImeSettings,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) { Text("前往輸入法設定") }
+    ImeStepsCard(hint)
     OnboardingHint("啟用後在任一輸入欄位切換到 KuiesVox，就能用語音輸入。")
 }
 
-/** 第 2 頁的步驟圖卡：用 Compose 畫出四個編號步驟，不依賴外部圖片資源。 */
+/** 第 2 頁的步驟圖卡：用 Compose 畫出四個編號步驟，文具小卡片風格。 */
 @Composable
 private fun GroqStepsCard() {
     val colors = MaterialTheme.colorScheme
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant.copy(alpha = 0.34f)),
-        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.7f)),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surface),
+        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.55f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             listOf(
                 "1" to "前往 Groq",
-                "2" to "登入帳號",
+                "2" to "註冊或登入",
                 "3" to "建立 API Key",
-                "4" to "回到 KuiesVox 貼上"
+                "4" to "回到 KuiesVox 設定"
             ).forEach { (number, label) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
                             .size(24.dp)
                             .clip(CircleShape)
-                            .background(colors.primary.copy(alpha = 0.16f)),
+                            .background(colors.primaryContainer),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             number,
                             style = MaterialTheme.typography.labelMedium,
-                            color = colors.primary
+                            color = colors.onPrimaryContainer
                         )
                     }
                     Spacer(Modifier.width(12.dp))
-                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                    Text(label, style = MaterialTheme.typography.bodyMedium, color = colors.onSurface)
                 }
+            }
+        }
+    }
+}
+
+/** 第 3 頁的手機設定說明小卡片。 */
+@Composable
+private fun ImeStepsCard(hint: String) {
+    val colors = MaterialTheme.colorScheme
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surface),
+        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.55f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                "三星裝置路徑：",
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.primary
+            )
+            Text(
+                "設定 → 一般管理 → 鍵盤清單與預設值",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurface
+            )
+            if (hint.isNotBlank()) {
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant
+                )
             }
         }
     }
@@ -322,7 +413,7 @@ private fun OnboardingPageIndicator(pageCount: Int, currentPage: Int) {
             Box(
                 modifier = Modifier
                     .padding(horizontal = 4.dp)
-                    .size(if (selected) 10.dp else 8.dp)
+                    .size(width = if (selected) 20.dp else 8.dp, height = 8.dp)
                     .clip(CircleShape)
                     .background(if (selected) colors.primary else colors.outlineVariant)
             )

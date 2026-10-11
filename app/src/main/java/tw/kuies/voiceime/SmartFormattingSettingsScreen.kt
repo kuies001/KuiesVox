@@ -282,7 +282,7 @@ internal fun SmartFormattingSettingsScreen(
         Button(
             onClick = { onSave(draft.copy(threshold = threshold ?: SmartFormattingSettings.DEFAULT_THRESHOLD)) },
             enabled = loaded && thresholdIsValid && modelIsValid,
-            shape = RoundedCornerShape(50),
+            shape = RoundedCornerShape(14.dp),
             modifier = Modifier.align(Alignment.End)
         ) { Text("儲存智慧整理設定") }
         Text(status, style = MaterialTheme.typography.bodySmall)
@@ -383,7 +383,7 @@ private fun ModelDropdown(value: String, options: List<FormattingModelOption>, e
 @Composable
 private fun ModelBadge(text: String) {
     Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-        contentColor = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(50)) {
+        contentColor = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(8.dp)) {
         Text(text, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium))
     }

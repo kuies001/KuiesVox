@@ -1,5 +1,6 @@
 package tw.kuies.voiceime
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,8 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -434,6 +439,11 @@ private fun BulkDeleteBar(count: Int, enabled: Boolean, onClick: () -> Unit) {
     Button(
         onClick = onClick,
         enabled = enabled,
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.error,
+            contentColor = MaterialTheme.colorScheme.onError
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp)
@@ -462,11 +472,12 @@ private fun SelectableRow(
                     Modifier
                 }
             )
-            .padding(vertical = 2.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (selecting) {
             Checkbox(checked = selected, onCheckedChange = { onToggle() })
+            Spacer(Modifier.padding(end = 6.dp))
         }
         content()
     }
@@ -523,11 +534,13 @@ private fun <T> PersonalizationTab(
             Button(
                 onClick = onAdd,
                 enabled = loaded && !selecting,
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.weight(1f)
             ) { Text(addLabel, maxLines = 1) }
             Button(
                 onClick = onBatchImport,
                 enabled = loaded && !selecting,
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.weight(1f)
             ) { Text("批次匯入", maxLines = 1) }
         }
@@ -570,14 +583,37 @@ private fun <T> PersonalizationTab(
             } else {
                 items(visibleItems, key = { idOf(it) }) { item ->
                     val id = idOf(item)
-                    SelectableRow(
-                        selecting = selecting,
-                        selected = selection.isSelected(id),
-                        onToggle = { onSelectionChange(selection.toggle(id)) }
+                    val isSelected = selection.isSelected(id)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            }
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                            }
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
-                        row(item)
+                        SelectableRow(
+                            selecting = selecting,
+                            selected = isSelected,
+                            onToggle = { onSelectionChange(selection.toggle(id)) }
+                        ) {
+                            row(item)
+                        }
                     }
-                    HorizontalDivider()
                 }
             }
         }

@@ -885,11 +885,11 @@ class VoiceImePanelLayoutTest {
         val idleTint = panel.translateShortcutButton.imageTintList?.defaultColor
 
         panel.render(VoiceImeState.IDLE, translateMode = true, translationTargetLabel = "英文")
-        assertEquals(VoiceModePalette.TRANSLATE_ICON, panel.translateShortcutButton.imageTintList?.defaultColor)
+        assertEquals(VoiceModePalette.TRANSLATE_MINT, panel.translateShortcutButton.imageTintList?.defaultColor)
 
         // 模式啟用中即使正在錄音，也維持選取狀態。
         panel.render(VoiceImeState.RECORDING, translateMode = true, translationTargetLabel = "英文")
-        assertEquals(VoiceModePalette.TRANSLATE_ICON, panel.translateShortcutButton.imageTintList?.defaultColor)
+        assertEquals(VoiceModePalette.TRANSLATE_MINT, panel.translateShortcutButton.imageTintList?.defaultColor)
 
         panel.render(VoiceImeState.IDLE)
         assertEquals(idleTint, panel.translateShortcutButton.imageTintList?.defaultColor)
@@ -903,7 +903,7 @@ class VoiceImePanelLayoutTest {
             onCancel = {},
             onSwitchInputMethod = {}
         )
-        val normalIcon = 0xFF252342.toInt()
+        val normalIcon = VoiceModePalette.NORMAL_ICON
 
         panel.render(VoiceImeState.IDLE, translateMode = true, translationTargetLabel = "英文")
         assertEquals(VoiceModePalette.TRANSLATE_ICON, panel.idleMicButton.imageTintList?.defaultColor)
@@ -1080,7 +1080,7 @@ class VoiceImePanelLayoutTest {
         assertEquals(VoiceModePalette.TRANSLATE_MINT, panel.translateShortcutButton.imageTintList?.defaultColor)
 
         panel.render(VoiceImeState.IDLE)
-        assertEquals(0xFFB4BECE.toInt(), panel.translateShortcutButton.imageTintList?.defaultColor)
+        assertEquals(0xFFD1BFB5.toInt(), panel.translateShortcutButton.imageTintList?.defaultColor)
     }
 
     @Test
@@ -1184,7 +1184,7 @@ class VoiceImePanelLayoutTest {
         assertEquals(VoiceModePalette.FORMAT_ICON, panel.idleMicButton.imageTintList?.defaultColor)
 
         panel.render(VoiceImeState.IDLE)
-        assertEquals(0xFF252342.toInt(), panel.idleMicButton.imageTintList?.defaultColor)
+        assertEquals(VoiceModePalette.NORMAL_ICON, panel.idleMicButton.imageTintList?.defaultColor)
     }
 
     @Test

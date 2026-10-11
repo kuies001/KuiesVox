@@ -310,16 +310,16 @@ private fun MicrophonePermissionReminderCard(
     val colors = MaterialTheme.colorScheme
     val accent = if (hasPermission) colors.tertiary else colors.secondary
     val cardColor = if (hasPermission) {
-        colors.surfaceVariant.copy(alpha = 0.38f)
+        colors.surfaceVariant.copy(alpha = 0.45f)
     } else {
-        colors.secondaryContainer.copy(alpha = 0.34f)
+        colors.secondaryContainer.copy(alpha = 0.4f)
     }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
-        border = BorderStroke(1.dp, accent.copy(alpha = if (hasPermission) 0.22f else 0.42f)),
+        border = BorderStroke(1.dp, accent.copy(alpha = if (hasPermission) 0.25f else 0.45f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
@@ -446,7 +446,7 @@ private fun AppUpdateFeatureCard(
                 Button(
                     onClick = { onDownloadUpdate(release, updateState.version, updateState.apk) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(50)
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Text("下載並安裝")
                 }
@@ -465,7 +465,7 @@ private fun AppUpdateFeatureCard(
                 Button(
                     onClick = { onInstallUpdate(updateState.release, updateState.downloadId) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(50)
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Text("開啟安裝器")
                 }
@@ -484,14 +484,14 @@ private fun AppUpdateFeatureCard(
                 Button(
                     onClick = onOpenUnknownSourcesSettings,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(50)
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Text("前往授權")
                 }
                 OutlinedButton(
                     onClick = { onInstallUpdate(updateState.release, updateState.downloadId) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(50)
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Text("重新開啟安裝器")
                 }
@@ -505,7 +505,7 @@ private fun AppUpdateFeatureCard(
                 Button(
                     onClick = { onInstallUpdate(updateState.release, updateState.downloadId) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(50)
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Text("重新開啟安裝器")
                 }
@@ -526,14 +526,14 @@ private fun AppUpdateFeatureCard(
             onClick = onCheckForUpdates,
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(50)
+            shape = RoundedCornerShape(14.dp)
         ) {
             Text(if (updateState is AppUpdateState.Checking) "正在檢查更新…" else "檢查版本更新")
         }
         OutlinedButton(
             onClick = { onOpenRelease(releaseUrl) },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(50)
+            shape = RoundedCornerShape(14.dp)
         ) {
             Text(if (releaseUrl == null) "前往 GitHub Releases" else "前往 GitHub 手動下載")
         }
@@ -581,14 +581,14 @@ private fun HomeFeatureCard(
     val colors = MaterialTheme.colorScheme
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = colors.surface),
-        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.72f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.55f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(11.dp)
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -596,16 +596,16 @@ private fun HomeFeatureCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(17.dp))
-                        .background(accent.copy(alpha = 0.14f)),
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(accent.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         painter = painterResource(icon),
                         contentDescription = null,
                         tint = accent,
-                        modifier = Modifier.size(25.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
                 Column(
@@ -635,13 +635,13 @@ private fun HomeFeatureCard(
 @Composable
 private fun StatusPill(text: String, accent: Color) {
     Surface(
-        shape = RoundedCornerShape(50),
-        color = accent.copy(alpha = 0.13f),
+        shape = RoundedCornerShape(8.dp),
+        color = accent.copy(alpha = 0.15f),
         contentColor = accent
     ) {
         Text(
             text = text,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1
         )
@@ -675,8 +675,8 @@ private fun SummaryMetric(
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(17.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
@@ -705,7 +705,7 @@ private fun ActionButton(
     Button(
         onClick = onClick,
         modifier = modifier,
-        shape = RoundedCornerShape(50),
+        shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = accent,
             contentColor = contentColor
@@ -810,7 +810,7 @@ internal fun GroqSettingsScreen(
         Button(
             onClick = onSave,
             enabled = apiKeyLoaded && apiKey.isNotBlank(),
-            shape = RoundedCornerShape(50)
+            shape = RoundedCornerShape(14.dp)
         ) {
             Text("儲存 API Key")
         }
@@ -824,7 +824,7 @@ internal fun GroqSettingsScreen(
         Spacer(Modifier.height(4.dp))
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(18.dp)
+            shape = RoundedCornerShape(16.dp)
         ) {
             Text(
                 "API Key 僅儲存在 App 私有空間，不會顯示於首頁或寫入 Logcat。",

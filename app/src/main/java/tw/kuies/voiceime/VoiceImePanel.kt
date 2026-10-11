@@ -2234,9 +2234,9 @@ internal class VoiceImePanel(
         }
         idleMicButton.isActivated = holdToTalkRecording
         idleMicButton.alpha = if (holdToTalkRecording) 0.9f else 1f
-        // 模式色集中在 VoiceModePalette：翻譯＝薄荷綠、格式指令＝玫瑰紫，待命、錄音中與
-        // 處理中都維持同一模式識別；一般語音維持既有淡紫漸層。
-        val modeAccent = VoiceModePalette.accentForMode(translateMode, formatCommandMode)
+        // 模式色集中在 VoiceModePalette：翻譯＝鼠尾草綠、格式指令＝柔霧紫、AI 編輯＝蜜桃粉，
+        // 待命、錄音中與處理中都維持同一模式識別；一般語音使用奶油杏漸層。
+        val modeAccent = VoiceModePalette.accentForMode(translateMode, formatCommandMode, aiEditMode)
         idleMicButton.imageTintList = ColorStateList.valueOf(modeAccent?.icon ?: BUTTON_TEXT)
         idleMicButton.background = when {
             modeAccent != null -> circleRipple(idleMicButton.context, modeAccent.base, modeAccent.bright)
@@ -2256,6 +2256,7 @@ internal class VoiceImePanel(
         val showAudioLevel = state == VoiceImeState.RECORDING
         audioLevelIndicator.visibility = if (showAudioLevel) View.VISIBLE else View.GONE
         if (showAudioLevel) {
+            audioLevelIndicator.setColor(modeAccent?.bright ?: VoiceModePalette.NORMAL_CREAM_BRIGHT)
             val params = audioLevelIndicator.layoutParams as FrameLayout.LayoutParams
             if (holdToTalkRecording) {
                 params.gravity = Gravity.START or Gravity.CENTER_VERTICAL
@@ -2274,7 +2275,7 @@ internal class VoiceImePanel(
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
         // 處理中也維持目前模式的識別色，不回到一般模式的淡紫。
         busyProgressIndicator.indeterminateTintList = ColorStateList.valueOf(
-            VoiceModePalette.accentForMode(translateMode, formatCommandMode)?.base ?: LAVENDER
+            VoiceModePalette.accentForMode(translateMode, formatCommandMode, aiEditMode)?.base ?: LAVENDER
         )
         busyLabel.text = when {
             formatCommandMode && isBusy -> "正在處理格式指令…"
@@ -2567,8 +2568,8 @@ internal class VoiceImePanel(
 
     private fun circleRipple(
         context: Context,
-        gradientStart: Int = LAVENDER,
-        gradientEnd: Int = LAVENDER_BRIGHT
+        gradientStart: Int = VoiceModePalette.NORMAL_CREAM,
+        gradientEnd: Int = VoiceModePalette.NORMAL_CREAM_BRIGHT
     ) = RippleDrawable(
         ColorStateList.valueOf(0x44FFFFFF),
         GradientDrawable(
@@ -2594,19 +2595,19 @@ internal class VoiceImePanel(
     }
 
     private companion object {
-        val BACKGROUND = Color.rgb(20, 27, 41)
-        val SURFACE = Color.rgb(28, 37, 53)
-        val SURFACE_VARIANT = Color.rgb(41, 52, 71)
-        val OUTLINE = Color.rgb(59, 71, 91)
-        val LAVENDER = Color.rgb(189, 186, 255)
-        val LAVENDER_BRIGHT = Color.rgb(205, 201, 255)
-        val MINT = Color.rgb(169, 228, 212)
-        val AMBER = Color.rgb(255, 192, 118)
-        val PINK = Color.rgb(240, 187, 212)
-        val CORAL = Color.rgb(232, 153, 161)
-        val ERROR = Color.rgb(255, 142, 142)
-        val BUTTON_TEXT = Color.rgb(37, 35, 66)
-        val TEXT = Color.rgb(230, 234, 243)
-        val TEXT_MUTED = Color.rgb(180, 190, 206)
+        val BACKGROUND = Color.rgb(47, 42, 40)        // #2F2A28 暖灰棕主背景
+        val SURFACE = Color.rgb(58, 49, 46)           // #3A312E 次要表面
+        val SURFACE_VARIANT = Color.rgb(67, 57, 54)   // #433936 卡片及工具列
+        val OUTLINE = Color.rgb(99, 84, 78)           // #63544E 深暖灰分隔線
+        val LAVENDER = Color.rgb(243, 216, 199)       // 奶油杏主色 #F3D8C7
+        val LAVENDER_BRIGHT = Color.rgb(249, 235, 224)// 奶油杏亮端 #F9EBE0
+        val MINT = Color.rgb(191, 216, 193)           // 柔和鼠尾草綠 #BFD8C1
+        val AMBER = Color.rgb(232, 191, 163)          // 奶茶杏 #E8BFA3
+        val PINK = Color.rgb(243, 170, 164)           // 蜜桃粉 #F3AAA4
+        val CORAL = Color.rgb(232, 144, 136)          // 珊瑚色 #E89088 (Stop 停止按鈕)
+        val ERROR = Color.rgb(242, 167, 167)          // 柔和危險與錯誤 #F2A7A7
+        val BUTTON_TEXT = Color.rgb(53, 35, 28)       // 深暖棕文字與圖示 #35231C
+        val TEXT = Color.rgb(255, 249, 244)           // 米白主要文字 #FFF9F4
+        val TEXT_MUTED = Color.rgb(209, 191, 181)     // 淡暖灰次要文字 #D1BFB5
     }
 }

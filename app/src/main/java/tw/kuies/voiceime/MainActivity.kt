@@ -44,8 +44,8 @@ class MainActivity : ComponentActivity() {
         editorPackageForProfiles = intent.getStringExtra(EXTRA_EDITOR_PACKAGE)
         updateSavedSnippetLaunch(intent)
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+            statusBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
         )
         setContent {
             VoiceIMETheme {
