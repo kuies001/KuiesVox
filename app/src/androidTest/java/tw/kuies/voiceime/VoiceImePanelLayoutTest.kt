@@ -579,54 +579,40 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
-    fun recordingStopAndCancelButtonsUseBalancedSharedStyle() {
-        val panel = panel()
+    fun recordingTurnsTheCentralCircleIntoStopWithCancelDirectlyBelow() {
+        var cancelled = 0
+        val panel = VoiceImePanel(
+            context = context,
+            onVoiceAction = {},
+            onCancel = { cancelled += 1 },
+            onSwitchInputMethod = {}
+        )
+        layoutPanel(panel, widthDp = 360)
+        val idleCentre = centreInRoot(panel.view, panel.idleMicButton)
+        val idleTop = topInRoot(panel.view, panel.idleMicButton)
+
         panel.render(VoiceImeState.RECORDING)
         layoutPanel(panel, widthDp = 360)
 
-        val stopButton = panel.recordingActions.getChildAt(0) as LinearLayout
-        val cancelButton = panel.recordingActions.getChildAt(1) as LinearLayout
-        val stopParams = stopButton.layoutParams as LinearLayout.LayoutParams
-        val cancelParams = cancelButton.layoutParams as LinearLayout.LayoutParams
-        assertEquals(1f, stopParams.weight)
-        assertEquals(stopParams.weight, cancelParams.weight)
-        assertEquals(stopParams.height, cancelParams.height)
-        assertTrue(kotlin.math.abs(stopButton.width - cancelButton.width) <= 1)
-        assertEquals(Gravity.CENTER, stopButton.gravity)
-        assertEquals(Gravity.CENTER, cancelButton.gravity)
-        assertEquals(0, stopButton.paddingLeft)
-        assertEquals(0, cancelButton.paddingLeft)
+        // 同一個中央圓形按鈕就地變成「停止」：位置與待命時完全相同。
+        assertEquals(View.VISIBLE, panel.idleActions.visibility)
+        assertEquals("停止錄音", panel.idleMicButton.contentDescription)
+        assertEquals(idleTop, topInRoot(panel.view, panel.idleMicButton))
+        assertEquals(idleCentre, centreInRoot(panel.view, panel.idleMicButton))
+        // 原本的標題／說明以 INVISIBLE 保留高度，不讓圓形位移。
+        assertEquals(View.INVISIBLE, panel.idleTitle.visibility)
+        assertEquals(View.INVISIBLE, panel.idleHint.visibility)
 
-        val stopIcon = stopButton.getChildAt(0) as ImageView
-        val cancelIcon = cancelButton.getChildAt(0) as ImageView
-        assertEquals(stopIcon.layoutParams.width, cancelIcon.layoutParams.width)
-        assertEquals(stopIcon.layoutParams.height, cancelIcon.layoutParams.height)
-        assertEquals(
-            (18 * context.resources.displayMetrics.density).toInt(),
-            stopIcon.layoutParams.width
-        )
-        val stopLabel = stopButton.getChildAt(1) as TextView
-        val cancelLabel = cancelButton.getChildAt(1) as TextView
-        assertEquals("停止", stopLabel.text.toString())
-        assertEquals("取消", cancelLabel.text.toString())
-        assertEquals(stopLabel.textSize, cancelLabel.textSize)
-        assertEquals(
-            (7 * context.resources.displayMetrics.density).toInt(),
-            (stopLabel.layoutParams as LinearLayout.LayoutParams).marginStart
-        )
-        assertEquals(
-            (stopLabel.layoutParams as LinearLayout.LayoutParams).marginStart,
-            (cancelLabel.layoutParams as LinearLayout.LayoutParams).marginStart
-        )
-        val stopBackground = (stopButton.background as RippleDrawable)
-            .getDrawable(0) as GradientDrawable
-        val cancelBackground = (cancelButton.background as RippleDrawable)
-            .getDrawable(0) as GradientDrawable
-        assertEquals(stopBackground.cornerRadius, cancelBackground.cornerRadius)
-        assertEquals(
-            (48 * context.resources.displayMetrics.density).toInt(),
-            stopButton.height
-        )
+        // 「取消」按鈕顯示在中央圓形正下方，並與面板共用同一條中心線。
+        val cancel = panel.recordingCancelButton
+        assertEquals(View.VISIBLE, cancel.visibility)
+        assertEquals("取消", cancel.text.toString())
+        val cancelTop = topInRoot(panel.view, cancel)
+        val micBottom = topInRoot(panel.view, panel.idleMicButton) + panel.idleMicButton.height
+        assertTrue("取消必須在中央圓形下方 cancel.top=$cancelTop mic.bottom=$micBottom", cancelTop >= micBottom)
+        assertEquals(idleCentre, centreInRoot(panel.view, cancel))
+        assertTrue(cancel.performClick())
+        assertEquals(1, cancelled)
     }
 
     @Test
@@ -653,43 +639,58 @@ class VoiceImePanelLayoutTest {
         }
         assertEquals(View.VISIBLE, panel.idleActions.visibility)
         panel.render(VoiceImeState.RECORDING)
-        assertEquals(View.VISIBLE, panel.recordingActions.visibility)
+        assertEquals(View.VISIBLE, panel.idleActions.visibility)
+        assertEquals(View.VISIBLE, panel.recordingCancelButton.visibility)
         assertEquals(View.GONE, panel.busyActions.visibility)
         panel.render(VoiceImeState.TRANSCRIBING)
         assertEquals(View.VISIBLE, panel.busyActions.visibility)
-        assertEquals(View.GONE, panel.recordingActions.visibility)
+        assertEquals(View.GONE, panel.recordingCancelButton.visibility)
     }
 
     @Test
-    fun audioLevelIndicatorTracksRecordingWithoutChangingImeHeight() {
+    fun recordingCircleScalesWithVolumeWithoutChangingImeHeight() {
         val panel = panel()
         layoutPanel(panel, widthDp = 360)
         val originalPanelHeight = measuredHeight(panel)
         val expectedInteractionHeight =
             (VOICE_IME_MAIN_INTERACTION_HEIGHT_DP * context.resources.displayMetrics.density).toInt()
 
-        assertEquals(View.GONE, panel.audioLevelIndicator.visibility)
+        // 待命：基礎半徑。
+        assertEquals(1f, panel.idleMicButton.scaleX, 0f)
+        assertEquals(1f, panel.idleMicButton.scaleY, 0f)
+
         panel.render(VoiceImeState.RECORDING)
         layoutPanel(panel, widthDp = 360)
-        assertEquals(View.VISIBLE, panel.audioLevelIndicator.visibility)
-        assertEquals("麥克風音量指示", panel.audioLevelIndicator.contentDescription)
         assertEquals(expectedInteractionHeight, panel.mainInteractionContainer.measuredHeight)
-        assertTrue(panel.audioLevelIndicator.bottom <= panel.recordingActions.top)
-        panel.updateAudioLevel(0.7f)
-        assertEquals(0.7f, panel.audioLevelIndicator.level, 0f)
+
+        // 無聲：維持基礎半徑，不會縮小。
+        panel.updateAudioLevel(0f)
+        assertEquals(1f, panel.idleMicButton.scaleX, 0f)
+
+        // 音量越大，圓形越大；最大值為 1.2 倍，且 X／Y 同步。
+        panel.updateAudioLevel(0.5f)
+        assertEquals(1.1f, panel.idleMicButton.scaleX, 0.0001f)
+        assertEquals(panel.idleMicButton.scaleX, panel.idleMicButton.scaleY, 0f)
+        panel.updateAudioLevel(1f)
+        assertEquals(1.2f, panel.idleMicButton.scaleX, 0.0001f)
+
+        // 縮放只改 view 的 scale，不動 layout bounds，IME 高度也不變。
+        assertTrue(panel.idleMicButton.width > 0)
         assertEquals(originalPanelHeight, measuredHeight(panel))
 
+        // 停止錄音後回到基礎半徑；非錄音期間遲到的音量回呼不得再放大圓形。
         panel.render(VoiceImeState.TRANSCRIBING)
-        assertEquals(View.GONE, panel.audioLevelIndicator.visibility)
-        assertEquals(0f, panel.audioLevelIndicator.level, 0f)
-        panel.render(VoiceImeState.CANCELLED)
-        assertEquals(View.GONE, panel.audioLevelIndicator.visibility)
+        assertEquals(1f, panel.idleMicButton.scaleX, 0f)
+        panel.updateAudioLevel(1f)
+        assertEquals(1f, panel.idleMicButton.scaleX, 0f)
 
+        // 長按錄音維持原本手勢外觀：不做音量縮放，也不出現取消按鈕。
         panel.render(VoiceImeState.RECORDING, holdToTalkRecording = true)
         layoutPanel(panel, widthDp = 360)
-        assertEquals(View.VISIBLE, panel.audioLevelIndicator.visibility)
         assertEquals(View.VISIBLE, panel.idleActions.visibility)
-        assertEquals(View.GONE, panel.recordingActions.visibility)
+        assertEquals(View.GONE, panel.recordingCancelButton.visibility)
+        panel.updateAudioLevel(1f)
+        assertEquals(1f, panel.idleMicButton.scaleX, 0f)
         assertEquals(expectedInteractionHeight, panel.mainInteractionContainer.measuredHeight)
         assertEquals(originalPanelHeight, measuredHeight(panel))
     }
@@ -1038,7 +1039,7 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
-    fun theRecordingControlsStayFullyInsideThePanelAndCentred() {
+    fun theRecordingCircleAndCancelStayInsideThePanelAndCentred() {
         val panel = VoiceImePanel(
             context = context,
             onVoiceAction = {},
@@ -1049,31 +1050,41 @@ class VoiceImePanelLayoutTest {
         val sideSafePx = (VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP * density).toInt()
 
         listOf(320, 360, 411).forEach { widthDp ->
-            panel.render(VoiceImeState.RECORDING)
-            layoutPanel(panel, widthDp = widthDp)
+            listOf(0f, 1f).forEach { level ->
+                panel.render(VoiceImeState.RECORDING)
+                layoutPanel(panel, widthDp = widthDp)
+                panel.updateAudioLevel(level)
 
-            val stop = findViewByDescription(panel.recordingActions, "停止")
-            val cancel = findViewByDescription(panel.recordingActions, "取消")
-            assertTrue("$widthDp：需要停止按鈕", stop != null)
-            assertTrue("$widthDp：需要取消按鈕", cancel != null)
+                val panelCentre = panel.view.width / 2
+                val railLeft = panel.view.width - panel.view.paddingRight - sideSafePx
 
-            val stopLeft = centreInRoot(panel.view, stop!!) - stop.width / 2
-            val stopRight = stopLeft + stop.width
-            val cancelLeft = centreInRoot(panel.view, cancel!!) - cancel.width / 2
-            val cancelRight = cancelLeft + cancel.width
+                // 取消按鈕：置中、不超出面板，也不侵入右側 Delete / Enter 安全區。
+                val cancel = panel.recordingCancelButton
+                val cancelLeft = leftInRoot(panel.view, cancel)
+                val cancelRight = cancelLeft + cancel.width
+                assertTrue("$widthDp/$level：取消不得超出左緣 left=$cancelLeft", cancelLeft >= 0)
+                assertTrue("$widthDp/$level：取消不得超出右緣 right=$cancelRight", cancelRight <= panel.view.width)
+                assertTrue(
+                    "$widthDp/$level：取消必須與面板中心線對齊 centre=${centreInRoot(panel.view, cancel)} panel=$panelCentre",
+                    kotlin.math.abs(centreInRoot(panel.view, cancel) - panelCentre) <= 1
+                )
+                assertTrue(
+                    "$widthDp/$level：取消不得侵入右側 Delete/Enter 安全區 right=$cancelRight railLeft=$railLeft",
+                    cancelRight <= railLeft
+                )
 
-            assertTrue("$widthDp：停止不得超出左緣 left=$stopLeft", stopLeft >= 0)
-            assertTrue("$widthDp：取消不得超出右緣 right=$cancelRight", cancelRight <= panel.view.width)
-            assertTrue("$widthDp：停止與取消不得重疊", stopRight <= cancelLeft)
-            assertTrue(
-                "$widthDp：整組不得侵入右側 Delete/Enter 安全區",
-                cancelRight <= panel.view.width - panel.view.paddingRight - sideSafePx
-            )
-            val groupCentre = (stopLeft + cancelRight) / 2
-            assertTrue(
-                "$widthDp：錄音群組必須以面板中心置中 group=$groupCentre panel=${panel.view.width / 2}",
-                kotlin.math.abs(groupCentre - panel.view.width / 2) <= 1
-            )
+                // 即使音量最大、圓形放到上限，也不得遮到右側 Delete / Enter 與工具列按鈕。
+                val circleRadius = panel.idleMicButton.width * RecordingCircleScale.MAX_SCALE / 2f
+                val circleRight = panelCentre + circleRadius
+                assertTrue(
+                    "$widthDp/$level：放大後的圓形不得進入右側安全區 right=$circleRight railLeft=$railLeft",
+                    circleRight <= railLeft
+                )
+                assertTrue(
+                    "$widthDp/$level：圓形必須維持在面板中心",
+                    kotlin.math.abs(centreInRoot(panel.view, panel.idleMicButton) - panelCentre) <= 1
+                )
+            }
         }
     }
 
@@ -1228,7 +1239,7 @@ class VoiceImePanelLayoutTest {
     }
 
     @Test
-    fun theRecordingButtonsShareOneSizeAndCentreTheirContent() {
+    fun theRecordingCancelButtonKeepsAUsableTouchAreaBelowTheCircle() {
         val panel = VoiceImePanel(
             context = context,
             onVoiceAction = {},
@@ -1238,31 +1249,20 @@ class VoiceImePanelLayoutTest {
         panel.render(VoiceImeState.RECORDING)
         layoutPanel(panel, widthDp = 360)
 
-        val stop = findViewByDescription(panel.recordingActions, "停止") as LinearLayout
-        val cancel = findViewByDescription(panel.recordingActions, "取消") as LinearLayout
-
-        assertEquals("停止/取消外框同寬", stop.width, cancel.width)
-        assertEquals("停止/取消外框同高", stop.height, cancel.height)
-
-        listOf("停止" to stop, "取消" to cancel).forEach { (name, button) ->
-            val icon = button.getChildAt(0)
-            val label = button.getChildAt(1)
-            assertEquals("$name icon 需為正方形", icon.width, icon.height)
-            assertTrue(
-                "$name icon 必須垂直置中",
-                kotlin.math.abs(icon.top + icon.height / 2 - button.height / 2) <= 1
-            )
-            assertTrue(
-                "$name 文字必須垂直置中",
-                kotlin.math.abs(label.top + label.height / 2 - button.height / 2) <= 1
-            )
-            assertEquals("$name icon 與文字需共用垂直中心", icon.top + icon.height / 2, label.top + label.height / 2)
-        }
+        val cancel = panel.recordingCancelButton
+        assertEquals(Gravity.CENTER, cancel.gravity)
         assertEquals(
-            "停止/取消 的 icon 尺寸需一致",
-            (stop.getChildAt(0) as View).width,
-            (cancel.getChildAt(0) as View).width
+            "取消的高度必須固定，才不會把互動區撐高",
+            (34 * context.resources.displayMetrics.density).toInt(),
+            cancel.height
         )
+        assertTrue("取消需有可用觸控面積 ${cancel.width}x${cancel.height}", cancel.width > 0)
+        val cancelTop = topInRoot(panel.view, cancel)
+        val micBottom = topInRoot(panel.view, panel.idleMicButton) + panel.idleMicButton.height
+        assertTrue("取消必須位於中央圓形下方 cancel.top=$cancelTop mic.bottom=$micBottom", cancelTop >= micBottom)
+        assertTrue(cancel.isClickable)
+        assertTrue(cancel.isFocusable)
+        assertEquals("取消", cancel.contentDescription)
     }
 
     @Test
@@ -1363,8 +1363,8 @@ class VoiceImePanelLayoutTest {
 
         panel.render(VoiceImeState.RECORDING, formatCommandMode = true)
         assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)
-        assertEquals(View.VISIBLE, panel.recordingActions.visibility)
-        assertEquals(View.VISIBLE, panel.audioLevelIndicator.visibility)
+        assertEquals(View.VISIBLE, panel.recordingCancelButton.visibility)
+        assertEquals("停止錄音", panel.idleMicButton.contentDescription)
 
         panel.render(VoiceImeState.TRANSCRIBING, formatCommandMode = true)
         assertEquals(View.GONE, findViewByDescription(panel.view, "返回一般模式")?.visibility)

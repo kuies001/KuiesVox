@@ -93,4 +93,32 @@ class AudioLevelTest {
             bytes[index * 2 + 1] = (value shr 8).toByte()
         }
     }
+
+    @Test
+    fun recordingCircleKeepsItsBaseRadiusWhenSilentAndCapsAtTheConfiguredMaximum() {
+        assertEquals(1f, RecordingCircleScale.forLevel(0f), 0f)
+        assertEquals(1f, RecordingCircleScale.BASE_SCALE, 0f)
+        assertEquals(1.2f, RecordingCircleScale.MAX_SCALE, 0f)
+
+        // 音量越大，圓形越大（單調遞增），且在 0f–1f 之間線性內插。
+        val levels = listOf(0f, 0.25f, 0.5f, 0.75f, 1f)
+        val scales = levels.map(RecordingCircleScale::forLevel)
+        scales.zipWithNext { lower, higher -> assertTrue(higher > lower) }
+        assertEquals(1.1f, RecordingCircleScale.forLevel(0.5f), 0.0001f)
+        assertEquals(RecordingCircleScale.MAX_SCALE, RecordingCircleScale.forLevel(1f), 0.0001f)
+    }
+
+    @Test
+    fun recordingCircleScaleClampsOutOfRangeAndNonFiniteLevels() {
+        assertEquals(RecordingCircleScale.BASE_SCALE, RecordingCircleScale.forLevel(-5f), 0f)
+        assertEquals(RecordingCircleScale.MAX_SCALE, RecordingCircleScale.forLevel(9f), 0f)
+        assertEquals(RecordingCircleScale.BASE_SCALE, RecordingCircleScale.forLevel(Float.NaN), 0f)
+        assertEquals(RecordingCircleScale.BASE_SCALE, RecordingCircleScale.forLevel(Float.NEGATIVE_INFINITY), 0f)
+        // 非有限值一律視為無聲（與 AudioLevelSmoother 一致），不得把圓形撐大。
+        assertEquals(RecordingCircleScale.BASE_SCALE, RecordingCircleScale.forLevel(Float.POSITIVE_INFINITY), 0f)
+        listOf(-5f, 0f, 0.3f, 1f, 9f).forEach { level ->
+            val scale = RecordingCircleScale.forLevel(level)
+            assertTrue(scale in RecordingCircleScale.BASE_SCALE..RecordingCircleScale.MAX_SCALE)
+        }
+    }
 }

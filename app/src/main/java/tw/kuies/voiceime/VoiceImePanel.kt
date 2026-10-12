@@ -62,12 +62,14 @@ private const val BACK_ICON_GAP_DP = 4
 private const val BACK_BUTTON_HEIGHT_DP = 26
 private const val BACK_BUTTON_HORIZONTAL_PADDING_DP = 10
 
-/** 錄音狀態的停止／取消：共用同一組規格，比一般 action 更飽滿、好按。 */
-private const val RECORDING_ACTION_HEIGHT_DP = 54
-private const val RECORDING_ACTION_ICON_DP = 22
-private const val RECORDING_ACTION_LABEL_SP = 15f
-private const val RECORDING_ACTION_LABEL_GAP_DP = 8
-private const val RECORDING_ACTION_GROUP_GAP_DP = 12
+/** 中央圓形錄音按鈕的直徑；音量縮放以此為基準半徑。 */
+private const val IDLE_MIC_BUTTON_SIZE_DP = 84
+
+/**
+ * 錄音中的「取消」按鈕高度。它疊在原本主標題／副標題所在的區塊內，
+ * 刻意低於該區塊高度，因此不會把整個互動區撐高（IME 總高度不變）。
+ */
+private const val RECORDING_CANCEL_HEIGHT_DP = 34
 
 internal class VoiceImePanel(
     context: Context,
@@ -188,8 +190,9 @@ internal class VoiceImePanel(
             button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         }
     }
+    /** 目前畫面是否為「錄音中的縮放圓形」；用來忽略非錄音期間遲到的音量回呼。 */
+    private var recordingCircleActive = false
     internal val mainInteractionContainer = FrameLayout(context)
-    internal val audioLevelIndicator = AudioLevelIndicatorView(context)
     internal val idleActions = LinearLayout(context)
     internal val idleMicButton = ImageButton(context)
     internal val idleTitle = textView(context, sizeSp = 15f, color = TEXT).apply {
@@ -201,7 +204,29 @@ internal class VoiceImePanel(
         maxLines = IDLE_HINT_MAX_LINES
         ellipsize = null
     }
-    internal val recordingActions = LinearLayout(context)
+
+    /**
+     * 主標題／副標題與錄音中的「取消」共用同一個幾何區塊。
+     * 兩者互斥顯示、區塊高度固定，所以待命與錄音中的中央圓形位置完全相同。
+     */
+    private val idleSecondarySlot = FrameLayout(context)
+    private val idleSecondaryStack = LinearLayout(context)
+    internal val recordingCancelButton = textView(context, sizeSp = 13f, color = TEXT).apply {
+        text = "取消"
+        gravity = Gravity.CENTER
+        setTypeface(typeface, Typeface.BOLD)
+        setPadding(dp(context, 22), 0, dp(context, 22), 0)
+        isClickable = true
+        isFocusable = true
+        contentDescription = "取消"
+        visibility = View.GONE
+        background = RippleDrawable(
+            ColorStateList.valueOf(0x33FFFFFF),
+            solid(SURFACE_VARIANT, dp(context, 17)),
+            null
+        )
+        setOnClickListener { onCancel() }
+    }
     internal val busyActions = LinearLayout(context)
     private val voiceActionsContainer = FrameLayout(context)
     private val sideActionColumn = LinearLayout(context)
@@ -530,31 +555,61 @@ internal class VoiceImePanel(
             }
             addView(
                 idleMicButton,
-                LinearLayout.LayoutParams(dp(context, 84), dp(context, 84))
+                LinearLayout.LayoutParams(
+                    dp(context, IDLE_MIC_BUTTON_SIZE_DP),
+                    dp(context, IDLE_MIC_BUTTON_SIZE_DP)
+                )
             )
             idleTitle.apply {
                 text = "開始語音輸入"
                 gravity = Gravity.CENTER
                 includeFontPadding = false
             }
-            addView(
-                idleTitle,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(context, IDLE_TITLE_TOP_MARGIN_DP) }
-            )
             idleHint.apply {
                 text = "點一下開始說話"
                 gravity = Gravity.CENTER
                 includeFontPadding = false
             }
+            // 標題與說明照原間距疊放，再由外層 FrameLayout 疊上錄音中的「取消」按鈕：
+            // 兩個狀態的區塊高度都等於標題＋說明的自然高度，因此中央圓形不會位移。
+            idleSecondaryStack.apply {
+                orientation = LinearLayout.VERTICAL
+                addView(
+                    idleTitle,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(context, IDLE_TITLE_TOP_MARGIN_DP) }
+                )
+                addView(
+                    idleHint,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(context, IDLE_HINT_TOP_MARGIN_DP) }
+                )
+            }
+            idleSecondarySlot.addView(
+                idleSecondaryStack,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            idleSecondarySlot.addView(
+                recordingCancelButton,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    dp(context, RECORDING_CANCEL_HEIGHT_DP),
+                    Gravity.CENTER
+                )
+            )
             addView(
-                idleHint,
+                idleSecondarySlot,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(context, IDLE_HINT_TOP_MARGIN_DP) }
+                )
             )
         }
         voiceActionsContainer.addView(
@@ -666,62 +721,6 @@ internal class VoiceImePanel(
                 dp(context, BACK_BUTTON_HEIGHT_DP),
                 Gravity.TOP or Gravity.START
             )
-        )
-
-        recordingActions.apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(
-                actionButton(
-                    context,
-                    R.drawable.ic_ime_stop,
-                    "停止",
-                    BUTTON_TEXT,
-                    solid(CORAL, dp(context, 50)),
-                    onVoiceAction,
-                    iconSizeDp = RECORDING_ACTION_ICON_DP,
-                    labelSizeSp = RECORDING_ACTION_LABEL_SP,
-                    labelGapDp = RECORDING_ACTION_LABEL_GAP_DP
-                ),
-                LinearLayout.LayoutParams(0, dp(context, RECORDING_ACTION_HEIGHT_DP), 1f).apply {
-                    marginEnd = dp(context, RECORDING_ACTION_GROUP_GAP_DP)
-                }
-            )
-            addView(
-                actionButton(
-                    context,
-                    R.drawable.ic_ime_close,
-                    "取消",
-                    TEXT,
-                    solid(SURFACE_VARIANT, dp(context, 50)),
-                    onCancel,
-                    iconSizeDp = RECORDING_ACTION_ICON_DP,
-                    labelSizeSp = RECORDING_ACTION_LABEL_SP,
-                    labelGapDp = RECORDING_ACTION_LABEL_GAP_DP
-                ),
-                LinearLayout.LayoutParams(0, dp(context, RECORDING_ACTION_HEIGHT_DP), 1f)
-            )
-        }
-        // 錄音控制群組（停止＋取消）在自己的安全可用區內置中。FrameLayout 對
-        // CENTER_HORIZONTAL 的子項是以「(父寬−子寬)/2 + leftMargin − rightMargin」定位，
-        // 所以左右留白必須對稱，否則整組會被推向左邊（單邊 marginEnd 曾造成 Stop 超出畫面）。
-        voiceActionsContainer.addView(
-            recordingActions,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            ).apply {
-                marginStart = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP)
-                marginEnd = dp(context, VOICE_IME_SIDE_ACTION_COLUMN_WIDTH_DP)
-            }
-        )
-        audioLevelIndicator.visibility = View.GONE
-        voiceActionsContainer.addView(
-            audioLevelIndicator,
-            FrameLayout.LayoutParams(dp(context, 46), dp(context, 34), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-                topMargin = dp(context, 3)
-            }
         )
 
         busyActions.apply {
@@ -1001,6 +1000,11 @@ internal class VoiceImePanel(
         aiEditPageContainer.visibility = if (page == PanelPage.AI_EDIT_PREVIEW) View.VISIBLE else View.GONE
         savedSnippetsPanel.visibility = View.VISIBLE
         if (page != PanelPage.SAVED_SNIPPETS) clearSnippetDeleteConfirmation()
+        // 離開主互動頁時停止音量縮放回饋，避免回呼還在更新看不見的圓形。
+        if (page != PanelPage.MAIN) {
+            recordingCircleActive = false
+            applyRecordingCircleScale(RecordingCircleScale.BASE_SCALE)
+        }
         renderHistoryRows()
         renderSavedSnippets()
     }
@@ -2239,10 +2243,14 @@ internal class VoiceImePanel(
             }
             applyTopMargin(idleHint, dp(idleHint.context, IDLE_HINT_TOP_MARGIN_DP))
         }
-        // 特殊模式改用專屬圖示，讓模式只靠主按鈕就能辨識；收音中仍由狀態燈、音量回饋與
-        // 啟動配色（isActivated）表達，不會因此換回麥克風圖示。
+        // 特殊模式改用專屬圖示，讓模式只靠主按鈕就能辨識；長按錄音時維持模式圖示並以
+        // 啟動配色（isActivated）表達收音中，不會因此換回麥克風圖示。
+        // 錄音中（非長按）時，同一個中央圓形按鈕就地變成「停止」：圓形內換成停止圖示、
+        // 沿用錄音珊瑚底色，半徑再依實際麥克風音量縮放（見 updateAudioLevel）。
+        val recordingCircle = state == VoiceImeState.RECORDING && !holdToTalkRecording
         idleMicButton.setImageResource(
             when {
+                recordingCircle -> R.drawable.ic_ime_stop
                 formatCommandMode -> R.drawable.ic_ime_format_command
                 aiEditMode -> R.drawable.ic_ime_ai_edit
                 translateMode -> R.drawable.ic_ime_translate
@@ -2250,6 +2258,7 @@ internal class VoiceImePanel(
             }
         )
         idleMicButton.contentDescription = when {
+            recordingCircle -> "停止錄音"
             formatCommandMode -> "格式指令模式錄音"
             aiEditMode -> "AI 編輯模式錄音"
             translateMode -> "語音翻譯模式錄音"
@@ -2258,42 +2267,32 @@ internal class VoiceImePanel(
         idleMicButton.isActivated = holdToTalkRecording
         idleMicButton.alpha = if (holdToTalkRecording) 0.9f else 1f
         // 模式色集中在 VoiceModePalette：翻譯＝鼠尾草綠、格式指令＝柔霧紫、AI 編輯＝蜜桃粉，
-        // 待命、錄音中與處理中都維持同一模式識別；一般語音使用奶油杏漸層。
+        // 待命與處理中都維持同一模式識別；一般語音使用奶油杏漸層。
         val modeAccent = VoiceModePalette.accentForMode(translateMode, formatCommandMode, aiEditMode)
-        idleMicButton.imageTintList = ColorStateList.valueOf(modeAccent?.icon ?: BUTTON_TEXT)
+        idleMicButton.imageTintList = ColorStateList.valueOf(
+            if (recordingCircle) BUTTON_TEXT else (modeAccent?.icon ?: BUTTON_TEXT)
+        )
         idleMicButton.background = when {
+            recordingCircle -> solid(CORAL, dp(idleMicButton.context, 100))
             modeAccent != null -> circleRipple(idleMicButton.context, modeAccent.base, modeAccent.bright)
             holdToTalkRecording -> solid(CORAL, dp(idleMicButton.context, 100))
             else -> circleRipple(idleMicButton.context)
         }
         idleActions.visibility = if (
-            state == VoiceImeState.IDLE || isTerminal || holdToTalkRecording
+            state == VoiceImeState.IDLE || isTerminal || holdToTalkRecording || recordingCircle
         ) {
             View.VISIBLE
         } else {
             View.GONE
         }
-        recordingActions.visibility = if (
-            state == VoiceImeState.RECORDING && !holdToTalkRecording
-        ) View.VISIBLE else View.GONE
-        val showAudioLevel = state == VoiceImeState.RECORDING
-        audioLevelIndicator.visibility = if (showAudioLevel) View.VISIBLE else View.GONE
-        if (showAudioLevel) {
-            audioLevelIndicator.setColor(modeAccent?.bright ?: VoiceModePalette.NORMAL_CREAM_BRIGHT)
-            val params = audioLevelIndicator.layoutParams as FrameLayout.LayoutParams
-            if (holdToTalkRecording) {
-                params.gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                params.marginStart = dp(audioLevelIndicator.context, 8)
-                params.topMargin = 0
-            } else {
-                params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                params.marginStart = 0
-                params.topMargin = dp(audioLevelIndicator.context, 3)
-            }
-            audioLevelIndicator.layoutParams = params
-        } else {
-            audioLevelIndicator.setLevel(0f)
-        }
+        // 錄音中讓標題／說明留在原位（INVISIBLE 保留高度），由「取消」按鈕佔用同一區塊：
+        // 中央圓形與待命時位置相同，IME 總高度不變。
+        idleTitle.visibility = if (recordingCircle) View.INVISIBLE else View.VISIBLE
+        idleHint.visibility = if (recordingCircle) View.INVISIBLE else View.VISIBLE
+        recordingCancelButton.visibility = if (recordingCircle) View.VISIBLE else View.GONE
+        recordingCircleActive = recordingCircle
+        // 非錄音狀態一律回到基礎半徑，避免殘留的放大尺寸留在畫面上。
+        if (!recordingCircle) applyRecordingCircleScale(RecordingCircleScale.BASE_SCALE)
         val isBusy = state == VoiceImeState.TRANSCRIBING || state == VoiceImeState.FORMATTING
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
         // 處理中也維持目前模式的識別色，不回到一般模式的淡紫。
@@ -2308,10 +2307,21 @@ internal class VoiceImePanel(
         }
     }
 
+    /**
+     * 錄音中的音量回饋：音量越大，中央圓形越大。
+     * 只調整 view 的 scale，不動 layout bounds，所以圓形位置、觸控區域與 IME 高度都不變；
+     * 音量本身已在 Service 端平滑過（[AudioLevelSmoother]），這裡不再另外啟動動畫，
+     * 以免每 40ms 重新啟動一次動畫造成抖動與額外負擔。
+     */
     internal fun updateAudioLevel(level: Float) {
-        if (audioLevelIndicator.visibility == View.VISIBLE) {
-            audioLevelIndicator.setLevel(level)
-        }
+        if (!recordingCircleActive) return
+        applyRecordingCircleScale(RecordingCircleScale.forLevel(level))
+    }
+
+    private fun applyRecordingCircleScale(scale: Float) {
+        if (idleMicButton.scaleX == scale && idleMicButton.scaleY == scale) return
+        idleMicButton.scaleX = scale
+        idleMicButton.scaleY = scale
     }
 
     internal fun cancelHoldToTalkGesture() {

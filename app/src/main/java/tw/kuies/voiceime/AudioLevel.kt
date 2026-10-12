@@ -58,6 +58,22 @@ internal class AudioLevelSmoother(
     }
 }
 
+/**
+ * 把正規化的音量（0f–1f）映射成中央錄音圓形按鈕的縮放倍率。
+ *
+ * 無聲時維持基礎半徑（[BASE_SCALE]），音量最大時放大到 [MAX_SCALE]；
+ * 只調整 view 的 scale，因此 layout bounds、觸控區域與 IME 高度都不變。
+ */
+internal object RecordingCircleScale {
+    const val BASE_SCALE = 1f
+    const val MAX_SCALE = 1.2f
+
+    fun forLevel(level: Float): Float {
+        val bounded = if (level.isFinite()) level.coerceIn(0f, 1f) else 0f
+        return BASE_SCALE + (MAX_SCALE - BASE_SCALE) * bounded
+    }
+}
+
 /** Keeps meter state scoped to the current recording operation. */
 internal class AudioLevelMonitor {
     private val smoother = AudioLevelSmoother()
