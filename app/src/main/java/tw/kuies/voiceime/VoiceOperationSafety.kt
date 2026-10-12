@@ -8,7 +8,8 @@ internal data class VoiceEditorTargetKey(
     val fieldName: String?,
     val inputType: Int,
     val imeOptions: Int,
-    val connectionIdentity: Any?
+    val connectionIdentity: Any?,
+    val privateImeOptions: String? = null
 )
 
 internal object VoiceEditorTargetPolicy {
@@ -19,6 +20,7 @@ internal object VoiceEditorTargetPolicy {
             expected.fieldName == current.fieldName &&
             expected.inputType == current.inputType &&
             expected.imeOptions == current.imeOptions &&
+            expected.privateImeOptions == current.privateImeOptions &&
             expected.connectionIdentity != null &&
             expected.connectionIdentity === current.connectionIdentity
 }

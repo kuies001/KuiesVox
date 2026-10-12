@@ -114,12 +114,69 @@ class OnboardingNavigationTest {
         // 逐步前進、回首頁再回來，都不算完成。
         state = OnboardingNavigation.goToStep(state, OnboardingStep.GROQ)
         state = OnboardingNavigation.goToStep(state, OnboardingStep.IME)
+        state = OnboardingNavigation.goToStep(state, OnboardingStep.PRACTICE)
         assertFalse(OnboardingNavigation.shouldMarkCompleted(state))
 
-        // 最後一頁按「開始使用」或任何一頁按「略過」都走 finish()。
+        // 第四頁完成或稍後體驗進入獨立完成頁，此時導覽仍處於進行中，尚未標記完成
+        state = OnboardingNavigation.showCompletion(state)
+        assertTrue(state.isActive)
+        assertTrue(state.isCompletionScreen)
+        assertFalse(OnboardingNavigation.shouldMarkCompleted(state))
+
+        // 完成頁按下「回到輸入法設定」或「我知道了」走 finish()
         state = OnboardingNavigation.finish(state)
         assertFalse(state.isActive)
+        assertFalse(state.isCompletionScreen)
         assertTrue(OnboardingNavigation.shouldMarkCompleted(state))
+    }
+
+    @Test
+    fun completionScreenCanBeEnteredFromPracticePage() {
+        var state = OnboardingNavigation.start(OnboardingEntryPoint.FIRST_RUN)
+        state = OnboardingNavigation.goToStep(state, OnboardingStep.PRACTICE)
+        assertFalse(state.isCompletionScreen)
+
+        // 使用者點選「完成體驗」或「稍後體驗」
+        state = OnboardingNavigation.showCompletion(state)
+        assertTrue(state.isCompletionScreen)
+        assertTrue(state.showsOnboardingScreen)
+        assertTrue(state.isActive)
+        assertFalse(OnboardingNavigation.shouldMarkCompleted(state))
+
+        // 切換步驟會重設 isCompletionScreen
+        state = OnboardingNavigation.goToStep(state, OnboardingStep.IME)
+        assertFalse(state.isCompletionScreen)
+    }
+
+    @Test
+    fun completionScreenFinishingIsIdempotentAndCleansState() {
+        var state = OnboardingNavigation.start(OnboardingEntryPoint.SETTINGS_REVIEW)
+        state = OnboardingNavigation.goToStep(state, OnboardingStep.PRACTICE)
+        state = OnboardingNavigation.showCompletion(state)
+        assertTrue(state.isCompletionScreen)
+
+        // 使用者點選「回到輸入法設定」或「我知道了」
+        val finished = OnboardingNavigation.finish(state)
+        assertFalse(finished.isActive)
+        assertFalse(finished.isCompletionScreen)
+        assertFalse(finished.showsOnboardingScreen)
+        assertTrue(OnboardingNavigation.shouldMarkCompleted(finished))
+
+        // 重複快速點擊 finish 依然安全處於 idle
+        val finishedAgain = OnboardingNavigation.finish(finished)
+        assertEquals(finished, finishedAgain)
+    }
+
+    @Test
+    fun completionScreenDoesNotAllowBackToGroqSettingsDirectly() {
+        // 從 Groq 設定頁進入導覽
+        val guide = OnboardingNavigation.start(OnboardingEntryPoint.SETTINGS_REVIEW)
+        val onPractice = OnboardingNavigation.goToStep(guide, OnboardingStep.PRACTICE)
+        val completion = OnboardingNavigation.showCompletion(onPractice)
+
+        // 在完成頁時 backFromGroq 必須回傳 null（不誤觸發回 Groq 第二頁）
+        assertNull(OnboardingNavigation.backFromGroq(completion))
+        assertTrue(completion.isCompletionScreen)
     }
 
     @Test
@@ -136,7 +193,7 @@ class OnboardingNavigationTest {
 
     @Test
     fun everyGuidePageMapsToItsOwnNavigationStep() {
-        assertEquals(3, OnboardingStep.entries.size)
+        assertEquals(4, OnboardingStep.entries.size)
         OnboardingStep.entries.forEach { step ->
             assertEquals(step, OnboardingStep.fromIndex(step.index))
         }

@@ -315,21 +315,23 @@ private fun ImePanelPreview(spec: ThemePreviewSpec, animate: Boolean) {
                 }
             }
             Box(contentAlignment = Alignment.Center) {
-                // 錄音視覺化：與 IME 使用同一份繪製計畫與同一組幾何常數。
+                // 錄音視覺化：與 IME 使用同一份繪製計畫與同一組幾何常數，外輪廓一律為圓形。
                 Canvas(modifier = Modifier.size(42.dp).scale(centreScale)) {
                     previewRecordingVisual(spec, level, accent)
                 }
+                // 硬性規則：五套主題在錄音狀態下，主按鈕與光暈必須保持圓形輪廓！
+                val buttonShape = CircleShape
                 Box(
                     modifier = Modifier
-                        // 主按鈕視覺圓半徑與 IME 相同（共用常數），外圈留給刻度／電波。
+                        // 主按鈕視覺圖形半徑與 IME 相同（共用常數），外圈留給刻度／電波。
                         .size((42 * RecordingVisualPlanner.BUTTON_SURFACE_RADIUS_FRACTION).dp)
                         .scale(centreScale)
-                        .clip(CircleShape)
+                        .clip(buttonShape)
                         .background(Color(spec.recorderBackground))
-                        .previewFrame(visual, accent, CircleShape)
+                        .previewFrame(visual, accent, buttonShape)
                         .then(
                             if (Color(spec.recordingHalo).alpha > 0f) {
-                                Modifier.border(3.dp, Color(spec.recordingHalo), CircleShape)
+                                Modifier.border(2.dp, Color(spec.recordingHalo), buttonShape)
                             } else {
                                 Modifier
                             }

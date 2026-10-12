@@ -3,7 +3,8 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- 圓潤柔和的停止方形圖示 -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M6,6h12v12H6z" />
+        android:pathData="M8.5,6h7c1.38,0 2.5,1.12 2.5,2.5v7c0,1.38 -1.12,2.5 -2.5,2.5h-7c-1.38,0 -2.5,-1.12 -2.5,-2.5v-7c0,-1.38 1.12,-2.5 2.5,-2.5z" />
 </vector>

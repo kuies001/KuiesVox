@@ -46,6 +46,24 @@ internal enum class ButtonStyle {
     NEUTRAL
 }
 
+/**
+ * 中央錄音主按鈕的幾何外輪廓造型。
+ *
+ * 五套主題擁有各自獨立的實體鍵帽／模組輪廓，不再全部看起來像圓形：
+ * - [ORGANIC_CURVE]: 柔和不規則圓角有機曲線（變形微圓弧），具蓬鬆感（奶油可愛）。
+ * - [MECHANICAL_PANEL]: 圓角矩形機械面板基底，中央機能按鍵（明亮工業）。
+ * - [HUD_MODULE]: 科技 HUD 模組（八角形／切角多邊形幾何）（明亮科幻）。
+ * - [DUAL_LAYER_SQUARE]: 圓角方塊基底搭配同心圓（明亮生活）。
+ * - [CIRCULAR]: 經典標準正圓形（經典溫暖 Legacy）。
+ */
+internal enum class ButtonSilhouette {
+    ORGANIC_CURVE,
+    MECHANICAL_PANEL,
+    HUD_MODULE,
+    DUAL_LAYER_SQUARE,
+    CIRCULAR
+}
+
 /** 邊框處理風格。 */
 internal enum class BorderStyle {
     NONE,
@@ -110,6 +128,7 @@ internal data class ThemeVisualSpec(
     val themeId: AppThemeId,
     val iconStyle: IconStyle,
     val buttonStyle: ButtonStyle,
+    val buttonSilhouette: ButtonSilhouette,
     val borderStyle: BorderStyle,
     val surfaceStyle: SurfaceStyle,
     val recordingVisualStyle: RecordingVisualStyle,
@@ -164,6 +183,7 @@ internal object ThemeVisualSpecRegistry {
         themeId = AppThemeId.LEGACY_WARM,
         iconStyle = IconStyle.NEUTRAL,
         buttonStyle = ButtonStyle.NEUTRAL,
+        buttonSilhouette = ButtonSilhouette.CIRCULAR,
         borderStyle = BorderStyle.NEUTRAL,
         surfaceStyle = SurfaceStyle.NEUTRAL,
         recordingVisualStyle = RecordingVisualStyle.LEGACY,
@@ -181,6 +201,7 @@ internal object ThemeVisualSpecRegistry {
         themeId = AppThemeId.CUTE_CREAM,
         iconStyle = IconStyle.SOFT_ROUNDED,
         buttonStyle = ButtonStyle.SOFT_PILL,
+        buttonSilhouette = ButtonSilhouette.ORGANIC_CURVE,
         borderStyle = BorderStyle.NONE,
         surfaceStyle = SurfaceStyle.SOFT_ELEVATED,
         recordingVisualStyle = RecordingVisualStyle.SOFT_PULSE,
@@ -194,6 +215,7 @@ internal object ThemeVisualSpecRegistry {
         themeId = AppThemeId.INDUSTRIAL_LIGHT,
         iconStyle = IconStyle.GEOMETRIC_FUNCTIONAL,
         buttonStyle = ButtonStyle.HARD_GEOMETRIC,
+        buttonSilhouette = ButtonSilhouette.MECHANICAL_PANEL,
         borderStyle = BorderStyle.FUNCTIONAL_FRAME,
         surfaceStyle = SurfaceStyle.LAYERED_PANELS,
         recordingVisualStyle = RecordingVisualStyle.SEGMENTED_METER_RING,
@@ -207,6 +229,7 @@ internal object ThemeVisualSpecRegistry {
         themeId = AppThemeId.BRIGHT_SCIFI,
         iconStyle = IconStyle.THIN_TECHNICAL,
         buttonStyle = ButtonStyle.HUD_OUTLINE,
+        buttonSilhouette = ButtonSilhouette.HUD_MODULE,
         borderStyle = BorderStyle.HAIRLINE,
         surfaceStyle = SurfaceStyle.GLASS_TINT,
         recordingVisualStyle = RecordingVisualStyle.SIGNAL_WAVE,
@@ -220,6 +243,7 @@ internal object ThemeVisualSpecRegistry {
         themeId = AppThemeId.DAILY_LIVING,
         iconStyle = IconStyle.CLEAN_BALANCED,
         buttonStyle = ButtonStyle.SOFT_SUBTLE,
+        buttonSilhouette = ButtonSilhouette.DUAL_LAYER_SQUARE,
         borderStyle = BorderStyle.SUBTLE_LINE,
         surfaceStyle = SurfaceStyle.CLEAN,
         recordingVisualStyle = RecordingVisualStyle.SMOOTH_SCALE,

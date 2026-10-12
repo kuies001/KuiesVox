@@ -48,7 +48,8 @@ private val OnboardingNavigationStateSaver: Saver<OnboardingNavigationState, Lis
             state.entryPoint.name,
             state.step.name,
             state.groqSettingsForOnboarding,
-            state.awaitingApiKeySave
+            state.awaitingApiKeySave,
+            state.isCompletionScreen
         )
     },
     restore = { saved ->
@@ -57,7 +58,8 @@ private val OnboardingNavigationStateSaver: Saver<OnboardingNavigationState, Lis
             entryPoint = OnboardingEntryPoint.valueOf(saved[1] as String),
             step = OnboardingStep.valueOf(saved[2] as String),
             groqSettingsForOnboarding = saved[3] as Boolean,
-            awaitingApiKeySave = saved[4] as Boolean
+            awaitingApiKeySave = saved[4] as Boolean,
+            isCompletionScreen = (saved.getOrNull(5) as? Boolean) ?: false
         )
     }
 )
@@ -244,6 +246,16 @@ private fun VoiceImeSettingsApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // 監聽系統輸入法與預設輸入法變更，讓使用者在選擇輸入法對話框中選中 KuiesVox 時，
+    // 第三頁的步驟 2 能夠立即更新為「已完成 ✓」，無須等待跳出 Activity 再返回。
+    DisposableEffect(applicationContext) {
+        val imeObserver = ImeSettingsContentObserver(applicationContext) {
+            imeEnablement = currentImeEnablement()
+        }
+        imeObserver.register()
+        onDispose { imeObserver.unregister() }
+    }
+
     var apiKey by remember { mutableStateOf("") }
     var apiKeySaved by remember { mutableStateOf(false) }
     var apiKeyLoaded by remember { mutableStateOf(false) }
@@ -293,16 +305,45 @@ private fun VoiceImeSettingsApp(
         }
     }
 
-    BackHandler(enabled = destination != SettingsDestination.HOME || onboarding.showsOnboardingScreen) {
-        // 由導覽進入的 Groq 設定頁：返回鍵回到導覽第二頁，而不是設定首頁。
-        val backToGuide = if (destination == SettingsDestination.GROQ) {
-            OnboardingNavigation.backFromGroq(onboarding)
-        } else {
-            null
+    /** 完成或略過導覽：清理導覽返回堆疊並回到設定首頁，記住已完成後之後不再自動顯示。 */
+    fun finishOnboarding() {
+        destination = SettingsDestination.HOME
+        savedSnippetAction = null
+        savedSnippetId = null
+        savedSnippetRequestId = null
+        savedSnippetLaunch?.let { onClearSavedSnippetLaunch(it.requestId) }
+        onboarding = OnboardingNavigation.finish(onboarding)
+        OnboardingStateRepository.markCompleted(applicationContext) { result ->
+            result.onFailure { exception ->
+                Log.w(MAIN_ACTIVITY_TAG, "Onboarding state could not be saved: ${exception.javaClass.simpleName}")
+            }
         }
-        if (backToGuide != null) {
-            onboarding = backToGuide
-            return@BackHandler
+    }
+
+    BackHandler(enabled = destination != SettingsDestination.HOME || onboarding.showsOnboardingScreen) {
+        if (onboarding.showsOnboardingScreen) {
+            if (onboarding.isCompletionScreen) {
+                // 在完成頁按返回鍵，直接結束導覽回到設定首頁，不重複進入導覽
+                finishOnboarding()
+                return@BackHandler
+            }
+            // 由導覽進入的 Groq 設定頁：返回鍵回到導覽第二頁，而不是設定首頁。
+            val backToGuide = if (destination == SettingsDestination.GROQ) {
+                OnboardingNavigation.backFromGroq(onboarding)
+            } else {
+                null
+            }
+            if (backToGuide != null) {
+                onboarding = backToGuide
+                return@BackHandler
+            }
+            if (OnboardingFlow.canGoBack(onboarding.step.index)) {
+                onboarding = OnboardingNavigation.goToStep(
+                    onboarding,
+                    OnboardingStep.fromIndex(OnboardingFlow.previousPage(onboarding.step.index))
+                )
+                return@BackHandler
+            }
         }
         destination = SettingsDestination.HOME
         savedSnippetAction = null
@@ -774,16 +815,6 @@ private fun VoiceImeSettingsApp(
         }
     }
 
-    /** 完成或略過導覽：記住已完成後回到設定首頁，之後不再自動顯示。 */
-    fun finishOnboarding() {
-        onboarding = OnboardingNavigation.finish(onboarding)
-        OnboardingStateRepository.markCompleted(applicationContext) { result ->
-            result.onFailure { exception ->
-                Log.w(MAIN_ACTIVITY_TAG, "Onboarding state could not be saved: ${exception.javaClass.simpleName}")
-            }
-        }
-    }
-
     /** 開啟輸入法設定：先試官方的輸入法設定頁，開不起來再退回系統設定首頁。 */
     fun openImeSettings() {
         val launcher = object : SettingsLauncher {
@@ -814,6 +845,7 @@ private fun VoiceImeSettingsApp(
         OnboardingScreen(
             modifier = modifier,
             step = onboarding.step,
+            isCompletionScreen = onboarding.isCompletionScreen,
             hasMicrophonePermission = hasRecordAudioPermission,
             imeEnablement = imeEnablement,
             imeSettingsHint = imeSettingsHint,
@@ -832,6 +864,15 @@ private fun VoiceImeSettingsApp(
             onSwitchToKuiesVox = {
                 openInputMethodPicker()
                 imeEnablement = currentImeEnablement()
+            },
+            onToCompletionScreen = {
+                onboarding = OnboardingNavigation.showCompletion(onboarding)
+            },
+            onBackToSettings = {
+                finishOnboarding()
+            },
+            onAcknowledge = {
+                finishOnboarding()
             },
             onFinish = { finishOnboarding() }
         )
@@ -864,7 +905,8 @@ private fun VoiceImeSettingsApp(
             onOpenMcp = { destination = SettingsDestination.MCP },
             onOpenHistoryPrivacy = { destination = SettingsDestination.HISTORY_PRIVACY },
             onOpenOnboarding = {
-                // 從設定頁重新查看：再次顯示導覽，但不會把完成狀態改回未完成。
+                // 從設定頁重新查看：再次顯示導覽，確保清除先前可能停留的子設定頁
+                destination = SettingsDestination.HOME
                 imeSettingsHint = ""
                 onboarding = OnboardingNavigation.start(OnboardingEntryPoint.SETTINGS_REVIEW)
             },

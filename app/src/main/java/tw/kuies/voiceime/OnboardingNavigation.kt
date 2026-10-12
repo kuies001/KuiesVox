@@ -2,6 +2,9 @@ package tw.kuies.voiceime
 
 import android.content.Context
 import android.content.Intent
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 
@@ -9,7 +12,8 @@ import android.view.inputmethod.InputMethodManager
 internal enum class OnboardingStep(val index: Int) {
     MICROPHONE(0),
     GROQ(1),
-    IME(2);
+    IME(2),
+    PRACTICE(3);
 
     companion object {
         fun fromIndex(index: Int): OnboardingStep =
@@ -34,7 +38,9 @@ internal data class OnboardingNavigationState(
     /** 目前顯示的 Groq 設定頁是由導覽流程進入的。 */
     val groqSettingsForOnboarding: Boolean,
     /** 已送出 API Key 儲存，正在等待非同步結果。 */
-    val awaitingApiKeySave: Boolean
+    val awaitingApiKeySave: Boolean,
+    /** 目前是否處於獨立的「完成頁」（Completion Screen）。 */
+    val isCompletionScreen: Boolean = false
 ) {
     /** 導覽畫面本身是否應該顯示（由導覽進入 Groq 設定時改由設定頁顯示）。 */
     val showsOnboardingScreen: Boolean get() = isActive && !groqSettingsForOnboarding
@@ -49,7 +55,8 @@ internal object OnboardingNavigation {
             entryPoint = entryPoint,
             step = OnboardingStep.MICROPHONE,
             groqSettingsForOnboarding = false,
-            awaitingApiKeySave = false
+            awaitingApiKeySave = false,
+            isCompletionScreen = false
         )
 
     fun idle(): OnboardingNavigationState = OnboardingNavigationState(
@@ -57,11 +64,16 @@ internal object OnboardingNavigation {
         entryPoint = OnboardingEntryPoint.FIRST_RUN,
         step = OnboardingStep.MICROPHONE,
         groqSettingsForOnboarding = false,
-        awaitingApiKeySave = false
+        awaitingApiKeySave = false,
+        isCompletionScreen = false
     )
 
     fun goToStep(state: OnboardingNavigationState, step: OnboardingStep): OnboardingNavigationState =
-        state.copy(step = step)
+        state.copy(step = step, isCompletionScreen = false)
+
+    /** 進入獨立的完成頁。 */
+    fun showCompletion(state: OnboardingNavigationState): OnboardingNavigationState =
+        if (state.isActive) state.copy(isCompletionScreen = true) else state
 
     /**
      * 由導覽第二頁進入 Groq API 設定：保留導覽流程，只切換顯示的頁面。
@@ -206,5 +218,61 @@ internal class AndroidImeStateSource(private val context: Context) : ImeStateSou
             context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
             true
         }.getOrDefault(false)
+    }
+}
+
+/**
+ * 監聽系統預設輸入法與已啟用輸入法清單變更（Settings.Secure）。
+ * 讓導覽第三頁在保持開啟的情況下，使用者一挑選 KuiesVox 就能即時更新為已完成。
+ */
+internal class ImeSettingsContentObserver(
+    private val context: Context,
+    private val onImeStateChanged: () -> Unit
+) : ContentObserver(Handler(Looper.getMainLooper())) {
+    private var registered = false
+
+    override fun onChange(selfChange: Boolean) {
+        super.onChange(selfChange)
+        onImeStateChanged()
+    }
+
+    fun register() {
+        if (registered) return
+        val resolver = context.contentResolver
+        val uriDefault = Settings.Secure.getUriFor(Settings.Secure.DEFAULT_INPUT_METHOD)
+        val uriEnabled = Settings.Secure.getUriFor(Settings.Secure.ENABLED_INPUT_METHODS)
+        if (uriDefault != null) {
+            resolver.registerContentObserver(uriDefault, false, this)
+        }
+        if (uriEnabled != null) {
+            resolver.registerContentObserver(uriEnabled, false, this)
+        }
+        registered = true
+    }
+
+    fun unregister() {
+        if (!registered) return
+        context.contentResolver.unregisterContentObserver(this)
+        registered = false
+    }
+}
+
+/** 首次語音練習輸入框的安全設定與識別標籤。 */
+internal object OnboardingPracticeConfig {
+    const val PRACTICE_FIELD_NAME = "tw.kuies.voiceime.onboarding.practice_field"
+    const val PRACTICE_PRIVATE_IME_OPTIONS = "tw.kuies.voiceime.onboarding.practice_session"
+    const val SAMPLE_SENTENCE = "今天天氣真不錯"
+}
+
+/** 首次語音輸入成功驗證政策。 */
+internal object VoicePracticeVerificationPolicy {
+    fun isPracticeSuccess(
+        event: VoiceCommitSuccessEvent,
+        appPackageName: String
+    ): Boolean {
+        if (event.packageName != appPackageName) return false
+        val matchesField = event.privateImeOptions == OnboardingPracticeConfig.PRACTICE_PRIVATE_IME_OPTIONS ||
+            event.fieldName == OnboardingPracticeConfig.PRACTICE_FIELD_NAME
+        return matchesField && event.committedTextLength > 0
     }
 }

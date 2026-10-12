@@ -1211,7 +1211,8 @@ class VoiceImeService : InputMethodService() {
             fieldName = editorInfo?.fieldName,
             inputType = editorInfo?.inputType ?: 0,
             imeOptions = editorInfo?.imeOptions ?: 0,
-            connectionIdentity = currentInputConnection
+            connectionIdentity = currentInputConnection,
+            privateImeOptions = editorInfo?.privateImeOptions
         )
     }
 
@@ -1673,6 +1674,7 @@ class VoiceImeService : InputMethodService() {
                     false
                 }
                 if (committed) {
+                    notifyVoiceCommitSuccess(snapshot.editorTarget, finalText.length)
                     UserHistoryRepository.recordVoiceAsync(
                         applicationContext,
                         rawText = activeRawTranscript.orEmpty(),
@@ -1694,6 +1696,20 @@ class VoiceImeService : InputMethodService() {
             Log.e(TAG, "Voice result delivery failed: ${exception.javaClass.simpleName}")
             finishWithError(operationId, "result_delivery_failed")
         }
+    }
+
+    private fun notifyVoiceCommitSuccess(editorTarget: VoiceEditorTargetKey, length: Int) {
+        VoiceInputCommitEventBus.post(
+            VoiceCommitSuccessEvent(
+                sessionId = editorTarget.sessionId,
+                packageName = editorTarget.packageName,
+                fieldId = editorTarget.fieldId,
+                fieldName = editorTarget.fieldName,
+                privateImeOptions = editorTarget.privateImeOptions,
+                committedTextLength = length,
+                timestamp = System.currentTimeMillis()
+            )
+        )
     }
 
     private fun finishSuccessfully(
@@ -1908,6 +1924,7 @@ class VoiceImeService : InputMethodService() {
                     false
                 }
                 if (committed) {
+                    notifyVoiceCommitSuccess(snapshot.editorTarget, text.length)
                     if (recordVoiceHistory) {
                         UserHistoryRepository.recordVoiceAsync(
                             applicationContext,
@@ -2073,6 +2090,8 @@ class VoiceImeService : InputMethodService() {
             voicePanel?.showAiEditRefusal("無法取代選取文字，請重新選取後再試")
             return
         }
+        val target = current.editorTarget ?: snapshot.editorTarget
+        notifyVoiceCommitSuccess(target, result.length)
         voicePanel?.hideAiEditPreview()
         finishSuccessfully(operationId, activeAudioFile, VoiceImeState.SUCCESS, "已取代選取文字")
     }
@@ -2190,6 +2209,7 @@ class VoiceImeService : InputMethodService() {
                     false
                 }
                 if (committed) {
+                    snapshot?.editorTarget?.let { notifyVoiceCommitSuccess(it, outcome.text.length) }
                     finishSuccessfully(operationId, activeAudioFile, VoiceImeState.SUCCESS, "已插入翻譯結果")
                 } else {
                     showTranslationFallback(operationId, sourceText, outcome.text)

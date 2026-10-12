@@ -1,6 +1,12 @@
 package tw.kuies.voiceime
 
 import android.provider.Settings
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
+import android.widget.EditText
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,27 +36,36 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 
 /** 導覽中會用到的外部連結。 */
 internal object OnboardingLinks {
     const val GROQ_API_KEYS = "https://console.groq.com/keys"
 }
 
-/** 三頁導覽的流程規則（純邏輯，可在 JVM 測試中驗證）。 */
+/** 四頁導覽的流程規則（純邏輯，可在 JVM 測試中驗證）。 */
 internal object OnboardingFlow {
-    const val PAGE_COUNT = 3
+    const val PAGE_COUNT = 4
     const val MICROPHONE_PAGE = 0
     const val GROQ_PAGE = 1
     const val IME_PAGE = 2
+    const val PRACTICE_PAGE = 3
 
     fun pageCount(): Int = PAGE_COUNT
 
@@ -57,10 +73,16 @@ internal object OnboardingFlow {
 
     fun canGoBack(page: Int): Boolean = page > 0
 
-    /** 第 1、2 頁可以略過；最後一頁改由「開始使用」完成，不再顯示略過。 */
-    fun showsSkip(page: Int): Boolean = !isLastPage(page)
+    /** 第 1、2、4 頁可以略過；第 3 頁必須前進到試用，第 4 頁為「稍後體驗」。 */
+    fun showsSkip(page: Int): Boolean = page != IME_PAGE
 
-    fun primaryLabel(page: Int): String = if (isLastPage(page)) "開始使用" else "下一步"
+    fun skipLabel(page: Int): String = if (page == PRACTICE_PAGE) "稍後體驗" else "略過"
+
+    fun primaryLabel(page: Int): String = when (page) {
+        IME_PAGE -> "下一步：試用語音輸入"
+        PRACTICE_PAGE -> "完成體驗"
+        else -> "下一步"
+    }
 
     fun nextPage(page: Int): Int = (page + 1).coerceAtMost(PAGE_COUNT - 1)
 
@@ -91,15 +113,16 @@ internal object ImeSettingsLauncher {
 }
 
 /**
- * 首次安裝的三頁導覽。
+ * 新手安裝導覽畫面（前置步驟與獨立完成頁）。
  *
  * 只是 MainActivity 的前置畫面：不碰 IME 面板，也不要求使用者當場輸入 API Key；
- * 任何一頁都可以直接略過或下一步，不會強制完成三個步驟。
+ * 任何一頁都可以直接略過或下一步，不會強制完成步驟。
  */
 @Composable
 internal fun OnboardingScreen(
     modifier: Modifier = Modifier,
     step: OnboardingStep,
+    isCompletionScreen: Boolean = false,
     hasMicrophonePermission: Boolean,
     imeEnablement: ImeEnablement,
     imeSettingsHint: String,
@@ -109,8 +132,20 @@ internal fun OnboardingScreen(
     onOpenApiKeySettings: () -> Unit,
     onOpenImeSettings: () -> Unit,
     onSwitchToKuiesVox: () -> Unit,
+    onToCompletionScreen: () -> Unit,
+    onBackToSettings: () -> Unit,
+    onAcknowledge: () -> Unit,
     onFinish: () -> Unit
 ) {
+    if (isCompletionScreen) {
+        OnboardingCompletionScreen(
+            modifier = modifier,
+            onBackToSettings = onBackToSettings,
+            onAcknowledge = onAcknowledge
+        )
+        return
+    }
+
     val colors = MaterialTheme.colorScheme
     // 導覽狀態是唯一權威：Pager 一開始就建立在目前步驟，而不是永遠從第 0 頁開始。
     // （原本的寫法會讓新建 Pager 先回報 settledPage = 0，把外部狀態反向覆寫成第一頁。）
@@ -167,11 +202,17 @@ internal fun OnboardingScreen(
                         onContinue = { goTo(OnboardingFlow.nextPage(index)) }
                     )
 
-                    else -> ImeOnboardingPage(
+                    OnboardingFlow.IME_PAGE -> ImeOnboardingPage(
                         imeEnablement = imeEnablement,
                         hint = imeSettingsHint,
                         onOpenImeSettings = onOpenImeSettings,
                         onSwitchToKuiesVox = onSwitchToKuiesVox
+                    )
+
+                    else -> PracticeOnboardingPage(
+                        onVoiceSuccess = {
+                            // 語音輸入成功由事件總線驅動
+                        }
                     )
                 }
             }
@@ -183,7 +224,15 @@ internal fun OnboardingScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (OnboardingFlow.showsSkip(page)) {
-                TextButton(onClick = onFinish) { Text("略過") }
+                TextButton(
+                    onClick = {
+                        if (page == OnboardingFlow.PRACTICE_PAGE) {
+                            onToCompletionScreen()
+                        } else {
+                            onFinish()
+                        }
+                    }
+                ) { Text(OnboardingFlow.skipLabel(page)) }
             }
             Spacer(Modifier.weight(1f))
             if (OnboardingFlow.canGoBack(page)) {
@@ -195,14 +244,141 @@ internal fun OnboardingScreen(
             }
             Button(
                 onClick = {
-                    if (OnboardingFlow.isLastPage(page)) {
-                        onFinish()
+                    if (page == OnboardingFlow.PRACTICE_PAGE) {
+                        onToCompletionScreen()
                     } else {
                         goTo(OnboardingFlow.nextPage(page))
                     }
                 },
                 shape = RoundedCornerShape(14.dp)
             ) { Text(OnboardingFlow.primaryLabel(page)) }
+        }
+    }
+}
+
+/**
+ * 獨立導覽完成頁（Completion Screen）：
+ *
+ * 說明語音輸入法已準備就緒，並提示工具列有更多功能。
+ * 底部提供「回到輸入法設定」與「我知道了」兩個操作，均會清理導覽堆疊並回到設定首頁。
+ */
+@Composable
+internal fun OnboardingCompletionScreen(
+    modifier: Modifier = Modifier,
+    onBackToSettings: () -> Unit,
+    onAcknowledge: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val animScale = remember { Animatable(0.75f) }
+    val animAlpha = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        animScale.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+        )
+    }
+    LaunchedEffect(Unit) {
+        animAlpha.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 300)
+        )
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 22.dp, vertical = 20.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .graphicsLayer {
+                        scaleX = animScale.value
+                        scaleY = animScale.value
+                        alpha = animAlpha.value
+                    }
+                    .clip(CircleShape)
+                    .background(colors.primary.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_home_voice),
+                    contentDescription = null,
+                    tint = colors.primary,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            Text(
+                "設定完成！🎉",
+                style = MaterialTheme.typography.headlineMedium,
+                color = colors.onBackground,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                "你現在可以開始使用 KuiesVox 語音輸入法了！",
+                style = MaterialTheme.typography.bodyLarge,
+                color = colors.onSurface,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                "輸入法上方的工具列還有更多實用功能，記得去探索看看喔！",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = onBackToSettings,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+            ) {
+                Text(
+                    "回到輸入法設定",
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
+                )
+            }
+            Button(
+                onClick = onAcknowledge,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+            ) {
+                Text(
+                    "我知道了",
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -506,6 +682,119 @@ private fun ImeStepsCard(hint: String) {
             }
         }
     }
+}
+
+@Composable
+private fun PracticeOnboardingPage(
+    onVoiceSuccess: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val context = LocalContext.current
+    val packageName = context.packageName
+    var hasVoiceSuccess by remember { mutableStateOf(false) }
+
+    DisposableEffect(packageName) {
+        val unregister = VoiceInputCommitEventBus.register { event ->
+            if (VoicePracticeVerificationPolicy.isPracticeSuccess(event, packageName)) {
+                hasVoiceSuccess = true
+                onVoiceSuccess()
+            }
+        }
+        onDispose { unregister() }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.primary.copy(alpha = 0.15f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_home_voice),
+            contentDescription = null,
+            tint = colors.primary,
+            modifier = Modifier.size(28.dp)
+        )
+    }
+
+    OnboardingPageTexts(
+        title = "試試第一次語音輸入",
+        body = "點擊下方輸入框，按下 KuiesVox 的麥克風按鈕說句話試試！"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (hasVoiceSuccess) {
+                colors.primaryContainer.copy(alpha = 0.35f)
+            } else {
+                colors.surface
+            }
+        ),
+        border = BorderStroke(
+            1.dp,
+            if (hasVoiceSuccess) colors.primary else colors.outlineVariant.copy(alpha = 0.6f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "練習輸入框",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = colors.primary
+                )
+                if (hasVoiceSuccess) {
+                    Text(
+                        "語音輸入成功 ✓",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.primary
+                    )
+                }
+            }
+
+            Text(
+                "試著說說看：\n「${OnboardingPracticeConfig.SAMPLE_SENTENCE}」",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurfaceVariant
+            )
+
+            AndroidView(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding(),
+                factory = { ctx ->
+                    EditText(ctx).apply {
+                        hint = "點此點擊展開輸入法並用語音輸入…"
+                        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                        imeOptions = EditorInfo.IME_ACTION_DONE
+                        privateImeOptions = OnboardingPracticeConfig.PRACTICE_PRIVATE_IME_OPTIONS
+                        tag = OnboardingPracticeConfig.PRACTICE_FIELD_NAME
+                        minLines = 2
+                        maxLines = 4
+                        setPadding(32, 24, 32, 24)
+                        setBackgroundResource(android.R.drawable.edit_text)
+                    }
+                }
+            )
+        }
+    }
+
+    OnboardingHint(
+        if (hasVoiceSuccess) {
+            "太棒了！已成功透過 KuiesVox 辨識並輸入文字，點擊下方「完成體驗」即可開始使用。"
+        } else {
+            "如果鍵盤尚未切換到 KuiesVox，可以點擊鍵盤右下角的鍵盤圖示切換；也可以直接按「稍後體驗」跳過。"
+        }
+    )
 }
 
 @Composable

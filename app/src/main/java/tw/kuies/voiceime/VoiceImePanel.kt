@@ -2710,7 +2710,8 @@ internal class VoiceImePanel(
         oval: Boolean = false,
         borderStyle: BorderStyle = BorderStyle.NEUTRAL,
         accent: ImeColorSpec? = null,
-        shadowAlpha: Float = 0f
+        shadowAlpha: Float = 0f,
+        silhouette: ButtonSilhouette = ButtonSilhouette.CIRCULAR
     ) = PaletteShapeDrawable(
         fill,
         fillEnd,
@@ -2720,7 +2721,8 @@ internal class VoiceImePanel(
         oval,
         borderStyle,
         accent,
-        shadowAlpha
+        shadowAlpha,
+        silhouette
     ) { palette }
 
     /**
@@ -2800,15 +2802,38 @@ internal class VoiceImePanel(
         context: Context,
         gradientStart: ImeColorSpec = RECORDER_BACKGROUND,
         gradientEnd: ImeColorSpec = LAVENDER_BRIGHT
-    ) = RippleDrawable(
-        ColorStateList.valueOf(0x44FFFFFF),
-        shape(fill = gradientStart, fillEnd = gradientEnd, oval = true),
-        oval(MASK_WHITE)
-    )
+    ): Drawable {
+        val silhouette = visual.buttonSilhouette
+        val mechanicalRadius = dp(context, RecordingVisualGeometry.MECHANICAL_PANEL_CORNER_RADIUS_DP)
+        val squareRadius = dp(context, RecordingVisualGeometry.DUAL_LAYER_SQUARE_CORNER_RADIUS_DP)
+        val maskShape = when (silhouette) {
+            ButtonSilhouette.CIRCULAR -> oval(MASK_WHITE)
+            ButtonSilhouette.MECHANICAL_PANEL -> shape(fill = MASK_WHITE, radius = mechanicalRadius)
+            ButtonSilhouette.DUAL_LAYER_SQUARE -> shape(fill = MASK_WHITE, radius = squareRadius)
+            else -> shape(fill = MASK_WHITE, oval = true, silhouette = silhouette)
+        }
+        val contentShape = shape(
+            fill = gradientStart,
+            fillEnd = gradientEnd,
+            oval = silhouette == ButtonSilhouette.CIRCULAR,
+            radius = when (silhouette) {
+                ButtonSilhouette.MECHANICAL_PANEL -> mechanicalRadius
+                ButtonSilhouette.DUAL_LAYER_SQUARE -> squareRadius
+                else -> 0
+            },
+            silhouette = silhouette
+        )
+        return RippleDrawable(
+            ColorStateList.valueOf(0x44FFFFFF),
+            contentShape,
+            maskShape
+        )
+    }
 
     /**
-     * 錄音中的圓形底色：主題有定義光暈（[ThemePalette.recordingHalo]）時，在圓形外緣加一圈
-     * 低強度光暈；Legacy 的光暈全透明，因此外觀與 v0.15.5 完全相同。
+     * 錄音中的底色：
+     * 硬性規則：五套主題在錄音狀態下，主按鈕與最外層動畫必須保持圓形輪廓。
+     * Legacy 的光暈全透明，因此外觀與 v0.15.5 完全相同。
      */
     private fun recordingCircleBackground(): Drawable {
         val halo = RECORDING_HALO(palette)
@@ -2818,8 +2843,19 @@ internal class VoiceImePanel(
         val surfaceInset = (visualRadiusPx * (1f - RecordingVisualPlanner.BUTTON_SURFACE_RADIUS_FRACTION))
             .toInt()
             .coerceAtLeast(0)
-        val circle = InsetDrawable(
-            solid(CORAL, dp(panelContext, 100)),
+
+        // 科幻主題在錄音時核心維持冰藍色，其餘主題使用 CORAL (recorderAccent)
+        val buttonFill: ImeColorSpec = if (visual.themeId == AppThemeId.BRIGHT_SCIFI) {
+            RECORDER_BACKGROUND
+        } else {
+            CORAL
+        }
+
+        // 硬性規則：五套主題在錄音狀態下，中央主按鈕表面一律為純圓形！
+        val buttonDrawable = solid(buttonFill, dp(panelContext, 100))
+
+        val surface = InsetDrawable(
+            buttonDrawable,
             surfaceInset,
             surfaceInset,
             surfaceInset,
@@ -2828,11 +2864,11 @@ internal class VoiceImePanel(
         val haloWidth = dp(panelContext, 4)
         val visualizer = recordingVisualizer()
         recordingVisualizerRef = visualizer
-        // 光暈畫在視覺圓的邊緣（也就是視覺圓外緣），不會壓在按鈕表面上。
+        // 光暈畫在視覺圓的外緣，不會壓在按鈕表面上；最外層光暈一律為圓形。
         val haloVisible = Color.alpha(halo) != 0 && haloWidth > 0
-        if (visualizer == null && !haloVisible) return circle
+        if (visualizer == null && !haloVisible) return surface
         val layers = mutableListOf<Drawable>()
-        layers += circle
+        layers += surface
         if (haloVisible) {
             layers += shape(
                 fill = TRANSPARENT,
@@ -2934,7 +2970,7 @@ internal interface ImeShape {
 }
 
 /**
- * 圓角矩形／圓形的即時取色 Drawable。
+ * 圓角矩形／圓形／自定義按鈕輪廓的即時取色 Drawable。
  *
  * 顏色在 draw() 當下才向主題查詢，因此切換主題後只要重畫（invalidate）就會套用新配色，
  * 完全不需要重建 View、重新指定背景或碰觸任何操作狀態。
@@ -2949,6 +2985,7 @@ private class PaletteShapeDrawable(
     private val borderStyle: BorderStyle = BorderStyle.NEUTRAL,
     private val accent: ImeColorSpec? = null,
     private val shadowAlpha: Float = 0f,
+    private val silhouette: ButtonSilhouette = ButtonSilhouette.CIRCULAR,
     private val provider: () -> ThemePalette
 ) : Drawable(), ImeShape {
     override val ovalShape: Boolean get() = oval
@@ -2964,6 +3001,7 @@ private class PaletteShapeDrawable(
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
     }
+    private val customPath = Path()
     private var alphaScale = 1f
 
     override fun draw(canvas: Canvas) {
@@ -2990,6 +3028,49 @@ private class PaletteShapeDrawable(
         }
         val radius = radiusPx.toFloat()
         val strokeColour = stroke?.let { scaled(it(current)) }
+
+        when (silhouette) {
+            ButtonSilhouette.ORGANIC_CURVE -> {
+                customPath.reset()
+                val points = RecordingVisualGeometry.organicBlobPoints(0f)
+                points.forEachIndexed { index, pt ->
+                    val px = bounds.left + pt.first * bounds.width()
+                    val py = bounds.top + pt.second * bounds.height()
+                    if (index == 0) customPath.moveTo(px, py) else customPath.lineTo(px, py)
+                }
+                customPath.close()
+                canvas.drawPath(customPath, fillPaint)
+                if (strokeColour != null && strokeWidthPx > 0) {
+                    strokePaint.color = strokeColour
+                    strokePaint.strokeWidth = strokeWidthPx.toFloat()
+                    canvas.drawPath(customPath, strokePaint)
+                }
+                decoration(canvas, bounds, current)
+                return
+            }
+
+            ButtonSilhouette.HUD_MODULE -> {
+                customPath.reset()
+                val points = RecordingVisualGeometry.hudRoundedModulePoints()
+                points.forEachIndexed { index, pt ->
+                    val px = bounds.left + pt.first * bounds.width()
+                    val py = bounds.top + pt.second * bounds.height()
+                    if (index == 0) customPath.moveTo(px, py) else customPath.lineTo(px, py)
+                }
+                customPath.close()
+                canvas.drawPath(customPath, fillPaint)
+                if (strokeColour != null && strokeWidthPx > 0) {
+                    strokePaint.color = strokeColour
+                    strokePaint.strokeWidth = strokeWidthPx.toFloat()
+                    canvas.drawPath(customPath, strokePaint)
+                }
+                decoration(canvas, bounds, current)
+                return
+            }
+
+            else -> Unit
+        }
+
         if (oval) {
             canvas.drawOval(
                 bounds.left.toFloat(),
