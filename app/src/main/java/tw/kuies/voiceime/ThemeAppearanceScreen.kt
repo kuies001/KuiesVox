@@ -315,13 +315,14 @@ private fun ImePanelPreview(spec: ThemePreviewSpec, animate: Boolean) {
                 }
             }
             Box(contentAlignment = Alignment.Center) {
-                // 錄音視覺化：與 IME 使用同一個 RecordingVisualStyle。
-                Canvas(modifier = Modifier.size(42.dp)) {
+                // 錄音視覺化：與 IME 使用同一份繪製計畫與同一組幾何常數。
+                Canvas(modifier = Modifier.size(42.dp).scale(centreScale)) {
                     previewRecordingVisual(spec, level, accent)
                 }
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        // 主按鈕視覺圓半徑與 IME 相同（共用常數），外圈留給刻度／電波。
+                        .size((42 * RecordingVisualPlanner.BUTTON_SURFACE_RADIUS_FRACTION).dp)
                         .scale(centreScale)
                         .clip(CircleShape)
                         .background(Color(spec.recorderBackground))

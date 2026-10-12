@@ -2813,10 +2813,22 @@ internal class VoiceImePanel(
     private fun recordingCircleBackground(): Drawable {
         val halo = RECORDING_HALO(palette)
         val panelContext = view.context
-        val circle = solid(CORAL, dp(panelContext, 100))
+        val visualRadiusPx = dp(panelContext, IDLE_MIC_BUTTON_SIZE_DP / 2)
+        // 主按鈕視覺圓比觸控區小：外圈留給主題刻度／電波，且絕不覆蓋中央停止圖示。
+        val surfaceInset = (visualRadiusPx * (1f - RecordingVisualPlanner.BUTTON_SURFACE_RADIUS_FRACTION))
+            .toInt()
+            .coerceAtLeast(0)
+        val circle = InsetDrawable(
+            solid(CORAL, dp(panelContext, 100)),
+            surfaceInset,
+            surfaceInset,
+            surfaceInset,
+            surfaceInset
+        )
         val haloWidth = dp(panelContext, 4)
         val visualizer = recordingVisualizer()
         recordingVisualizerRef = visualizer
+        // 光暈畫在視覺圓的邊緣（也就是視覺圓外緣），不會壓在按鈕表面上。
         val haloVisible = Color.alpha(halo) != 0 && haloWidth > 0
         if (visualizer == null && !haloVisible) return circle
         val layers = mutableListOf<Drawable>()
@@ -2826,11 +2838,12 @@ internal class VoiceImePanel(
                 fill = TRANSPARENT,
                 stroke = RECORDING_HALO,
                 strokeWidth = haloWidth,
+                radius = dp(panelContext, 100),
                 oval = true
             )
         }
         // 視覺化圖形畫在圓形底色之上、圖示之下（圖示由 ImageView 另外繪製），
-        // 因此外圈刻度／電波紋看得到，而圓形中央的停止圖示仍然清楚。
+        // 因此環形刻度／電波紋看得見，而圓形中央的停止圖示仍然清楚。
         visualizer?.let { layers += it }
         return LayerDrawable(layers.toTypedArray())
     }

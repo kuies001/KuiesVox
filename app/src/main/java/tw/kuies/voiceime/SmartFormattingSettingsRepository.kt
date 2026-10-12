@@ -45,6 +45,8 @@ internal object SmartFormattingSettingsRepository {
         return normalize(
             SmartFormattingSettings(
                 enabled = preferences.getBoolean(ENABLED_KEY, SmartFormattingSettings.DEFAULT_ENABLED),
+                // 只有「完全沒有儲存過」時才會拿到新的預設值（8）；已存在的一切數值
+                // （包含舊預設 40）都原樣沿用，因此不覆寫使用者的偏好。
                 threshold = preferences.getInt(THRESHOLD_KEY, SmartFormattingSettings.DEFAULT_THRESHOLD),
                 provider = TextFormattingProviderId.fromStoredValue(preferences.getString(PROVIDER_KEY, null)),
                 speechModel = preferences.getString(

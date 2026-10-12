@@ -174,7 +174,15 @@ internal data class SmartFormattingSettings(
 
     companion object {
         const val DEFAULT_ENABLED = true
-        const val DEFAULT_THRESHOLD = 40
+        /**
+         * 短文字門檻預設值：不超過這個字數時使用本機修正結果，不呼叫 AI。
+         *
+         * 2026-10-12 由 40 調整為 8（讓更多短句也能被智慧整理）。
+         * **遷移規則**：儲存層是以 `getInt(KEY, DEFAULT_THRESHOLD)` 讀取，因此只要使用者
+         * 曾經儲存過設定，讀到的就是他自己選的數字（包含舊預設 40）——不需要、也不得
+         * 把「40」當成舊預設去改寫；只有完全沒有儲存過設定的人才會拿到新的 8。
+         */
+        const val DEFAULT_THRESHOLD = 8
         const val MIN_THRESHOLD = 0
         const val MAX_THRESHOLD = 500
         const val DEFAULT_CONTEXTUAL_CORRECTION_ENABLED = true

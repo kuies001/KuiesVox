@@ -459,6 +459,30 @@ class RecordingVisualPlanTest {
     }
 
     @Test
+    fun meterTicksAndSignalWaveStayOutsideTheButtonSurface() {
+        // TASK C3/C4：環形刻度與電波紋必須畫在主按鈕視覺圓「之外」，
+        // 不能壓在按鈕表面上，也不會覆蓋中央的停止圖示。
+        levelSteps.forEach { level ->
+            val meter = planFor(AppThemeId.INDUSTRIAL_LIGHT, level)
+            meter.ticks.forEach { tick ->
+                assertTrue(
+                    "刻度必須在主按鈕視覺圓之外：inner=${tick.innerFraction}",
+                    tick.innerFraction >= RecordingVisualPlanner.BUTTON_SURFACE_RADIUS_FRACTION
+                )
+            }
+            val wave = planFor(AppThemeId.BRIGHT_SCIFI, level).wave!!
+            val waveInner = wave.points.minOf { it.second } - wave.strokeFraction / 2f
+            assertTrue(
+                "電波紋必須在主按鈕視覺圓之外：inner=$waveInner",
+                waveInner >= RecordingVisualPlanner.BUTTON_SURFACE_RADIUS_FRACTION
+            )
+        }
+        // 視覺圓比觸控區小（1.0），因此外圈有空間容納刻度，觸控區本身不變。
+        assertTrue(RecordingVisualPlanner.BUTTON_SURFACE_RADIUS_FRACTION < 1f)
+        assertTrue(RecordingVisualPlanner.TICK_INNER >= RecordingVisualPlanner.BUTTON_SURFACE_RADIUS_FRACTION)
+    }
+
+    @Test
     fun theSameVolumeAlwaysYieldsTheSamePlan() {
         levelSteps.forEach { level ->
             AppThemeId.entries.forEach { themeId ->

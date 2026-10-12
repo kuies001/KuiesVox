@@ -169,9 +169,19 @@ internal data class RecordingVisualPlan(
  * 因此預覽與實機的圖形完全一致，也可以在沒有裝置的情況下驗證幾何正確性。
  */
 internal object RecordingVisualPlanner {
-    /** 刻度最外緣；保留 4% 邊界，避免被圓形邊緣裁切。 */
-    private const val TICK_OUTER = 0.96f
-    private const val TICK_INNER = 0.78f
+    /**
+     * 主錄音鈕「視覺圓」的半徑比例。
+     *
+     * 中央按鈕的視覺圓比觸控區小，外圈（[BUTTON_SURFACE_RADIUS_FRACTION]–1.0）保留給
+     * 主題的環形刻度與電波紋，因此刻度不會壓在主按鈕表面上。
+     * 這個值同時被 IME 面板與設定頁預覽使用，避免兩邊硬編碼出不同外觀。
+     * **觸控區不變**：改變的只有視覺圓，view 大小與 hit target 完全不動。
+     */
+    const val BUTTON_SURFACE_RADIUS_FRACTION = 0.81f
+
+    /** 環形刻度帶：完全落在主按鈕視覺圓之外，且外緣含線寬仍在安全半徑內。 */
+    const val TICK_INNER = 0.84f
+    private const val TICK_OUTER = 0.95f
 
     /** 無聲時仍亮起的刻度數（Industrial 的低活動量）。 */
     const val METER_MIN_LIT = 2
@@ -247,8 +257,10 @@ internal object RecordingVisualPlanner {
 
     private const val WAVE_POINTS = 48
     private const val WAVE_CYCLES = 4.0
-    private const val WAVE_BASE_RADIUS = 0.8f
-    private const val WAVE_AMPLITUDE = 0.14f
+
+    /** 電波紋同樣畫在主按鈕視覺圓之外的環形帶上。 */
+    private const val WAVE_BASE_RADIUS = 0.9f
+    private const val WAVE_AMPLITUDE = 0.09f
 }
 
 /** Keeps meter state scoped to the current recording operation. */
