@@ -4,9 +4,19 @@ import android.content.Context
 import android.text.Editable
 import android.text.TextWatcher
 import android.content.res.ColorStateList
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorFilter
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
+import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
 import android.text.InputType
 import android.view.Gravity
@@ -16,6 +26,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.CheckBox
+import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -116,6 +127,25 @@ internal class VoiceImePanel(
     private val onCycleTranslationLanguage: () -> Unit = {},
     private val onTranslateShortcut: () -> Unit = {}
 ) {
+    /**
+     * 目前生效的 IME 主題配色。建構時先使用 Legacy 暖灰棕，因此升級後的外觀與 v0.15.5 相同；
+     * 顏色一律在繪製當下解析（見 [PaletteShapeDrawable]），所以切換主題不需要重建任何 View。
+     */
+    @Volatile
+    private var palette: ThemePalette = ThemePaletteRegistry.legacyImePalette()
+
+    /** 需要在切換主題時重新套用的「非 Drawable」顏色（圖示 tint 與文字色）。 */
+    private val colourRestylers = mutableListOf<() -> Unit>()
+
+    /**
+     * 只有在建構期間才記錄顏色套用動作：面板的固定元件各記錄一次，
+     * 之後的重繪（狀態變更、清單重建）不會再往清單裡塞東西。
+     */
+    private var recordingStyles = true
+
+    /** 目前狀態的畫面重繪動作；切換主題後用同一組參數再畫一次即可。 */
+    private var refreshState: (() -> Unit)? = null
+
     internal val statusIndicator = FrameLayout(context)
     internal val statusDot = View(context)
     internal val topAreaRow = LinearLayout(context)
@@ -270,7 +300,7 @@ internal class VoiceImePanel(
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
             background = rounded(
-                colors = intArrayOf(BACKGROUND, BACKGROUND),
+                BACKGROUND,
                 radius = dp(context, 24),
                 strokeColor = OUTLINE,
                 strokeWidth = dp(context, 1)
@@ -325,7 +355,7 @@ internal class VoiceImePanel(
             clipboardButton,
             R.drawable.ic_ime_clipboard,
             "剪貼簿歷史",
-            TEXT_MUTED,
+            TOOLBAR_ICON,
             TOOLBAR_ICON_COMPACT_SIZE_DP
         ) { showClipboardHistoryPanel(onIsSensitiveEditor()) }
         toolbarTextActionButton(context, clearAllButton, "清除", PINK, "清除全部文字") {
@@ -336,14 +366,14 @@ internal class VoiceImePanel(
             settingsButton,
             R.drawable.ic_ime_settings,
             "設定",
-            TEXT_MUTED,
+            TOOLBAR_ICON,
             TOOLBAR_ICON_SIZE_DP
         ) { onOpenSettings() }
         var backspacePointerActive = false
         var backspaceClickAllowed = false
         backspaceButton.apply {
             setImageResource(R.drawable.ic_ime_backspace)
-            imageTintList = ColorStateList.valueOf(blend(TEXT_MUTED, PINK, 0.45f))
+            imageTint(blend(TEXT_MUTED, PINK, 0.45f))
             contentDescription = "刪除"
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
@@ -406,7 +436,7 @@ internal class VoiceImePanel(
         }
         enterButton.apply {
             setImageResource(R.drawable.ic_ime_enter)
-            imageTintList = ColorStateList.valueOf(blend(TEXT_MUTED, LAVENDER, 0.5f))
+            imageTint(blend(TEXT_MUTED, LAVENDER, 0.5f))
             contentDescription = "換行"
             scaleType = ImageView.ScaleType.FIT_CENTER
             background = ripple(context, SURFACE_VARIANT, OUTLINE, dp(context, 50))
@@ -425,7 +455,7 @@ internal class VoiceImePanel(
             switchButton,
             R.drawable.ic_ime_keyboard,
             ToolbarSlot.KEYBOARD.label,
-            TEXT_MUTED,
+            TOOLBAR_ICON,
             TOOLBAR_ICON_SIZE_DP
         ) { onSwitchInputMethod() }
         toolbarIconButton(
@@ -487,7 +517,7 @@ internal class VoiceImePanel(
             gravity = Gravity.CENTER
             setPadding(dp(context, 8), 0, dp(context, 8), 0)
             background = rounded(
-                intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT),
+                SURFACE_VARIANT,
                 dp(context, 18),
                 blend(OUTLINE, PINK, 0.35f),
                 dp(context, 1)
@@ -503,7 +533,7 @@ internal class VoiceImePanel(
         }
         toolbarContainer.apply {
             background = rounded(
-                intArrayOf(SURFACE, SURFACE),
+                TOOLBAR_BACKGROUND,
                 dp(context, 18),
                 blend(OUTLINE, BACKGROUND, 0.35f),
                 dp(context, 1)
@@ -550,7 +580,7 @@ internal class VoiceImePanel(
             )
             idleMicButton.apply {
                 setImageResource(R.drawable.ic_ime_mic)
-                imageTintList = ColorStateList.valueOf(BUTTON_TEXT)
+                imageTint(BUTTON_TEXT)
                 contentDescription = "開始語音輸入"
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 background = circleRipple(context)
@@ -652,7 +682,7 @@ internal class VoiceImePanel(
             addView(
                 ImageView(context).apply {
                     setImageResource(R.drawable.ic_ime_back)
-                    imageTintList = ColorStateList.valueOf(TEXT_MUTED)
+                    imageTint(TEXT_MUTED)
                     scaleType = ImageView.ScaleType.FIT_CENTER
                     contentDescription = null
                 },
@@ -703,7 +733,7 @@ internal class VoiceImePanel(
             addView(
                 ImageView(context).apply {
                     setImageResource(R.drawable.ic_ime_translate)
-                    imageTintList = ColorStateList.valueOf(LAVENDER_BRIGHT)
+                    imageTint(LAVENDER_BRIGHT)
                     scaleType = ImageView.ScaleType.FIT_CENTER
                     contentDescription = null
                 },
@@ -735,7 +765,7 @@ internal class VoiceImePanel(
         busyActions.apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            busyProgressIndicator.indeterminateTintList = ColorStateList.valueOf(LAVENDER)
+            busyProgressIndicator.progressTint(LAVENDER)
             addView(busyProgressIndicator, LinearLayout.LayoutParams(dp(context, 22), dp(context, 22)))
             busyLabel.apply {
                 maxLines = 1
@@ -824,6 +854,8 @@ internal class VoiceImePanel(
         buildAiEditPanel(context, root)
         view = root
         render(VoiceImeState.IDLE)
+        // 建構完成：之後的重繪不再累積顏色套用動作。
+        recordingStyles = false
     }
 
     fun showMainPanel() {
@@ -1101,7 +1133,7 @@ internal class VoiceImePanel(
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(context, 9), 0, dp(context, 5), 0)
             background = rounded(
-                intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT),
+                SURFACE_VARIANT,
                 dp(context, 16),
                 blend(OUTLINE, PINK, 0.35f),
                 dp(context, 1)
@@ -1233,13 +1265,13 @@ internal class VoiceImePanel(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(context, 4), 0, dp(context, 3), 0)
-            background = rounded(intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT), dp(context, 12), OUTLINE, dp(context, 1))
+            background = rounded(SURFACE_VARIANT, dp(context, 12), OUTLINE, dp(context, 1))
             addView(
                 snippetSelectAllCheckBox.apply {
                     text = "全部"
                     textSize = 10f
-                    setTextColor(TEXT)
-                    buttonTintList = ColorStateList.valueOf(LAVENDER_BRIGHT)
+                    textColour(TEXT)
+                    buttonTint(LAVENDER_BRIGHT)
                     contentDescription = "全選目前顯示的快捷短語"
                     setOnCheckedChangeListener { _, checked ->
                         if (!syncingSnippetSelection && snippetSelection.isActive) {
@@ -1305,10 +1337,10 @@ internal class VoiceImePanel(
             textSize = 12f
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT
-            setTextColor(TEXT)
-            setHintTextColor(TEXT_MUTED)
+            textColour(TEXT)
+            hintColour(TEXT_MUTED)
             setPadding(dp(context, 10), 0, dp(context, 10), 0)
-            background = rounded(intArrayOf(SURFACE, SURFACE), dp(context, 12), OUTLINE, dp(context, 1))
+            background = rounded(SURFACE, dp(context, 12), OUTLINE, dp(context, 1))
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -1558,9 +1590,9 @@ internal class VoiceImePanel(
             snippetAllSortButton to (snippetSort == SavedSnippetSort.ALL),
             snippetRecentSortButton to (snippetSort == SavedSnippetSort.RECENT)
         ).forEach { (button, selected) ->
-            button.setTextColor(if (selected) TEXT else TEXT_MUTED)
+            button.textColour(if (selected) TEXT else TEXT_MUTED)
             button.background = rounded(
-                if (selected) intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT) else intArrayOf(SURFACE, SURFACE),
+                if (selected) SURFACE_VARIANT else SURFACE,
                 dp(view.context, 12),
                 if (selected) LAVENDER_BRIGHT else OUTLINE,
                 dp(view.context, 1)
@@ -1572,7 +1604,7 @@ internal class VoiceImePanel(
         snippetDeleteConfirmationOverlay.apply {
             visibility = View.GONE
             background = rounded(
-                intArrayOf(Color.argb(225, 11, 12, 20), Color.argb(225, 11, 12, 20)),
+                SCRIM_OVERLAY,
                 dp(context, 16),
                 OUTLINE,
                 dp(context, 1)
@@ -1584,7 +1616,7 @@ internal class VoiceImePanel(
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 14), dp(context, 10), dp(context, 14), dp(context, 8))
-            background = rounded(intArrayOf(SURFACE_VARIANT, SURFACE_VARIANT), dp(context, 14), OUTLINE, dp(context, 1))
+            background = rounded(SURFACE_VARIANT, dp(context, 14), OUTLINE, dp(context, 1))
             isClickable = true
             isFocusable = false
         }
@@ -1763,7 +1795,7 @@ internal class VoiceImePanel(
         val context = view.context
         orientation = LinearLayout.VERTICAL
         setPadding(dp(context, 9), dp(context, 6), dp(context, 7), dp(context, 5))
-        background = rounded(intArrayOf(SURFACE, SURFACE), dp(context, 13), OUTLINE, dp(context, 1))
+        background = rounded(SURFACE, dp(context, 13), OUTLINE, dp(context, 1))
         isLongClickable = true
         setOnLongClickListener {
             showSingleSnippetDeleteConfirmation(snippet)
@@ -1814,7 +1846,7 @@ internal class VoiceImePanel(
             }
         )
         val selectionCheckBox = CheckBox(context).apply {
-            buttonTintList = ColorStateList.valueOf(LAVENDER_BRIGHT)
+            buttonTint(LAVENDER_BRIGHT)
             contentDescription = "選取快捷短語：${snippet.title}"
             visibility = if (snippetSelection.isActive) View.VISIBLE else View.GONE
             isChecked = snippet.id in snippetSelection.selectedIds(currentVisibleSnippetIds())
@@ -1926,7 +1958,7 @@ internal class VoiceImePanel(
         row.addView(
             ImageView(context).apply {
                 setImageResource(iconRes)
-                imageTintList = ColorStateList.valueOf(LAVENDER_BRIGHT)
+                imageTint(LAVENDER_BRIGHT)
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 contentDescription = null
             },
@@ -1990,7 +2022,7 @@ internal class VoiceImePanel(
         orientation = LinearLayout.VERTICAL
         setPadding(dp(context, 10), dp(context, 8), dp(context, 8), dp(context, 7))
         background = rounded(
-            intArrayOf(SURFACE, SURFACE), dp(context, 16), OUTLINE, dp(context, 1)
+            SURFACE, dp(context, 16), OUTLINE, dp(context, 1)
         )
         val contentRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2037,7 +2069,7 @@ internal class VoiceImePanel(
         orientation = LinearLayout.VERTICAL
         setPadding(dp(context, 10), dp(context, 8), dp(context, 8), dp(context, 7))
         background = rounded(
-            intArrayOf(SURFACE, SURFACE), dp(context, 16), OUTLINE, dp(context, 1)
+            SURFACE, dp(context, 16), OUTLINE, dp(context, 1)
         )
         val finalTextView = textView(context, sizeSp = 13f, color = TEXT).apply {
             text = item.finalText
@@ -2104,7 +2136,7 @@ internal class VoiceImePanel(
     private fun smallHistoryButton(
         context: Context,
         label: String,
-        color: Int,
+        color: ImeColorSpec,
         onClick: () -> Unit
     ): View = secondaryActionButton(
         context,
@@ -2132,15 +2164,25 @@ internal class VoiceImePanel(
         translationTargetLabel: String? = null,
         micAvailable: Boolean = true
     ) {
+        // 記下這一組狀態參數，切換主題時用同一組內容重畫，狀態機完全不動。
+        refreshState = {
+            render(
+                state = state,
+                statusLabelOverride = statusLabelOverride,
+                holdToTalkRecording = holdToTalkRecording,
+                formatCommandMode = formatCommandMode,
+                aiEditMode = aiEditMode,
+                translateMode = translateMode,
+                translationTargetLabel = translationTargetLabel,
+                micAvailable = micAvailable
+            )
+        }
         val isTerminal = VoiceImeActionAvailabilityPolicy.isTerminal(state)
         val accent = when {
             state == VoiceImeState.IDLE && !micAvailable -> TEXT_MUTED
             else -> accentFor(state)
         }
-        statusDot.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(accent)
-        }
+        statusDot.background = oval(accent)
         val stateDescription = when {
             state == VoiceImeState.IDLE && !micAvailable -> "麥克風未授權"
             state == VoiceImeState.IDLE -> "待命"
@@ -2188,9 +2230,7 @@ internal class VoiceImePanel(
 
         // AI 翻譯快捷圖示：啟用時只把圖示改成薄荷綠（改變 tint），背景與其他工具列項目
         // 完全相同，因此 selected / unselected 的 Layout Bounds 一致，不會膨脹成大方框。
-        translateShortcutButton.imageTintList = ColorStateList.valueOf(
-            if (translateMode) VoiceModePalette.TRANSLATE_MINT else TEXT_MUTED
-        )
+        translateShortcutButton.imageTint(if (translateMode) MODE_TRANSLATE else TEXT_MUTED)
         if (!bulkActionsEnabled) {
             clearConfirmationPanel.visibility = View.GONE
             topToolbarRow.visibility = View.VISIBLE
@@ -2216,7 +2256,7 @@ internal class VoiceImePanel(
             idleTitle.text = FormatCommandPrompt.FORMAT_COMMAND_MODE_LABEL
             applyTopMargin(idleTitle, 0)
             idleHint.textSize = FORMAT_MODE_HINT_TEXT_SP
-            idleHint.setTextColor(TEXT_MUTED)
+            idleHint.textColour(TEXT_MUTED)
             idleHint.text = FormatCommandPrompt.FORMAT_COMMAND_HINT
             applyTopMargin(idleHint, 0)
         } else if (aiEditMode) {
@@ -2224,7 +2264,7 @@ internal class VoiceImePanel(
             idleTitle.text = "AI 編輯模式"
             applyTopMargin(idleTitle, dp(idleTitle.context, IDLE_TITLE_TOP_MARGIN_DP))
             idleHint.textSize = NORMAL_HINT_TEXT_SP
-            idleHint.setTextColor(TEXT_MUTED)
+            idleHint.textColour(TEXT_MUTED)
             idleHint.text = if (holdToTalkRecording) "放開即辨識" else "選取文字後，說出修改要求"
             applyTopMargin(idleHint, dp(idleHint.context, IDLE_HINT_TOP_MARGIN_DP))
         } else if (translateMode) {
@@ -2232,7 +2272,7 @@ internal class VoiceImePanel(
             idleTitle.text = "語音翻譯模式"
             applyTopMargin(idleTitle, dp(idleTitle.context, IDLE_TITLE_TOP_MARGIN_DP))
             idleHint.textSize = NORMAL_HINT_TEXT_SP
-            idleHint.setTextColor(TEXT_MUTED)
+            idleHint.textColour(TEXT_MUTED)
             idleHint.text = if (holdToTalkRecording) {
                 "放開即辨識"
             } else {
@@ -2244,7 +2284,7 @@ internal class VoiceImePanel(
             idleTitle.text = "開始語音輸入"
             applyTopMargin(idleTitle, dp(idleTitle.context, IDLE_TITLE_TOP_MARGIN_DP))
             idleHint.textSize = NORMAL_HINT_TEXT_SP
-            idleHint.setTextColor(TEXT_MUTED)
+            idleHint.textColour(TEXT_MUTED)
             idleHint.text = when {
                 !micAvailable -> "麥克風未授權，點一下授權"
                 holdToTalkRecording -> "放開即辨識"
@@ -2277,14 +2317,14 @@ internal class VoiceImePanel(
         idleMicButton.alpha = if (holdToTalkRecording) 0.9f else 1f
         // 模式色集中在 VoiceModePalette：翻譯＝鼠尾草綠、格式指令＝柔霧紫、AI 編輯＝蜜桃粉，
         // 待命與處理中都維持同一模式識別；一般語音使用奶油杏漸層。
-        val modeAccent = VoiceModePalette.accentForMode(translateMode, formatCommandMode, aiEditMode)
-        idleMicButton.imageTintList = ColorStateList.valueOf(
+        val modeAccent = modeColorSpecs(translateMode, formatCommandMode, aiEditMode)
+        idleMicButton.imageTint(
             if (recordingCircle) BUTTON_TEXT else (modeAccent?.icon ?: BUTTON_TEXT)
         )
         idleMicButton.background = when {
-            recordingCircle -> solid(CORAL, dp(idleMicButton.context, 100))
+            recordingCircle -> recordingCircleBackground()
             modeAccent != null -> circleRipple(idleMicButton.context, modeAccent.base, modeAccent.bright)
-            holdToTalkRecording -> solid(CORAL, dp(idleMicButton.context, 100))
+            holdToTalkRecording -> recordingCircleBackground()
             else -> circleRipple(idleMicButton.context)
         }
         idleActions.visibility = if (
@@ -2305,9 +2345,7 @@ internal class VoiceImePanel(
         val isBusy = state == VoiceImeState.TRANSCRIBING || state == VoiceImeState.FORMATTING
         busyActions.visibility = if (isBusy) View.VISIBLE else View.GONE
         // 處理中也維持目前模式的識別色，不回到一般模式的淡紫。
-        busyProgressIndicator.indeterminateTintList = ColorStateList.valueOf(
-            VoiceModePalette.accentForMode(translateMode, formatCommandMode, aiEditMode)?.base ?: LAVENDER
-        )
+        busyProgressIndicator.progressTint(modeAccent?.base ?: LAVENDER)
         busyLabel.text = when {
             formatCommandMode && isBusy -> "正在處理格式指令…"
             aiEditMode && isBusy -> "正在套用修改…"
@@ -2315,6 +2353,26 @@ internal class VoiceImePanel(
             else -> state.label
         }
     }
+
+    /**
+     * 套用 IME 主題配色。
+     *
+     * 只重新套用視覺屬性（tint／文字色）並以同一組參數重畫目前狀態；背景是即時取色的
+     * Drawable，重畫即生效。不重建任何 View、不重設 VoiceImeStateMachine、錄音作業、
+     * 音量縮放比例或任何操作狀態。
+     */
+    internal fun applyTheme(palette: ThemePalette) {
+        if (palette == this.palette) return
+        this.palette = palette
+        colourRestylers.toList().forEach { it() }
+        refreshState?.invoke()
+        // 子頁面（歷史、快捷短語…）的動態內容在同一次切換中一起換色。
+        updatePageVisibility()
+        view.invalidate()
+    }
+
+    /** 目前生效的面板配色；供 Service 與測試確認主題已套用。 */
+    internal fun currentPalette(): ThemePalette = palette
 
     /**
      * 錄音中的音量回饋：音量越大，中央圓形越大。
@@ -2441,7 +2499,7 @@ internal class VoiceImePanel(
         context: Context,
         icon: Int,
         label: String,
-        foregroundColor: Int,
+        foregroundColor: ImeColorSpec,
         background: android.graphics.drawable.Drawable,
         onClick: () -> Unit,
         iconSizeDp: Int = 18,
@@ -2454,13 +2512,13 @@ internal class VoiceImePanel(
         isFocusable = true
         contentDescription = label
         this.background = RippleDrawable(
-            ColorStateList.valueOf(0x33FFFFFF),
+            ColorStateList.valueOf(RIPPLE_MASK(palette)),
             background,
             null
         )
         val iconView = ImageView(context).apply {
             setImageResource(icon)
-            imageTintList = ColorStateList.valueOf(foregroundColor)
+            imageTint(foregroundColor)
         }
         addView(iconView, LinearLayout.LayoutParams(dp(context, iconSizeDp), dp(context, iconSizeDp)))
         val labelView = textView(context, sizeSp = labelSizeSp, color = foregroundColor).apply {
@@ -2483,17 +2541,17 @@ internal class VoiceImePanel(
         context: Context,
         button: TextView,
         label: String,
-        color: Int,
+        color: ImeColorSpec,
         onClick: () -> Unit
     ): View = button.apply {
         text = label
         gravity = Gravity.CENTER
-        setTextColor(color)
+        textColour(color)
         setTypeface(typeface, Typeface.BOLD)
         isClickable = true
         isFocusable = true
         background = RippleDrawable(
-            ColorStateList.valueOf(0x33FFFFFF),
+            ColorStateList.valueOf(RIPPLE_MASK(palette)),
             solid(SURFACE, dp(context, 14)),
             null
         )
@@ -2508,13 +2566,13 @@ internal class VoiceImePanel(
         button: ImageButton,
         @DrawableRes iconRes: Int,
         description: String,
-        tint: Int,
+        tint: ImeColorSpec,
         iconSizeDp: Int,
         onClick: () -> Unit
     ) = button.apply {
         val iconContext = context
         setImageResource(iconRes)
-        imageTintList = ColorStateList.valueOf(tint)
+        imageTint(tint)
         contentDescription = description
         scaleType = ImageView.ScaleType.CENTER_INSIDE
         background = toolbarRipple(dp(iconContext, 10))
@@ -2529,7 +2587,7 @@ internal class VoiceImePanel(
         context: Context,
         button: TextView,
         label: String,
-        color: Int,
+        color: ImeColorSpec,
         description: String,
         onClick: () -> Unit
     ) = button.apply {
@@ -2539,7 +2597,7 @@ internal class VoiceImePanel(
         gravity = Gravity.CENTER
         setSingleLine(true)
         ellipsize = null
-        setTextColor(color)
+        textColour(color)
         setTypeface(typeface, Typeface.BOLD)
         setPadding(dp(context, 2), 0, dp(context, 2), 0)
         isClickable = true
@@ -2549,12 +2607,12 @@ internal class VoiceImePanel(
     }
 
     private fun toolbarRipple(radius: Int) = RippleDrawable(
-        ColorStateList.valueOf(0x33FFFFFF),
+        ColorStateList.valueOf(RIPPLE_MASK(palette)),
         null,
-        solid(Color.WHITE, radius)
+        solid(MASK_WHITE, radius)
     )
 
-    private fun accentFor(state: VoiceImeState): Int = when (state) {
+    private fun accentFor(state: VoiceImeState): ImeColorSpec = when (state) {
         VoiceImeState.IDLE -> MINT
         VoiceImeState.RECORDING -> CORAL
         VoiceImeState.TRANSCRIBING -> AMBER
@@ -2575,29 +2633,59 @@ internal class VoiceImePanel(
         AI_EDIT_PREVIEW
     }
 
-    private fun textView(context: Context, sizeSp: Float, color: Int) = TextView(context).apply {
+    private fun textView(context: Context, sizeSp: Float, color: ImeColorSpec) = TextView(context).apply {
         textSize = sizeSp
-        setTextColor(color)
+        textColour(color)
         typeface = Typeface.create("sans-serif", Typeface.NORMAL)
         includeFontPadding = false
     }
 
-    private fun rounded(colors: IntArray, radius: Int, strokeColor: Int, strokeWidth: Int) =
-        GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, colors).apply {
-            cornerRadius = radius.toFloat()
-            setStroke(strokeWidth, strokeColor)
-        }
-
-    private fun solid(color: Int, radius: Int) = GradientDrawable().apply {
-        shape = GradientDrawable.RECTANGLE
-        cornerRadius = radius.toFloat()
-        setColor(color)
+    /**
+     * 套用顏色並（只在建構期間）記下來供切換主題時重新套用。
+     * 只用於「非 Drawable」的顏色（圖示 tint、文字色、進度條）；背景一律走
+     * [PaletteShapeDrawable]，在繪製當下取色，不需要重新指定。
+     */
+    private fun styleOnce(action: () -> Unit) {
+        action()
+        if (recordingStyles) colourRestylers += action
     }
 
-    private fun ripple(context: Context, color: Int, stroke: Int, radius: Int) = RippleDrawable(
-        ColorStateList.valueOf(0x33FFFFFF),
+    private fun ImageView.imageTint(spec: ImeColorSpec) =
+        styleOnce { imageTintList = ColorStateList.valueOf(spec(palette)) }
+
+    private fun TextView.textColour(spec: ImeColorSpec) =
+        styleOnce { setTextColor(spec(palette)) }
+
+    private fun TextView.hintColour(spec: ImeColorSpec) =
+        styleOnce { setHintTextColor(spec(palette)) }
+
+    private fun ProgressBar.progressTint(spec: ImeColorSpec) =
+        styleOnce { indeterminateTintList = ColorStateList.valueOf(spec(palette)) }
+
+    private fun CompoundButton.buttonTint(spec: ImeColorSpec) =
+        styleOnce { buttonTintList = ColorStateList.valueOf(spec(palette)) }
+
+    /** 圓角矩形／圓形的即時取色 Drawable；顏色在 draw() 當下才向主題查詢。 */
+    private fun shape(
+        fill: ImeColorSpec,
+        fillEnd: ImeColorSpec = fill,
+        radius: Int = 0,
+        stroke: ImeColorSpec? = null,
+        strokeWidth: Int = 0,
+        oval: Boolean = false
+    ) = PaletteShapeDrawable(fill, fillEnd, radius, stroke, strokeWidth, oval) { palette }
+
+    private fun solid(color: ImeColorSpec, radius: Int) = shape(fill = color, radius = radius)
+
+    private fun rounded(color: ImeColorSpec, radius: Int, strokeColor: ImeColorSpec, strokeWidth: Int) =
+        shape(fill = color, radius = radius, stroke = strokeColor, strokeWidth = strokeWidth)
+
+    private fun oval(color: ImeColorSpec) = shape(fill = color, oval = true)
+
+    private fun ripple(context: Context, color: ImeColorSpec, stroke: ImeColorSpec, radius: Int) = RippleDrawable(
+        ColorStateList.valueOf(RIPPLE_MASK(palette)),
         solid(color, radius),
-        rounded(intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT), radius, stroke, dp(context, 1))
+        rounded(TRANSPARENT, radius, stroke, dp(context, 1))
     )
 
     /** 設定（或還原）標題／說明與上方內容的間距；只在需要調整高度預算時使用。 */
@@ -2610,46 +2698,224 @@ internal class VoiceImePanel(
 
     private fun circleRipple(
         context: Context,
-        gradientStart: Int = VoiceModePalette.NORMAL_CREAM,
-        gradientEnd: Int = VoiceModePalette.NORMAL_CREAM_BRIGHT
+        gradientStart: ImeColorSpec = RECORDER_BACKGROUND,
+        gradientEnd: ImeColorSpec = LAVENDER_BRIGHT
     ) = RippleDrawable(
         ColorStateList.valueOf(0x44FFFFFF),
-        GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(gradientStart, gradientEnd)
-        ).apply { shape = GradientDrawable.OVAL },
-        GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(Color.WHITE)
-        }
+        shape(fill = gradientStart, fillEnd = gradientEnd, oval = true),
+        oval(MASK_WHITE)
     )
+
+    /**
+     * 錄音中的圓形底色：主題有定義光暈（[ThemePalette.recordingHalo]）時，在圓形外緣加一圈
+     * 低強度光暈；Legacy 的光暈全透明，因此外觀與 v0.15.5 完全相同。
+     */
+    private fun recordingCircleBackground(): Drawable {
+        val halo = RECORDING_HALO(palette)
+        val panelContext = view.context
+        val circle = solid(CORAL, dp(panelContext, 100))
+        val haloWidth = dp(panelContext, 4)
+        if (Color.alpha(halo) == 0 || haloWidth <= 0) return circle
+        return LayerDrawable(
+            arrayOf(
+                shape(
+                    fill = TRANSPARENT,
+                    stroke = RECORDING_HALO,
+                    strokeWidth = haloWidth,
+                    oval = true
+                ),
+                InsetDrawable(circle, haloWidth / 2, haloWidth / 2, haloWidth / 2, haloWidth / 2)
+            )
+        )
+    }
 
     private fun dp(context: Context, value: Int): Int =
         (value * context.resources.displayMetrics.density).toInt()
 
-    private fun blend(background: Int, foreground: Int, fraction: Float): Int {
-        val inverse = 1f - fraction
-        return Color.rgb(
-            (Color.red(background) * inverse + Color.red(foreground) * fraction).toInt(),
-            (Color.green(background) * inverse + Color.green(foreground) * fraction).toInt(),
-            (Color.blue(background) * inverse + Color.blue(foreground) * fraction).toInt()
+    private fun blend(background: ImeColorSpec, foreground: ImeColorSpec, fraction: Float): ImeColorSpec =
+        { current -> ThemeMix.blend(background(current), foreground(current), fraction) }
+
+    /** 中央錄音按鈕的模式配色（漸層兩端與圖示）；null 代表一般語音。 */
+    private data class ModeColorSpecs(
+        val base: ImeColorSpec,
+        val bright: ImeColorSpec,
+        val icon: ImeColorSpec
+    )
+
+    private fun modeColorSpecs(translate: Boolean, format: Boolean, aiEdit: Boolean): ModeColorSpecs? = when {
+        translate -> ModeColorSpecs(
+            base = { it.modeTranslate.base },
+            bright = { it.modeTranslate.bright },
+            icon = { it.modeTranslate.icon }
         )
+        format -> ModeColorSpecs(
+            base = { it.modeFormat.base },
+            bright = { it.modeFormat.bright },
+            icon = { it.modeFormat.icon }
+        )
+        aiEdit -> ModeColorSpecs(
+            base = { it.modeEdit.base },
+            bright = { it.modeEdit.bright },
+            icon = { it.modeEdit.icon }
+        )
+        else -> null
     }
 
     private companion object {
-        val BACKGROUND = Color.rgb(47, 42, 40)        // #2F2A28 暖灰棕主背景
-        val SURFACE = Color.rgb(58, 49, 46)           // #3A312E 次要表面
-        val SURFACE_VARIANT = Color.rgb(67, 57, 54)   // #433936 卡片及工具列
-        val OUTLINE = Color.rgb(99, 84, 78)           // #63544E 深暖灰分隔線
-        val LAVENDER = Color.rgb(243, 216, 199)       // 奶油杏主色 #F3D8C7
-        val LAVENDER_BRIGHT = Color.rgb(249, 235, 224)// 奶油杏亮端 #F9EBE0
-        val MINT = Color.rgb(191, 216, 193)           // 柔和鼠尾草綠 #BFD8C1
-        val AMBER = Color.rgb(232, 191, 163)          // 奶茶杏 #E8BFA3
-        val PINK = Color.rgb(243, 170, 164)           // 蜜桃粉 #F3AAA4
-        val CORAL = Color.rgb(232, 144, 136)          // 珊瑚色 #E89088 (Stop 停止按鈕)
-        val ERROR = Color.rgb(242, 167, 167)          // 柔和危險與錯誤 #F2A7A7
-        val BUTTON_TEXT = Color.rgb(53, 35, 28)       // 深暖棕文字與圖示 #35231C
-        val TEXT = Color.rgb(255, 249, 244)           // 米白主要文字 #FFF9F4
-        val TEXT_MUTED = Color.rgb(209, 191, 181)     // 淡暖灰次要文字 #D1BFB5
+        /**
+         * IME 面板的語意顏色 Token。實際數值在繪製當下由目前主題的 [ThemePalette] 提供，
+         * 因此同一個 View 可以跟著主題換色，不需要重建或重新指定背景。
+         * 名稱沿用 v0.15.5 的舊常數，讓呼叫端保持不變；Legacy 主題的數值與舊常數完全相同。
+         */
+        val BACKGROUND: ImeColorSpec = { it.background }
+        val SURFACE: ImeColorSpec = { it.surface }
+        val SURFACE_VARIANT: ImeColorSpec = { it.surfaceVariant }
+        val OUTLINE: ImeColorSpec = { it.outline }
+        val LAVENDER: ImeColorSpec = { it.primary }
+        val LAVENDER_BRIGHT: ImeColorSpec = { it.primaryBright }
+        val MINT: ImeColorSpec = { it.statusIdle }
+        val AMBER: ImeColorSpec = { it.statusProcessing }
+        val PINK: ImeColorSpec = { it.secondary }
+        val CORAL: ImeColorSpec = { it.recorderAccent }
+        val ERROR: ImeColorSpec = { it.error }
+        val BUTTON_TEXT: ImeColorSpec = { it.recorderForeground }
+        val TEXT: ImeColorSpec = { it.onBackground }
+        val TEXT_MUTED: ImeColorSpec = { it.onSurfaceVariant }
+        val TOOLBAR_BACKGROUND: ImeColorSpec = { it.toolbarBackground }
+        val TOOLBAR_ICON: ImeColorSpec = { it.toolbarIcon }
+        val RECORDER_BACKGROUND: ImeColorSpec = { it.recorderBackground }
+        val RECORDER_FOREGROUND: ImeColorSpec = { it.recorderForeground }
+        val RECORDING_HALO: ImeColorSpec = { it.recordingHalo }
+        val SCRIM_OVERLAY: ImeColorSpec = { it.overlayScrim }
+        val MODE_TRANSLATE: ImeColorSpec = { it.modeTranslate.base }
+        val TRANSPARENT: ImeColorSpec = { Color.TRANSPARENT }
+        val MASK_WHITE: ImeColorSpec = { Color.WHITE }
+        val RIPPLE_MASK: ImeColorSpec = { 0x33FFFFFF }
+    }
+}
+
+/**
+ * IME 面板的語意顏色運算式：給定目前主題配色，回傳實際 ARGB。
+ * 用函式型別而不是列舉，讓 [VoiceImePanel] 的 blend 等組合可以自然疊加。
+ */
+private typealias ImeColorSpec = (ThemePalette) -> Int
+
+/**
+ * 讓測試可以描述面板形狀而不依賴特定 Drawable 實作（背景改為即時取色後不再是 GradientDrawable）。
+ */
+internal interface ImeShape {
+    val ovalShape: Boolean
+    val cornerRadiusPx: Int
+
+    /** 目前主題下的實際填色；供測試確認顏色確實來自 Theme Tokens。 */
+    fun resolvedFillColor(): Int
+
+    fun resolvedStrokeColor(): Int
+}
+
+/**
+ * 圓角矩形／圓形的即時取色 Drawable。
+ *
+ * 顏色在 draw() 當下才向主題查詢，因此切換主題後只要重畫（invalidate）就會套用新配色，
+ * 完全不需要重建 View、重新指定背景或碰觸任何操作狀態。
+ */
+private class PaletteShapeDrawable(
+    private val fill: ImeColorSpec,
+    private val fillEnd: ImeColorSpec,
+    private val radiusPx: Int,
+    private val stroke: ImeColorSpec?,
+    private val strokeWidthPx: Int,
+    private val oval: Boolean,
+    private val provider: () -> ThemePalette
+) : Drawable(), ImeShape {
+    override val ovalShape: Boolean get() = oval
+    override val cornerRadiusPx: Int get() = radiusPx
+
+    override fun resolvedFillColor(): Int = fill(provider())
+
+    override fun resolvedStrokeColor(): Int = stroke?.invoke(provider()) ?: Color.TRANSPARENT
+
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private var alphaScale = 1f
+
+    override fun draw(canvas: Canvas) {
+        val bounds = bounds
+        if (bounds.isEmpty) return
+        val current = provider()
+        val start = scaled(fill(current))
+        val end = scaled(fillEnd(current))
+        if (start != end) {
+            // 每一幀重建 shader 只為了跟隨主題；圓形直徑固定，成本可忽略。
+            fillPaint.color = Color.WHITE
+            fillPaint.shader = LinearGradient(
+                bounds.left.toFloat(),
+                bounds.top.toFloat(),
+                bounds.right.toFloat(),
+                bounds.bottom.toFloat(),
+                start,
+                end,
+                Shader.TileMode.CLAMP
+            )
+        } else {
+            fillPaint.shader = null
+            fillPaint.color = start
+        }
+        val radius = radiusPx.toFloat()
+        val strokeColour = stroke?.let { scaled(it(current)) }
+        if (oval) {
+            canvas.drawOval(
+                bounds.left.toFloat(),
+                bounds.top.toFloat(),
+                bounds.right.toFloat(),
+                bounds.bottom.toFloat(),
+                fillPaint
+            )
+            if (strokeColour != null && strokeWidthPx > 0) {
+                val inset = strokeWidthPx / 2f
+                strokePaint.color = strokeColour
+                strokePaint.strokeWidth = strokeWidthPx.toFloat()
+                canvas.drawOval(
+                    bounds.left + inset,
+                    bounds.top + inset,
+                    bounds.right - inset,
+                    bounds.bottom - inset,
+                    strokePaint
+                )
+            }
+            return
+        }
+        canvas.drawRoundRect(RectF(bounds), radius, radius, fillPaint)
+        if (strokeColour != null && strokeWidthPx > 0) {
+            val inset = strokeWidthPx / 2f
+            strokePaint.color = strokeColour
+            strokePaint.strokeWidth = strokeWidthPx.toFloat()
+            canvas.drawRoundRect(
+                RectF(bounds.left + inset, bounds.top + inset, bounds.right - inset, bounds.bottom - inset),
+                radius,
+                radius,
+                strokePaint
+            )
+        }
+    }
+
+    override fun setAlpha(alpha: Int) {
+        alphaScale = (alpha / 255f).coerceIn(0f, 1f)
+        invalidateSelf()
+    }
+
+    override fun setColorFilter(colorFilter: ColorFilter?) {
+        fillPaint.colorFilter = colorFilter
+        strokePaint.colorFilter = colorFilter
+        invalidateSelf()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+
+    private fun scaled(color: Int): Int {
+        if (alphaScale >= 1f) return color
+        val alpha = ((color ushr 24) and 0xFF) * alphaScale
+        return (color and 0x00FFFFFF) or (alpha.toInt().coerceIn(0, 255) shl 24)
     }
 }

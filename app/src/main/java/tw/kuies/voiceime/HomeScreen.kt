@@ -70,6 +70,8 @@ internal fun HomeScreen(
     onOpenMcp: () -> Unit,
     onOpenHistoryPrivacy: () -> Unit,
     onOpenOnboarding: () -> Unit,
+    themeSelection: ThemeSelection,
+    onOpenThemeAppearance: () -> Unit,
     onCheckForUpdates: () -> Unit,
     onDownloadUpdate: (GitHubRelease, SemanticVersion, GitHubReleaseAsset) -> Unit,
     onInstallUpdate: (GitHubRelease, Long) -> Unit,
@@ -264,6 +266,24 @@ internal fun HomeScreen(
                 accent = colors.primary,
                 contentColor = colors.onPrimary,
                 onClick = onOpenHistoryPrivacy,
+                modifier = Modifier.align(Alignment.End)
+            )
+        }
+
+        HomeFeatureCard(
+            icon = R.drawable.ic_home_appearance,
+            title = "外觀",
+            subtitle = "主題與深淺色外觀",
+            accent = colors.tertiary,
+            status = themeSelection.themeId.displayName
+        ) {
+            StatusLine(label = "主題", value = themeSelection.themeId.displayName)
+            StatusLine(label = "外觀模式", value = themeSelection.appearance.displayName)
+            ActionButton(
+                label = "選擇主題",
+                accent = colors.tertiary,
+                contentColor = colors.onTertiary,
+                onClick = onOpenThemeAppearance,
                 modifier = Modifier.align(Alignment.End)
             )
         }

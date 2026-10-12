@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.inputmethodservice.InputMethodService
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -130,6 +131,9 @@ class VoiceImeService : InputMethodService() {
     private val clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
         mainHandler.post { captureCurrentClipboard() }
     }
+
+    /** 目前已註冊的主題變更監聽；面板重建或 Service 結束時務必取消。 */
+    private var themeUnsubscribe: (() -> Unit)? = null
     private val clipboardListenerLifecycle = ClipboardListenerLifecycle(
         registerListener = {
             clipboardManager()?.let { manager ->
@@ -192,8 +196,32 @@ class VoiceImeService : InputMethodService() {
             onTranslateShortcut = ::toggleTranslateMode
         )
         voicePanel = panel
+        // 主題：套用目前偏好並監聽變更。切換主題只重新套用視覺屬性，不會重建面板、
+        // 不會動到錄音作業或任何操作狀態（見 VoiceImePanel.applyTheme）。
+        applyThemeToPanel()
+        themeUnsubscribe?.invoke()
+        themeUnsubscribe = ThemePreferencesRepository.registerListener(this) { applyThemeToPanel() }
         renderStatus()
         return panel.view
+    }
+
+    /** 依目前主題偏好與系統深淺色，把 IME 專用配色套用到面板。 */
+    private fun applyThemeToPanel() {
+        val panel = voicePanel ?: return
+        val selection = ThemePreferencesRepository.cachedSync(this)
+        val uiMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        panel.applyTheme(
+            ThemePaletteRegistry.imePaletteFor(
+                themeId = selection.themeId,
+                appearance = selection.appearance,
+                systemInDarkTheme = uiMode == Configuration.UI_MODE_NIGHT_YES
+            )
+        )
+    }
+
+    private fun unregisterThemeListener() {
+        themeUnsubscribe?.invoke()
+        themeUnsubscribe = null
     }
 
     /**
@@ -2473,6 +2501,7 @@ class VoiceImeService : InputMethodService() {
     override fun onDestroy() {
         voicePanel?.resetSavedSnippetTransientState()
         voicePanel?.disposeHoldToTalkGesture()
+        unregisterThemeListener()
         serviceDestroyed = true
         holdToTalkRecording = false
         stopAudioLevelFeedback()

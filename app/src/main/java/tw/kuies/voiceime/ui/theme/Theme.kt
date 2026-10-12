@@ -9,8 +9,11 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import tw.kuies.voiceime.AppThemeId
+import tw.kuies.voiceime.ThemeAppearance
+import tw.kuies.voiceime.ThemePaletteRegistry
 
-private val DarkColorScheme = darkColorScheme(
+internal val legacyDarkColorScheme = darkColorScheme(
     primary = WarmPrimaryDark,
     onPrimary = WarmOnPrimaryDark,
     primaryContainer = WarmPrimaryContainerDark,
@@ -42,7 +45,7 @@ private val DarkColorScheme = darkColorScheme(
     onErrorContainer = Color(0xFFFFDAD6)
 )
 
-private val LightColorScheme = lightColorScheme(
+internal val legacyLightColorScheme = lightColorScheme(
     primary = WarmPrimaryLight,
     onPrimary = WarmOnPrimaryLight,
     primaryContainer = WarmPrimaryContainerLight,
@@ -72,7 +75,8 @@ private val LightColorScheme = lightColorScheme(
     onErrorContainer = Color(0xFF410E0B)
 )
 
-private val VoiceIMEShapes = Shapes(
+/** v0.15.5 的原始圓角；Legacy Warm 必須維持不變。 */
+internal val LegacyVoiceImeShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(12.dp),
     medium = RoundedCornerShape(16.dp),
@@ -80,15 +84,39 @@ private val VoiceIMEShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp)
 )
 
+/**
+ * App 設定畫面主題入口。
+ *
+ * - [AppThemeId.LEGACY_WARM] 直接使用 v0.15.5 的既有 ColorScheme 與 Shapes，升級後外觀不變。
+ * - 其餘主題由 [colorSchemeFor] 從 Theme Tokens 產生，因此與 IME 面板共用同一套配色來源。
+ * - [ThemeAppearance.SYSTEM] 依 Android 系統深淺色決定；LIGHT／DARK 可手動指定。
+ */
 @Composable
-fun VoiceIMETheme(
+internal fun VoiceIMETheme(
+    themeId: AppThemeId = AppThemeId.LEGACY_WARM,
+    appearance: ThemeAppearance = ThemeAppearance.SYSTEM,
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
+    val useDark = when (appearance) {
+        ThemeAppearance.SYSTEM -> darkTheme
+        ThemeAppearance.LIGHT -> false
+        ThemeAppearance.DARK -> true
+    }
+    if (themeId == AppThemeId.LEGACY_WARM) {
+        MaterialTheme(
+            colorScheme = if (useDark) legacyDarkColorScheme else legacyLightColorScheme,
+            typography = Typography,
+            shapes = LegacyVoiceImeShapes,
+            content = content
+        )
+        return
+    }
+    val palette = ThemePaletteRegistry.paletteFor(themeId, appearance, darkTheme)
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme,
+        colorScheme = colorSchemeFor(palette),
         typography = Typography,
-        shapes = VoiceIMEShapes,
+        shapes = shapesFor(themeId, palette),
         content = content
     )
 }

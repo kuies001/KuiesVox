@@ -48,10 +48,25 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
         )
         setContent {
-            VoiceIMETheme {
+            val themeContext = applicationContext
+            var themeSelection by remember {
+                mutableStateOf(ThemePreferencesRepository.cachedSync(themeContext))
+            }
+            // 主題變更（含 IME 與設定畫面任一側寫入）都在同一個 process 內即時通知。
+            DisposableEffect(themeContext) {
+                val unregister = ThemePreferencesRepository.registerListener(themeContext) { selection ->
+                    themeSelection = selection
+                }
+                onDispose { unregister() }
+            }
+            VoiceIMETheme(
+                themeId = themeSelection.themeId,
+                appearance = themeSelection.appearance
+            ) {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     VoiceImeSettingsApp(
                         modifier = Modifier.padding(innerPadding),
+                        themeSelection = themeSelection,
                         currentEditorPackageName = editorPackageForProfiles,
                         savedSnippetLaunch = savedSnippetLaunch,
                         onClearSavedSnippetLaunch = { requestId ->
@@ -96,12 +111,14 @@ private enum class SettingsDestination {
     PERSONALIZATION,
     SAVED_SNIPPETS,
     MCP,
-    HISTORY_PRIVACY
+    HISTORY_PRIVACY,
+    THEME_APPEARANCE
 }
 
 @Composable
 private fun VoiceImeSettingsApp(
     modifier: Modifier = Modifier,
+    themeSelection: ThemeSelection,
     currentEditorPackageName: String? = null,
     savedSnippetLaunch: SavedSnippetManagerLaunch? = null,
     onClearSavedSnippetLaunch: (Long) -> Unit = {}
@@ -761,6 +778,8 @@ private fun VoiceImeSettingsApp(
                 imeSettingsHint = ""
                 showOnboarding = true
             },
+            themeSelection = themeSelection,
+            onOpenThemeAppearance = { destination = SettingsDestination.THEME_APPEARANCE },
             onCheckForUpdates = appUpdateController::checkForUpdates,
             onDownloadUpdate = { release, version, apk ->
                 appUpdateController.download(release, version, apk)
@@ -931,6 +950,11 @@ private fun VoiceImeSettingsApp(
         )
 
         SettingsDestination.HISTORY_PRIVACY -> HistoryPrivacyScreen(
+            onBack = { destination = SettingsDestination.HOME },
+            modifier = modifier
+        )
+
+        SettingsDestination.THEME_APPEARANCE -> ThemeAppearanceScreen(
             onBack = { destination = SettingsDestination.HOME },
             modifier = modifier
         )

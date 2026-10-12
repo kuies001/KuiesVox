@@ -111,23 +111,25 @@ class VoiceImePanelLayoutTest {
     @Test
     fun statusIndicatorIsAnAccessibleRoundDotWithStateColors() {
         val panel = panel()
+        // 狀態燈顏色必須來自 Theme Tokens；Legacy 的實際色值由 ThemePaletteTest 釘住。
+        val legacy = ThemePaletteRegistry.legacyImePalette()
         val colors = listOf(
-            VoiceImeState.IDLE to Color.rgb(169, 228, 212),
-            VoiceImeState.RECORDING to Color.rgb(232, 153, 161),
-            VoiceImeState.TRANSCRIBING to Color.rgb(255, 192, 118),
-            VoiceImeState.FORMATTING to Color.rgb(255, 192, 118),
-            VoiceImeState.AWAITING_CONFIRM to Color.rgb(189, 186, 255),
-            VoiceImeState.SUCCESS to Color.rgb(169, 228, 212),
-            VoiceImeState.FORMATTING_FALLBACK to Color.rgb(255, 192, 118),
-            VoiceImeState.CANCELLED to Color.rgb(180, 190, 206),
-            VoiceImeState.ERROR to Color.rgb(255, 142, 142)
+            VoiceImeState.IDLE to legacy.statusIdle,
+            VoiceImeState.RECORDING to legacy.statusRecording,
+            VoiceImeState.TRANSCRIBING to legacy.statusProcessing,
+            VoiceImeState.FORMATTING to legacy.statusProcessing,
+            VoiceImeState.AWAITING_CONFIRM to legacy.statusPreview,
+            VoiceImeState.SUCCESS to legacy.statusIdle,
+            VoiceImeState.FORMATTING_FALLBACK to legacy.statusProcessing,
+            VoiceImeState.CANCELLED to legacy.onSurfaceVariant,
+            VoiceImeState.ERROR to legacy.error
         )
 
         colors.forEach { (state, expectedColor) ->
             panel.render(state)
-            val dot = panel.statusDot.background as GradientDrawable
-            assertEquals(GradientDrawable.OVAL, dot.shape)
-            assertEquals(expectedColor, dot.color?.defaultColor)
+            val dot = panel.statusDot.background as ImeShape
+            assertTrue("狀態燈必須是圓形", dot.ovalShape)
+            assertEquals(expectedColor, dot.resolvedFillColor())
             assertEquals(state.accessibilityLabel(), panel.statusIndicator.contentDescription)
         }
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_YES, panel.statusIndicator.importantForAccessibility)
@@ -411,8 +413,8 @@ class VoiceImePanelLayoutTest {
             panel.idleMicButton.layoutParams.width
         )
         assertEquals(panel.idleMicButton.layoutParams.width, panel.idleMicButton.layoutParams.height)
-        val circle = (panel.idleMicButton.background as RippleDrawable).getDrawable(0) as GradientDrawable
-        assertEquals(GradientDrawable.OVAL, circle.shape)
+        val circle = (panel.idleMicButton.background as RippleDrawable).getDrawable(0) as ImeShape
+        assertTrue("中央錄音按鈕必須是圓形", circle.ovalShape)
         assertEquals("開始語音輸入", panel.idleTitle.text)
         assertEquals("點一下開始說話", panel.idleHint.text)
         assertTrue(panel.idleMicButton.performClick())
@@ -519,10 +521,10 @@ class VoiceImePanelLayoutTest {
         assertCompleteToolbarLabel(panel.confirmClearAllButton, "確定清除全部")
         assertCompleteToolbarLabel(panel.cancelClearAllButton, "取消")
         val confirmBackground = (panel.confirmClearAllButton.background as RippleDrawable)
-            .getDrawable(0) as GradientDrawable
+            .getDrawable(0) as ImeShape
         val cancelBackground = (panel.cancelClearAllButton.background as RippleDrawable)
-            .getDrawable(0) as GradientDrawable
-        assertEquals(confirmBackground.cornerRadius, cancelBackground.cornerRadius)
+            .getDrawable(0) as ImeShape
+        assertEquals(confirmBackground.cornerRadiusPx, cancelBackground.cornerRadiusPx)
 
         panel.cancelClearAllButton.performClick()
         assertEquals(View.GONE, panel.clearConfirmationPanel.visibility)
