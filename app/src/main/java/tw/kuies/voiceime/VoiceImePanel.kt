@@ -71,6 +71,13 @@ private const val IDLE_MIC_BUTTON_SIZE_DP = 84
  */
 private const val RECORDING_CANCEL_HEIGHT_DP = 34
 
+/**
+ * 標題／說明區塊的最小高度，必須大於 [RECORDING_CANCEL_HEIGHT_DP]。
+ * 有這個下限，無論字型行高怎麼變，錄音中的「取消」都不會成為決定區塊高度的那一項，
+ * 待命與錄音中的區塊高度因此必然相同（中央圓形不會位移）。
+ */
+private const val IDLE_SECONDARY_MIN_HEIGHT_DP = RECORDING_CANCEL_HEIGHT_DP + 2
+
 internal class VoiceImePanel(
     context: Context,
     onVoiceAction: () -> Unit,
@@ -574,6 +581,8 @@ internal class VoiceImePanel(
             // 兩個狀態的區塊高度都等於標題＋說明的自然高度，因此中央圓形不會位移。
             idleSecondaryStack.apply {
                 orientation = LinearLayout.VERTICAL
+                // 區塊高度永遠由標題＋說明決定，取消按鈕只覆蓋、不撐高。
+                minimumHeight = dp(context, IDLE_SECONDARY_MIN_HEIGHT_DP)
                 addView(
                     idleTitle,
                     LinearLayout.LayoutParams(

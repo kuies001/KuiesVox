@@ -590,6 +590,7 @@ class VoiceImePanelLayoutTest {
         layoutPanel(panel, widthDp = 360)
         val idleCentre = centreInRoot(panel.view, panel.idleMicButton)
         val idleTop = topInRoot(panel.view, panel.idleMicButton)
+        val idleColumnHeight = panel.idleActions.height
 
         panel.render(VoiceImeState.RECORDING)
         layoutPanel(panel, widthDp = 360)
@@ -599,6 +600,12 @@ class VoiceImePanelLayoutTest {
         assertEquals("停止錄音", panel.idleMicButton.contentDescription)
         assertEquals(idleTop, topInRoot(panel.view, panel.idleMicButton))
         assertEquals(idleCentre, centreInRoot(panel.view, panel.idleMicButton))
+        // 取消按鈕不得把互動區撐高，否則置中的圓形會位移。
+        assertEquals(
+            "待命與錄音中的互動區塊高度必須相同",
+            idleColumnHeight,
+            panel.idleActions.height
+        )
         // 原本的標題／說明以 INVISIBLE 保留高度，不讓圓形位移。
         assertEquals(View.INVISIBLE, panel.idleTitle.visibility)
         assertEquals(View.INVISIBLE, panel.idleHint.visibility)
