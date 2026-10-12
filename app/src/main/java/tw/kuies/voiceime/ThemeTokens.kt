@@ -657,10 +657,18 @@ internal data class ThemePreviewSpec(
     val recorderAccent: Int,
     val recordingHalo: Int,
     val swatches: List<Int>,
-    val modeAccents: List<Int>
+    val modeAccents: List<Int>,
+    /** 該主題的造型規格（圖示、按鈕、邊框、錄音視覺化）——預覽與實機共用同一份。 */
+    val visualSpec: ThemeVisualSpec,
+    /** 預覽要模擬的錄音音量（0f–1f）；預覽不會啟動麥克風。 */
+    val simulatedLevel: Float = ThemePreview.DEFAULT_SIMULATED_LEVEL
 ) {
     companion object {
-        fun of(palette: ThemePalette) = ThemePreviewSpec(
+        fun of(
+            palette: ThemePalette,
+            visualSpec: ThemeVisualSpec = ThemeVisualSpecRegistry.forTheme(palette.themeId),
+            simulatedLevel: Float = ThemePreview.DEFAULT_SIMULATED_LEVEL
+        ) = ThemePreviewSpec(
             imeBackground = palette.background,
             toolbarBackground = palette.toolbarBackground,
             toolbarIcon = palette.toolbarIcon,
@@ -680,19 +688,27 @@ internal data class ThemePreviewSpec(
                 palette.modeTranslate.base,
                 palette.modeFormat.base,
                 palette.modeEdit.base
-            )
+            ),
+            visualSpec = visualSpec,
+            simulatedLevel = simulatedLevel
         )
     }
 }
 
 /** 設定畫面預覽與實際畫面共用同一個查表，避免預覽與套用後不一致。 */
 internal object ThemePreview {
+    /** 預覽卡上示意的錄音音量；純粹是畫面示意，不讀取任何麥克風資料。 */
+    const val DEFAULT_SIMULATED_LEVEL = 0.62f
+
     fun specFor(
         themeId: AppThemeId,
         appearance: ThemeAppearance,
-        systemInDarkTheme: Boolean
+        systemInDarkTheme: Boolean,
+        simulatedLevel: Float = DEFAULT_SIMULATED_LEVEL
     ): ThemePreviewSpec = ThemePreviewSpec.of(
-        ThemePaletteRegistry.paletteFor(themeId, appearance, systemInDarkTheme)
+        palette = ThemePaletteRegistry.paletteFor(themeId, appearance, systemInDarkTheme),
+        visualSpec = ThemeVisualSpecRegistry.forTheme(themeId),
+        simulatedLevel = simulatedLevel
     )
 }
 

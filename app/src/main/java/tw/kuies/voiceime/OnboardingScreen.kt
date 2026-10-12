@@ -29,13 +29,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 
 /** 導覽中會用到的外部連結。 */
 internal object OnboardingLinks {
@@ -97,21 +97,34 @@ internal object ImeSettingsLauncher {
 @Composable
 internal fun OnboardingScreen(
     modifier: Modifier = Modifier,
+    step: OnboardingStep,
     hasMicrophonePermission: Boolean,
+    imeEnablement: ImeEnablement,
     imeSettingsHint: String,
+    onStepChange: (OnboardingStep) -> Unit,
     onRequestMicrophonePermission: () -> Unit,
     onOpenGroq: () -> Unit,
     onOpenApiKeySettings: () -> Unit,
     onOpenImeSettings: () -> Unit,
+    onSwitchToKuiesVox: () -> Unit,
     onFinish: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val pagerState = rememberPagerState { OnboardingFlow.pageCount() }
-    val scope = rememberCoroutineScope()
-    val page = pagerState.currentPage
+    val page = step.index
+
+    // 導覽狀態驅動頁面（例如從 Groq 設定儲存成功返回時要直接停在第三頁）。
+    LaunchedEffect(page) { pagerState.animateScrollToPage(page) }
+    // 使用者滑動時把結果回報給導覽狀態，兩邊保持同一個來源。
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { settled ->
+            val target = OnboardingStep.fromIndex(settled)
+            if (target != step) onStepChange(target)
+        }
+    }
 
     fun goTo(target: Int) {
-        scope.launch { pagerState.animateScrollToPage(target) }
+        onStepChange(OnboardingStep.fromIndex(target))
     }
 
     Column(
@@ -150,8 +163,10 @@ internal fun OnboardingScreen(
                     )
 
                     else -> ImeOnboardingPage(
+                        imeEnablement = imeEnablement,
                         hint = imeSettingsHint,
-                        onOpenImeSettings = onOpenImeSettings
+                        onOpenImeSettings = onOpenImeSettings,
+                        onSwitchToKuiesVox = onSwitchToKuiesVox
                     )
                 }
             }
@@ -275,9 +290,19 @@ private fun GroqOnboardingPage(
 
 @Composable
 private fun ImeOnboardingPage(
+    imeEnablement: ImeEnablement,
     hint: String,
-    onOpenImeSettings: () -> Unit
+    onOpenImeSettings: () -> Unit,
+    onSwitchToKuiesVox: () -> Unit
 ) {
+    val colors = MaterialTheme.colorScheme
+    // 以官方 API 查到的狀態決定文案與動作，不以「設定頁是否開啟成功」推測。
+    val statusText = when (imeEnablement) {
+        ImeEnablement.NOT_ENABLED -> "尚未啟用 KuiesVox"
+        ImeEnablement.ENABLED -> "KuiesVox 已啟用"
+        ImeEnablement.DEFAULT -> "KuiesVox 已啟用並設為預設輸入法"
+    }
+    val statusColor = if (imeEnablement == ImeEnablement.NOT_ENABLED) colors.onSurfaceVariant else colors.primary
     Box(
         modifier = Modifier
             .size(56.dp)
@@ -296,11 +321,40 @@ private fun ImeOnboardingPage(
         title = "開啟 KuiesVox 輸入法",
         body = "到手機設定中開啟 KuiesVox，就可以開始使用。"
     )
-    Button(
-        onClick = onOpenImeSettings,
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) { Text("前往輸入法設定") }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = statusText,
+            style = MaterialTheme.typography.titleMedium,
+            color = statusColor
+        )
+        if (imeEnablement != ImeEnablement.NOT_ENABLED) {
+            Text("✔", style = MaterialTheme.typography.titleMedium, color = statusColor)
+        }
+    }
+    when (imeEnablement) {
+        ImeEnablement.NOT_ENABLED -> Button(
+            onClick = onOpenImeSettings,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("前往輸入法設定") }
+
+        ImeEnablement.ENABLED -> Button(
+            onClick = onSwitchToKuiesVox,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("切換至 KuiesVox") }
+
+        // 已設為預設：顯示完成狀態即可，不需要再按任何按鈕。
+        ImeEnablement.DEFAULT -> Text(
+            "已完成，隨時可以在輸入欄位使用語音輸入。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.onSurfaceVariant
+        )
+    }
     ImeStepsCard(hint)
     OnboardingHint("啟用後在任一輸入欄位切換到 KuiesVox，就能用語音輸入。")
 }

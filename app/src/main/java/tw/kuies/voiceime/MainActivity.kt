@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.SystemBarStyle
@@ -25,14 +26,41 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.util.concurrent.atomic.AtomicBoolean
 import tw.kuies.voiceime.ui.theme.VoiceIMETheme
 
 private const val MAIN_ACTIVITY_TAG = "MainActivity"
+
+/** 讓新手導覽的導航狀態能跨 Activity 重建保存（只用可放進 Bundle 的基本型別）。 */
+private val OnboardingNavigationStateSaver: Saver<OnboardingNavigationState, List<Any>> = Saver(
+    save = { state ->
+        listOf(
+            state.isActive,
+            state.entryPoint.name,
+            state.step.name,
+            state.groqSettingsForOnboarding,
+            state.awaitingApiKeySave
+        )
+    },
+    restore = { saved ->
+        OnboardingNavigationState(
+            isActive = saved[0] as Boolean,
+            entryPoint = OnboardingEntryPoint.valueOf(saved[1] as String),
+            step = OnboardingStep.valueOf(saved[2] as String),
+            groqSettingsForOnboarding = saved[3] as Boolean,
+            awaitingApiKeySave = saved[4] as Boolean
+        )
+    }
+)
 
 class MainActivity : ComponentActivity() {
     private var editorPackageForProfiles by mutableStateOf<String?>(null)
@@ -184,8 +212,37 @@ private fun VoiceImeSettingsApp(
     val onboardingStore = remember(applicationContext) {
         SharedPreferencesOnboardingFlagStore(applicationContext)
     }
-    var showOnboarding by remember { mutableStateOf(OnboardingGate.shouldShowOnStartup(onboardingStore)) }
+    // 明確的導覽導航狀態（不再用單一布林值代表所有狀況）；rememberSaveable 讓 Activity
+    // 重建（旋轉、從系統設定返回）後仍停在同一頁，而不是被丟回設定首頁或重新開始導覽。
+    var onboarding by rememberSaveable(stateSaver = OnboardingNavigationStateSaver) {
+        mutableStateOf(
+            if (OnboardingGate.shouldShowOnStartup(onboardingStore)) {
+                OnboardingNavigation.start(OnboardingEntryPoint.FIRST_RUN)
+            } else {
+                OnboardingNavigation.idle()
+            }
+        )
+    }
     var imeSettingsHint by remember { mutableStateOf("") }
+    val imeStateSource = remember(applicationContext) { AndroidImeStateSource(applicationContext) }
+    fun currentImeEnablement(): ImeEnablement = ImeEnablementPolicy.evaluate(
+        enabledInputMethodIds = imeStateSource.enabledInputMethodIds(),
+        defaultInputMethodId = imeStateSource.defaultInputMethodId(),
+        targetPackage = applicationContext.packageName,
+        targetClassName = VoiceImeService::class.java.name
+    )
+    var imeEnablement by remember { mutableStateOf(currentImeEnablement()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        // 使用者從系統輸入法設定返回時，於生命週期恢復階段重新檢查；不做任何輪詢。
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                imeEnablement = currentImeEnablement()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     var apiKey by remember { mutableStateOf("") }
     var apiKeySaved by remember { mutableStateOf(false) }
@@ -236,7 +293,17 @@ private fun VoiceImeSettingsApp(
         }
     }
 
-    BackHandler(enabled = destination != SettingsDestination.HOME) {
+    BackHandler(enabled = destination != SettingsDestination.HOME || onboarding.showsOnboardingScreen) {
+        // 由導覽進入的 Groq 設定頁：返回鍵回到導覽第二頁，而不是設定首頁。
+        val backToGuide = if (destination == SettingsDestination.GROQ) {
+            OnboardingNavigation.backFromGroq(onboarding)
+        } else {
+            null
+        }
+        if (backToGuide != null) {
+            onboarding = backToGuide
+            return@BackHandler
+        }
         destination = SettingsDestination.HOME
         savedSnippetAction = null
         savedSnippetId = null
@@ -709,7 +776,7 @@ private fun VoiceImeSettingsApp(
 
     /** 完成或略過導覽：記住已完成後回到設定首頁，之後不再自動顯示。 */
     fun finishOnboarding() {
-        showOnboarding = false
+        onboarding = OnboardingNavigation.finish(onboarding)
         OnboardingStateRepository.markCompleted(applicationContext) { result ->
             result.onFailure { exception ->
                 Log.w(MAIN_ACTIVITY_TAG, "Onboarding state could not be saved: ${exception.javaClass.simpleName}")
@@ -731,18 +798,41 @@ private fun VoiceImeSettingsApp(
         imeSettingsHint = if (ImeSettingsLauncher.open(launcher)) "" else ImeSettingsLauncher.MANUAL_HINT
     }
 
-    if (showOnboarding) {
+    /**
+     * 開啟系統輸入法選擇器，讓使用者自行把 KuiesVox 切換成目前的輸入法。
+     * 我們不代為更改預設輸入法，一切由 Android 系統與使用者完成。
+     */
+    fun openInputMethodPicker() {
+        val manager = context.getSystemService(InputMethodManager::class.java) ?: return
+        runCatching { manager.showInputMethodPicker() }
+            .onFailure { exception ->
+                Log.w(MAIN_ACTIVITY_TAG, "Input method picker unavailable: ${exception.javaClass.simpleName}")
+            }
+    }
+
+    if (onboarding.showsOnboardingScreen) {
         OnboardingScreen(
             modifier = modifier,
+            step = onboarding.step,
             hasMicrophonePermission = hasRecordAudioPermission,
+            imeEnablement = imeEnablement,
             imeSettingsHint = imeSettingsHint,
+            onStepChange = { step -> onboarding = OnboardingNavigation.goToStep(onboarding, step) },
             onRequestMicrophonePermission = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
             onOpenGroq = { openApiKeyPage(OnboardingLinks.GROQ_API_KEYS) },
             onOpenApiKeySettings = {
-                finishOnboarding()
+                // 保留導覽流程：先前這裡會呼叫 finishOnboarding()，導致導覽被提前結束。
+                onboarding = OnboardingNavigation.openGroqFromOnboarding(onboarding)
                 destination = SettingsDestination.GROQ
             },
-            onOpenImeSettings = { openImeSettings() },
+            onOpenImeSettings = {
+                openImeSettings()
+                imeEnablement = currentImeEnablement()
+            },
+            onSwitchToKuiesVox = {
+                openInputMethodPicker()
+                imeEnablement = currentImeEnablement()
+            },
             onFinish = { finishOnboarding() }
         )
         return
@@ -774,9 +864,9 @@ private fun VoiceImeSettingsApp(
             onOpenMcp = { destination = SettingsDestination.MCP },
             onOpenHistoryPrivacy = { destination = SettingsDestination.HISTORY_PRIVACY },
             onOpenOnboarding = {
-                // 從設定頁重新查看：只顯示導覽，不會把完成狀態改回未完成。
+                // 從設定頁重新查看：再次顯示導覽，但不會把完成狀態改回未完成。
                 imeSettingsHint = ""
-                showOnboarding = true
+                onboarding = OnboardingNavigation.start(OnboardingEntryPoint.SETTINGS_REVIEW)
             },
             themeSelection = themeSelection,
             onOpenThemeAppearance = { destination = SettingsDestination.THEME_APPEARANCE },
@@ -822,16 +912,21 @@ private fun VoiceImeSettingsApp(
             },
             onSave = {
                 apiKeyStatus = "正在儲存 API Key…"
+                onboarding = OnboardingNavigation.onApiKeySaveStarted(onboarding)
                 GroqApiKeyStore.saveAsync(applicationContext, apiKey) { result ->
                     mainHandler.post {
                         if (!screenIsActive.get()) return@post
                         result.onSuccess {
                             apiKeySaved = true
                             apiKeyStatus = "API Key 已儲存在此 App 的私有空間。"
+                            // 由導覽進來時：自動回到導覽並前進到第三頁「啟用 KuiesVox」。
+                            onboarding = OnboardingNavigation.onApiKeySaveSucceeded(onboarding)
                         }.onFailure { exception ->
                             Log.w(MAIN_ACTIVITY_TAG, "API key save failed: ${exception.javaClass.simpleName}")
                             apiKeySaved = false
                             apiKeyStatus = "API Key 儲存失敗，請稍後再試。"
+                            // 儲存失敗：留在 Groq 設定頁顯示錯誤，不跳頁、不清掉已輸入的 Key。
+                            onboarding = OnboardingNavigation.onApiKeySaveFailed(onboarding)
                         }
                     }
                 }
@@ -852,7 +947,15 @@ private fun VoiceImeSettingsApp(
                     }
                 }
             },
-            onBack = { destination = SettingsDestination.HOME }
+            onBack = {
+                // 由導覽進入時返回導覽第二頁（保留繼續／略過）；一般設定頁進入時回首頁。
+                val backToGuide = OnboardingNavigation.backFromGroq(onboarding)
+                if (backToGuide != null) {
+                    onboarding = backToGuide
+                } else {
+                    destination = SettingsDestination.HOME
+                }
+            }
         )
 
         SettingsDestination.SMART_FORMATTING -> SmartFormattingSettingsScreen(

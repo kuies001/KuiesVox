@@ -68,10 +68,56 @@ internal object RecordingCircleScale {
     const val BASE_SCALE = 1f
     const val MAX_SCALE = 1.2f
 
-    fun forLevel(level: Float): Float {
+    /** 以預設上限（v0.15.5 的 1.2 倍）映射。 */
+    fun forLevel(level: Float): Float = forLevel(level, MAX_SCALE)
+
+    /**
+     * 以主題指定的縮放上限映射；主題的 AnimationStyle 可以要求較大或較小的成長幅度，
+     * 但永遠不會小於基礎半徑，也不會無限放大。
+     */
+    fun forLevel(level: Float, maxScale: Float): Float {
         val bounded = if (level.isFinite()) level.coerceIn(0f, 1f) else 0f
-        return BASE_SCALE + (MAX_SCALE - BASE_SCALE) * bounded
+        val upper = if (maxScale.isFinite()) maxScale.coerceIn(BASE_SCALE, MAX_GROWTH) else BASE_SCALE
+        return BASE_SCALE + (upper - BASE_SCALE) * bounded
     }
+
+    /** 任何主題都不得超過的成長上限；維持既有安全區域（不遮擋右側與下方控制項）。 */
+    const val MAX_GROWTH = 1.25f
+}
+
+/**
+ * 錄音視覺化的共用數學。
+ *
+ * IME 的 [RecordingVisualizerDrawable] 與設定頁預覽都使用這裡的計算，因此預覽與實機
+ * 的動態反應一致，而且可以在 JVM 測試中直接驗證「音量變化確實反映在畫面上」。
+ */
+internal object RecordingVisualScale {
+    /** 環形刻度亮起的格數：無聲 0 格、最大音量全亮，且隨音量單調增加。 */
+    fun litSegments(level: Float, segmentCount: Int): Int {
+        val segments = segmentCount.coerceAtLeast(0)
+        if (segments == 0) return 0
+        return (boundedLevel(level) * segments).toInt().coerceIn(0, segments)
+    }
+
+    /** 訊號波振幅（相對於可用半徑的比例）。 */
+    fun waveAmplitudeFraction(level: Float): Float = 0.32f * boundedLevel(level)
+
+    /** 脈動圈半徑（相對於可用半徑的比例）：無聲時仍保留基礎圈，音量越大越外擴。 */
+    fun pulseRadiusFraction(step: Float, level: Float): Float {
+        val boundedStep = if (step.isFinite()) step.coerceIn(0f, 1f) else 0f
+        return boundedStep * (0.82f + 0.18f * boundedLevel(level))
+    }
+
+    /** 脈動圈透明度：外圈較淡，且只在有音量時明顯。 */
+    fun pulseAlpha(step: Float, level: Float, base: Int = 120): Int {
+        val boundedStep = if (step.isFinite()) step.coerceIn(0f, 1f) else 0f
+        val scale = (1f - boundedStep) * (0.45f + 0.55f * boundedLevel(level))
+        return (base * scale).toInt().coerceIn(0, 255)
+    }
+
+    /** 非有限值一律視為無聲，避免任何異常輸入放大動畫。 */
+    fun boundedLevel(level: Float): Float =
+        if (level.isFinite()) level.coerceIn(0f, 1f) else 0f
 }
 
 /** Keeps meter state scoped to the current recording operation. */
