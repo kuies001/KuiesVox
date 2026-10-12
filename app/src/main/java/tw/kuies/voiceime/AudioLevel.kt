@@ -92,20 +92,25 @@ internal object RecordingCircleScale {
  * 的動態反應一致，而且可以在 JVM 測試中直接驗證「音量變化確實反映在畫面上」。
  */
 internal object RecordingVisualScale {
-    /** 環形刻度亮起的格數：無聲 0 格、最大音量全亮，且隨音量單調增加。 */
-    fun litSegments(level: Float, segmentCount: Int): Int {
+    /** 環形刻度亮起的格數：無聲時仍保底亮起 [minLit] 格（低活動量），最大音量全亮。 */
+    fun litSegments(level: Float, segmentCount: Int, minLit: Int = 0): Int {
         val segments = segmentCount.coerceAtLeast(0)
         if (segments == 0) return 0
-        return (boundedLevel(level) * segments).toInt().coerceIn(0, segments)
+        val baseline = minLit.coerceIn(0, segments)
+        val lit = (boundedLevel(level) * segments).toInt().coerceIn(0, segments)
+        return maxOf(lit, baseline)
     }
 
     /** 訊號波振幅（相對於可用半徑的比例）。 */
     fun waveAmplitudeFraction(level: Float): Float = 0.32f * boundedLevel(level)
 
-    /** 脈動圈半徑（相對於可用半徑的比例）：無聲時仍保留基礎圈，音量越大越外擴。 */
+    /**
+     * 脈動圈半徑（相對於可用半徑的比例）：無聲時仍保留基礎圈，音量越大越外擴。
+     * 上限刻意壓在 0.74–0.92，讓最外圈加上線寬後仍在安全半徑內（不會被圓形邊緣裁切）。
+     */
     fun pulseRadiusFraction(step: Float, level: Float): Float {
         val boundedStep = if (step.isFinite()) step.coerceIn(0f, 1f) else 0f
-        return boundedStep * (0.82f + 0.18f * boundedLevel(level))
+        return boundedStep * (0.74f + 0.18f * boundedLevel(level))
     }
 
     /** 脈動圈透明度：外圈較淡，且只在有音量時明顯。 */
@@ -118,6 +123,132 @@ internal object RecordingVisualScale {
     /** 非有限值一律視為無聲，避免任何異常輸入放大動畫。 */
     fun boundedLevel(level: Float): Float =
         if (level.isFinite()) level.coerceIn(0f, 1f) else 0f
+}
+
+/** 一個同心圓／脈動圈；半徑與線寬都是可用半徑的倍率。 */
+internal data class VisualRing(val radiusFraction: Float, val strokeFraction: Float, val alpha: Int)
+
+/** 一格環形刻度；角度以 12 點鐘方向為 0、順時針為正。 */
+internal data class VisualTick(val angleRadians: Float, val innerFraction: Float, val outerFraction: Float)
+
+/** 電波紋：以極座標點列表示，振幅已含入音量。 */
+internal data class VisualWave(val points: List<Pair<Float, Float>>, val strokeFraction: Float, val alpha: Int)
+
+/**
+ * 一個錄音視覺化的完整繪製計畫。
+ *
+ * 所有座標都是「可用半徑的倍率」，因此與裝置密度、實際尺寸無關，
+ * 可以在 JVM 測試中驗證：四種樣式互不相同、隨音量單調變化、且永遠不超出安全半徑。
+ */
+internal data class RecordingVisualPlan(
+    val rings: List<VisualRing> = emptyList(),
+    val ticks: List<VisualTick> = emptyList(),
+    val wave: VisualWave? = null
+) {
+    val isEmpty: Boolean get() = rings.isEmpty() && ticks.isEmpty() && wave == null
+
+    private val tickOuter: Float get() = ticks.maxOfOrNull { it.outerFraction + TICK_HALF_STROKE } ?: 0f
+    private val ringOuter: Float get() = rings.maxOfOrNull { it.radiusFraction + it.strokeFraction / 2f } ?: 0f
+    private val waveOuter: Float
+        get() = wave?.let { shape -> shape.points.maxOfOrNull { it.second + shape.strokeFraction / 2f } ?: 0f } ?: 0f
+
+    /** 圖形最遠到達的半徑倍率（含線寬）；必須 ≤ 1f（不得超出保留的視覺區域）。 */
+    val maxRadiusFraction: Float
+        get() = maxOf(tickOuter, ringOuter, waveOuter)
+
+    private companion object {
+        /** 刻度線的線寬（可用半徑的倍率），與繪製時使用的一致。 */
+        const val TICK_HALF_STROKE = 0.0375f
+    }
+}
+
+/**
+ * 依主題樣式與音量產生繪製計畫。
+ *
+ * IME 的 `RecordingVisualizerDrawable` 與設定頁預覽都使用這一份計畫，
+ * 因此預覽與實機的圖形完全一致，也可以在沒有裝置的情況下驗證幾何正確性。
+ */
+internal object RecordingVisualPlanner {
+    /** 刻度最外緣；保留 4% 邊界，避免被圓形邊緣裁切。 */
+    private const val TICK_OUTER = 0.96f
+    private const val TICK_INNER = 0.78f
+
+    /** 無聲時仍亮起的刻度數（Industrial 的低活動量）。 */
+    const val METER_MIN_LIT = 2
+
+    fun planFor(
+        style: RecordingVisualStyle,
+        level: Float,
+        segmentCount: Int = 0,
+        cycles: Int = 0
+    ): RecordingVisualPlan {
+        val volume = RecordingVisualScale.boundedLevel(level)
+        return when (style) {
+            RecordingVisualStyle.SOFT_PULSE -> {
+                val count = cycles.coerceAtLeast(1)
+                RecordingVisualPlan(
+                    rings = (0 until count).map { index ->
+                        val step = (index + 1f) / count
+                        VisualRing(
+                            radiusFraction = RecordingVisualScale.pulseRadiusFraction(step, volume),
+                            strokeFraction = 0.06f,
+                            alpha = RecordingVisualScale.pulseAlpha(step, volume)
+                        )
+                    }
+                )
+            }
+
+            RecordingVisualStyle.SEGMENTED_METER_RING -> {
+                val segments = segmentCount.coerceAtLeast(1)
+                val lit = RecordingVisualScale.litSegments(volume, segments, METER_MIN_LIT)
+                RecordingVisualPlan(
+                    ticks = (0 until lit).map { index ->
+                        VisualTick(
+                            angleRadians = (-Math.PI / 2 + 2 * Math.PI * index / segments).toFloat(),
+                            innerFraction = TICK_INNER,
+                            outerFraction = TICK_OUTER
+                        )
+                    }
+                )
+            }
+
+            RecordingVisualStyle.SIGNAL_WAVE -> {
+                // 電波紋畫成一圈「被音量調變的環」，因此一定看得見、且不會超出保留區域。
+                val points = (0 until WAVE_POINTS).map { index ->
+                    val angle = 2.0 * Math.PI * index / WAVE_POINTS
+                    val modulation = Math.sin(angle * WAVE_CYCLES)
+                    val radius = WAVE_BASE_RADIUS +
+                        WAVE_AMPLITUDE * RecordingVisualScale.waveAmplitudeFraction(volume) * modulation
+                    angle.toFloat() to radius.toFloat()
+                }
+                RecordingVisualPlan(
+                    wave = VisualWave(
+                        points = points,
+                        strokeFraction = 0.075f,
+                        alpha = (140 + 115 * volume).toInt().coerceIn(0, 255)
+                    )
+                )
+            }
+
+            RecordingVisualStyle.SMOOTH_SCALE -> RecordingVisualPlan(
+                // 低調的單一圈：只有輕微邊緣變化，不搶過主按鈕的縮放。
+                rings = listOf(
+                    VisualRing(
+                        radiusFraction = 0.9f,
+                        strokeFraction = 0.045f,
+                        alpha = (40 + 90 * volume).toInt().coerceIn(0, 255)
+                    )
+                )
+            )
+
+            RecordingVisualStyle.LEGACY -> RecordingVisualPlan()
+        }
+    }
+
+    private const val WAVE_POINTS = 48
+    private const val WAVE_CYCLES = 4.0
+    private const val WAVE_BASE_RADIUS = 0.8f
+    private const val WAVE_AMPLITUDE = 0.14f
 }
 
 /** Keeps meter state scoped to the current recording operation. */

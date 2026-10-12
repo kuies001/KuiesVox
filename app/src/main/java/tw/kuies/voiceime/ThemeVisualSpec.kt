@@ -116,28 +116,40 @@ internal data class ThemeVisualSpec(
     val animationStyle: AnimationStyle,
 
     // 以下皆為「只影響繪製」的參數，不參與量測。
-    /** 圖示外框線寬（dp）。 */
-    val iconFrameWidthDp: Float,
-    /** 圖示外框內縮（dp）；0 表示不繪製外框。 */
-    val iconFrameInsetDp: Float,
-    /** 面板／輸入框邊框寬度（dp）。 */
+    /**
+     * 面板／卡片的邊框寬度（dp）。**不得用於工具列逐顆按鈕**：
+     * 每顆按鈕都畫外框會造成視覺擁擠（2026-10-12 實機回報的白框問題）。
+     */
     val borderWidthDp: Float,
     /** 環形音量的刻度數量（僅 SEGMENTED_METER_RING 使用）。 */
     val meterSegmentCount: Int,
-    /** 柔和陰影／外圈的透明度（0 = 無）。 */
+    /** 面板容器的柔和外圈透明度（0 = 無）。 */
     val shadowAlpha: Float
 ) {
-    /** 是否需要繪製額外的錄音視覺化圖形。 */
+    /** 是否需要繪製額外的錄音視覺化圖形（Legacy 維持原樣，因此不需要）。 */
     val hasRecordingOverlay: Boolean
-        get() = recordingVisualStyle != RecordingVisualStyle.LEGACY &&
-            recordingVisualStyle != RecordingVisualStyle.SMOOTH_SCALE
+        get() = recordingVisualStyle != RecordingVisualStyle.LEGACY
 
     /**
-     * 按鈕實際採用的邊框處理：HUD 按鈕一定要有角標，其餘沿用主題的邊框風格。
-     * 面板與輸入框則使用 [borderStyle]（例如明亮科幻是極細邊框）。
+     * 面板容器實際採用的邊框處理：HUD 按鈕風格的容器帶角標，其餘沿用主題的邊框風格。
+     * 只用在「一個容器」上（工具列外框、卡片），不逐顆按鈕套用。
      */
-    val buttonBorderStyle: BorderStyle
+    val containerBorderStyle: BorderStyle
         get() = if (buttonStyle == ButtonStyle.HUD_OUTLINE) BorderStyle.HUD_CORNERS else borderStyle
+
+    /**
+     * 工具列按鈕的底色；null 代表沿用 v0.15.5 原本的按鈕背景。
+     *
+     * 刻意「只有底色、沒有外框」：四套主題靠底色、圖示色與錄音視覺化區分，
+     * 不再逐顆畫白色圓角框。
+     */
+    fun toolbarButtonFill(palette: ThemePalette): Int? = when (buttonStyle) {
+        ButtonStyle.SOFT_PILL -> ThemeMix.blend(palette.surfaceVariant, palette.primary, 0.22f)
+        ButtonStyle.HARD_GEOMETRIC -> palette.surfaceVariant
+        ButtonStyle.HUD_OUTLINE -> ThemeMix.blend(palette.surfaceVariant, palette.secondary, 0.18f)
+        ButtonStyle.SOFT_SUBTLE -> ThemeMix.blend(palette.surfaceVariant, palette.surface, 0.55f)
+        ButtonStyle.NEUTRAL -> null
+    }
 }
 
 /**
@@ -160,8 +172,6 @@ internal object ThemeVisualSpecRegistry {
             smoothing = 1f,
             pulseCycles = 0
         ),
-        iconFrameWidthDp = 0f,
-        iconFrameInsetDp = 0f,
         borderWidthDp = 0f,
         meterSegmentCount = 0,
         shadowAlpha = 0f
@@ -175,8 +185,6 @@ internal object ThemeVisualSpecRegistry {
         surfaceStyle = SurfaceStyle.SOFT_ELEVATED,
         recordingVisualStyle = RecordingVisualStyle.SOFT_PULSE,
         animationStyle = AnimationStyle(maxScale = 1.22f, smoothing = 0.85f, pulseCycles = 2),
-        iconFrameWidthDp = 1.5f,
-        iconFrameInsetDp = 1f,
         borderWidthDp = 0f,
         meterSegmentCount = 0,
         shadowAlpha = 0.22f
@@ -190,8 +198,6 @@ internal object ThemeVisualSpecRegistry {
         surfaceStyle = SurfaceStyle.LAYERED_PANELS,
         recordingVisualStyle = RecordingVisualStyle.SEGMENTED_METER_RING,
         animationStyle = AnimationStyle(maxScale = 1.16f, smoothing = 0.6f, pulseCycles = 0),
-        iconFrameWidthDp = 1f,
-        iconFrameInsetDp = 0f,
         borderWidthDp = 2f,
         meterSegmentCount = 16,
         shadowAlpha = 0f
@@ -205,8 +211,6 @@ internal object ThemeVisualSpecRegistry {
         surfaceStyle = SurfaceStyle.GLASS_TINT,
         recordingVisualStyle = RecordingVisualStyle.SIGNAL_WAVE,
         animationStyle = AnimationStyle(maxScale = 1.18f, smoothing = 0.7f, pulseCycles = 0),
-        iconFrameWidthDp = 1f,
-        iconFrameInsetDp = 2f,
         borderWidthDp = 1f,
         meterSegmentCount = 0,
         shadowAlpha = 0.14f
@@ -220,8 +224,6 @@ internal object ThemeVisualSpecRegistry {
         surfaceStyle = SurfaceStyle.CLEAN,
         recordingVisualStyle = RecordingVisualStyle.SMOOTH_SCALE,
         animationStyle = AnimationStyle(maxScale = 1.2f, smoothing = 0.75f, pulseCycles = 0),
-        iconFrameWidthDp = 0f,
-        iconFrameInsetDp = 0f,
         borderWidthDp = 1f,
         meterSegmentCount = 0,
         shadowAlpha = 0f

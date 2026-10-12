@@ -660,6 +660,8 @@ internal data class ThemePreviewSpec(
     val modeAccents: List<Int>,
     /** 該主題的造型規格（圖示、按鈕、邊框、錄音視覺化）——預覽與實機共用同一份。 */
     val visualSpec: ThemeVisualSpec,
+    /** 工具列按鈕的底色；null 代表 Legacy 沿用原本（無底色）的外觀。 */
+    val toolbarChipFill: Int?,
     /** 預覽要模擬的錄音音量（0f–1f）；預覽不會啟動麥克風。 */
     val simulatedLevel: Float = ThemePreview.DEFAULT_SIMULATED_LEVEL
 ) {
@@ -690,6 +692,7 @@ internal data class ThemePreviewSpec(
                 palette.modeEdit.base
             ),
             visualSpec = visualSpec,
+            toolbarChipFill = visualSpec.toolbarButtonFill(palette),
             simulatedLevel = simulatedLevel
         )
     }

@@ -311,7 +311,6 @@ private fun ImePanelPreview(spec: ThemePreviewSpec, animate: Boolean) {
                             .size(6.dp)
                             .clip(previewShape(visual.buttonStyle))
                             .background(previewChipFill(spec))
-                            .previewFrame(visual, frameColor, previewShape(visual.buttonStyle))
                     )
                 }
             }
@@ -381,8 +380,8 @@ private fun Modifier.previewFrame(
     color: Color,
     shape: Shape
 ): Modifier {
-    if (visual.buttonBorderStyle == BorderStyle.NEUTRAL || visual.borderWidthDp <= 0f) return this
-    val width = when (visual.buttonBorderStyle) {
+    if (visual.containerBorderStyle == BorderStyle.NEUTRAL || visual.borderWidthDp <= 0f) return this
+    val width = when (visual.containerBorderStyle) {
         BorderStyle.HAIRLINE, BorderStyle.SUBTLE_LINE -> 0.8.dp
         BorderStyle.HUD_CORNERS -> 0.9.dp
         BorderStyle.FUNCTIONAL_FRAME -> 1.6.dp
@@ -391,69 +390,57 @@ private fun Modifier.previewFrame(
     return border(width, color.copy(alpha = 0.55f), shape)
 }
 
-/** 依 ButtonStyle 決定工具列晶片的底色。 */
-private fun previewChipFill(spec: ThemePreviewSpec): Color = when (spec.visualSpec.buttonStyle) {
-    ButtonStyle.HARD_GEOMETRIC -> Color(spec.toolbarBackground)
-    ButtonStyle.HUD_OUTLINE -> Color.Transparent
-    else -> Color(spec.toolbarIcon).copy(alpha = 0.18f)
-}
+/** 依 ButtonStyle 決定工具列晶片的底色；與 IME 共用同一個配方，且**不含外框**。 */
+private fun previewChipFill(spec: ThemePreviewSpec): Color =
+    spec.toolbarChipFill?.let { Color(it) } ?: Color(spec.toolbarIcon).copy(alpha = 0.18f)
 
-/** 預覽的錄音視覺化圖形；與 IME 的 RecordingVisualizerDrawable 使用同一組參數。 */
+/** 預覽的錄音視覺化圖形；由與 IME 相同的繪製計畫產生，因此兩邊圖形一致。 */
 private fun DrawScope.previewRecordingVisual(spec: ThemePreviewSpec, level: Float, accent: Color) {
     val visual = spec.visualSpec
+    val plan = RecordingVisualPlanner.planFor(
+        style = visual.recordingVisualStyle,
+        level = level,
+        segmentCount = visual.meterSegmentCount,
+        cycles = visual.animationStyle.pulseCycles
+    )
     val centre = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
     val maxRadius = size.minDimension / 2f
-    when (visual.recordingVisualStyle) {
-        RecordingVisualStyle.SOFT_PULSE -> {
-            val count = visual.animationStyle.pulseCycles.coerceAtLeast(1)
-            repeat(count) { index ->
-                val step = (index + 1f) / count
-                drawCircle(
-                    color = accent.copy(alpha = 0.55f * (1f - step * 0.6f) * (0.45f + 0.55f * level)),
-                    radius = maxRadius * RecordingVisualScale.pulseRadiusFraction(step, level),
-                    center = centre,
-                    style = Stroke(width = maxRadius * 0.06f)
-                )
-            }
+    plan.rings.forEach { ring ->
+        drawCircle(
+            color = accent.copy(alpha = ring.alpha / 255f),
+            radius = maxRadius * ring.radiusFraction,
+            center = centre,
+            style = Stroke(width = maxRadius * ring.strokeFraction)
+        )
+    }
+    if (plan.ticks.isNotEmpty()) {
+        val inner = maxRadius * plan.ticks.first().innerFraction
+        val outer = maxRadius * plan.ticks.first().outerFraction
+        plan.ticks.forEach { tick ->
+            val cos = kotlin.math.cos(tick.angleRadians)
+            val sin = kotlin.math.sin(tick.angleRadians)
+            drawLine(
+                color = accent,
+                start = androidx.compose.ui.geometry.Offset(centre.x + cos * inner, centre.y + sin * inner),
+                end = androidx.compose.ui.geometry.Offset(centre.x + cos * outer, centre.y + sin * outer),
+                strokeWidth = maxRadius * 0.075f,
+                cap = StrokeCap.Round
+            )
         }
-
-        RecordingVisualStyle.SEGMENTED_METER_RING -> {
-            val segments = visual.meterSegmentCount.coerceAtLeast(1)
-            val lit = RecordingVisualScale.litSegments(level, segments)
-            val radius = maxRadius * 0.96f
-            val tick = maxRadius * 0.18f
-            repeat(segments) { index ->
-                if (index >= lit) return@repeat
-                val angle = (-Math.PI / 2 + 2 * Math.PI * index / segments).toFloat()
-                val cos = kotlin.math.cos(angle)
-                val sin = kotlin.math.sin(angle)
-                drawLine(
-                    color = accent,
-                    start = androidx.compose.ui.geometry.Offset(
-                        centre.x + cos * (radius - tick),
-                        centre.y + sin * (radius - tick)
-                    ),
-                    end = androidx.compose.ui.geometry.Offset(centre.x + cos * radius, centre.y + sin * radius),
-                    strokeWidth = maxRadius * 0.08f,
-                    cap = androidx.compose.ui.graphics.StrokeCap.Round
-                )
-            }
+    }
+    plan.wave?.let { wave ->
+        val path = Path()
+        wave.points.forEachIndexed { index, point ->
+            val x = centre.x + kotlin.math.cos(point.first) * maxRadius * point.second
+            val y = centre.y + kotlin.math.sin(point.first) * maxRadius * point.second
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
-
-        RecordingVisualStyle.SIGNAL_WAVE -> {
-            val amplitude = maxRadius * RecordingVisualScale.waveAmplitudeFraction(level)
-            val path = Path()
-            val steps = 24
-            repeat(steps + 1) { index ->
-                val fraction = index.toFloat() / steps
-                val x = centre.x - maxRadius * 0.8f + 2 * maxRadius * 0.8f * fraction
-                val y = centre.y + kotlin.math.sin(fraction * Math.PI.toFloat() * 4f) * amplitude
-                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-            drawPath(path, color = accent.copy(alpha = 0.85f), style = Stroke(width = maxRadius * 0.09f))
-        }
-
-        RecordingVisualStyle.SMOOTH_SCALE, RecordingVisualStyle.LEGACY -> Unit
+        path.close()
+        drawPath(
+            path,
+            color = accent.copy(alpha = wave.alpha / 255f),
+            style = Stroke(width = maxRadius * wave.strokeFraction)
+        )
     }
 }
 

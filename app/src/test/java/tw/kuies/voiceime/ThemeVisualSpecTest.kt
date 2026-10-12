@@ -64,18 +64,18 @@ class ThemeVisualSpecTest {
         BorderStyle.entries.forEach { style ->
             assertTrue(
                 "$style 沒有任何主題使用",
-                specs.any { it.borderStyle == style || it.buttonBorderStyle == style }
+                specs.any { it.borderStyle == style || it.containerBorderStyle == style }
             )
         }
-        // HUD 按鈕一定要有角標處理。
+        // 工具列容器的角標處理：HUD 風格的主題。
         val sciFi = ThemeVisualSpecRegistry.forTheme(AppThemeId.BRIGHT_SCIFI)
         assertEquals(ButtonStyle.HUD_OUTLINE, sciFi.buttonStyle)
-        assertEquals(BorderStyle.HUD_CORNERS, sciFi.buttonBorderStyle)
+        assertEquals(BorderStyle.HUD_CORNERS, sciFi.containerBorderStyle)
         assertEquals("面板本身仍是極細邊框", BorderStyle.HAIRLINE, sciFi.borderStyle)
-        // 其餘主題的按鈕邊框與面板邊框一致。
+        // 其餘主題的容器邊框與面板邊框一致。
         newThemes.filter { it != AppThemeId.BRIGHT_SCIFI }.forEach { themeId ->
             val spec = ThemeVisualSpecRegistry.forTheme(themeId)
-            assertEquals(spec.borderStyle, spec.buttonBorderStyle)
+            assertEquals(spec.borderStyle, spec.containerBorderStyle)
         }
         SurfaceStyle.entries.forEach { style ->
             assertTrue("$style 沒有任何主題使用", specs.any { it.surfaceStyle == style })
@@ -95,12 +95,12 @@ class ThemeVisualSpecTest {
         assertEquals(SurfaceStyle.NEUTRAL, legacy.surfaceStyle)
         assertEquals(RecordingVisualStyle.LEGACY, legacy.recordingVisualStyle)
         // 沒有任何外框、外圈或刻度，因此不可能改變既有外觀。
-        assertEquals(0f, legacy.iconFrameWidthDp, 0f)
-        assertEquals(0f, legacy.iconFrameInsetDp, 0f)
         assertEquals(0f, legacy.borderWidthDp, 0f)
         assertEquals(0f, legacy.shadowAlpha, 0f)
         assertEquals(0, legacy.meterSegmentCount)
         assertFalse(legacy.hasRecordingOverlay)
+        // 工具列按鈕完全沿用原本的背景（不套用任何主題底色）。
+        assertEquals(null, legacy.toolbarButtonFill(ThemePaletteRegistry.legacyImePalette()))
         // 縮放上限與 v0.15.5 相同。
         assertEquals(RecordingCircleScale.MAX_SCALE, legacy.animationStyle.maxScale, 0f)
     }
@@ -111,8 +111,10 @@ class ThemeVisualSpecTest {
             val spec = ThemeVisualSpecRegistry.forTheme(themeId)
             assertEquals(themeId, spec.themeId)
             assertNotEquals("$themeId 必須有專屬的錄音視覺化", RecordingVisualStyle.LEGACY, spec.recordingVisualStyle)
-            // 至少要有「外框」「邊框」或「外圈」其中一種造型處理，否則談不上不同風格。
-            val hasTreatment = spec.iconFrameWidthDp > 0f ||
+            // 至少要有「按鈕底色」「容器邊框」或「外圈」其中一種造型處理，
+            // 否則談不上不同風格（但都不得是逐顆按鈕的外框）。
+            val palette = ThemePaletteRegistry.paletteFor(themeId, ThemeAppearance.DARK, false)
+            val hasTreatment = spec.toolbarButtonFill(palette) != null ||
                 spec.borderWidthDp > 0f ||
                 spec.shadowAlpha > 0f ||
                 spec.hasRecordingOverlay
@@ -158,18 +160,18 @@ class ThemeVisualSpecTest {
     @Test
     fun onlyThemesWithAnOverlayDefineAMeterOrPulse() {
         ThemeVisualSpecRegistry.all().forEach { spec ->
-            val overlayStyles = listOf(
-                RecordingVisualStyle.SOFT_PULSE,
-                RecordingVisualStyle.SEGMENTED_METER_RING,
-                RecordingVisualStyle.SIGNAL_WAVE
-            )
+            val label = spec.themeId.toString()
+            // Legacy 沿用原動畫（沒有額外圖形），其餘主題都有專屬圖形。
             assertEquals(
-                "${spec.themeId} 的 hasRecordingOverlay 與其樣式不一致",
-                spec.recordingVisualStyle in overlayStyles,
+                "$label 的 hasRecordingOverlay 與其樣式不一致",
+                spec.recordingVisualStyle != RecordingVisualStyle.LEGACY,
                 spec.hasRecordingOverlay
             )
             if (spec.recordingVisualStyle == RecordingVisualStyle.SOFT_PULSE) {
                 assertTrue("脈動樣式必須定義圈數", spec.animationStyle.pulseCycles > 0)
+            }
+            if (spec.recordingVisualStyle == RecordingVisualStyle.SEGMENTED_METER_RING) {
+                assertTrue("環形刻度樣式必須定義刻度數量", spec.meterSegmentCount > 0)
             }
         }
     }
@@ -309,5 +311,164 @@ class RecordingVisualScaleTest {
         assertEquals(0.42f, RecordingVisualScale.boundedLevel(0.42f), 0f)
         assertEquals(1f, RecordingVisualScale.boundedLevel(4f), 0f)
         assertEquals(0f, RecordingVisualScale.boundedLevel(Float.POSITIVE_INFINITY), 0f)
+    }
+}
+
+/**
+ * TASK C 迴歸：工具列按鈕**不得**畫逐顆外框。
+ *
+ * 2026-10-12 實機回報七顆按鈕全部被明顯的白框包住；這裡以「低對比底色」把規則釘住：
+ * 只要有人再把按鈕底色改成接近白色／圖示色，或讓底色對比拉高，測試就會失敗。
+ */
+class ToolbarButtonFrameTest {
+
+    private fun palette(themeId: AppThemeId) =
+        ThemePaletteRegistry.paletteFor(themeId, ThemeAppearance.DARK, false)
+
+    @Test
+    fun legacyKeepsItsOriginalButtonBackgroundWithNoFill() {
+        val legacy = ThemeVisualSpecRegistry.forTheme(AppThemeId.LEGACY_WARM)
+        assertEquals(null, legacy.toolbarButtonFill(palette(AppThemeId.LEGACY_WARM)))
+    }
+
+    @Test
+    fun everyNewThemeUsesALowContrastFillInsteadOfAFrame() {
+        val themes = listOf(
+            AppThemeId.CUTE_CREAM,
+            AppThemeId.INDUSTRIAL_LIGHT,
+            AppThemeId.BRIGHT_SCIFI,
+            AppThemeId.DAILY_LIVING
+        )
+        val fills = mutableSetOf<Int>()
+        themes.forEach { themeId ->
+            val p = palette(themeId)
+            val spec = ThemeVisualSpecRegistry.forTheme(themeId)
+            val fill = spec.toolbarButtonFill(p) ?: throw AssertionError("$themeId 必須提供按鈕底色")
+            fills += fill
+            val contrast = ThemeContrast.contrastRatio(fill, p.toolbarBackground)
+            assertTrue(
+                "$themeId 的按鈕底色對比過高（%.2f），會看起來像白框".format(contrast),
+                contrast < 2.0
+            )
+            // 底色不得等於圖示色（那正是先前的白色外框效果）。
+            assertTrue("$themeId 的按鈕底色不得等於圖示色", fill != p.toolbarIcon)
+        }
+        // 四套主題仍然彼此看得出差異。
+        assertEquals(4, fills.size)
+    }
+}
+
+/**
+ * TASK D 迴歸：錄音視覺效果必須真的「畫得出來、畫得不同、畫在安全區域內」。
+ *
+ * 以與 IME drawable 共用的繪製計畫驗證；Legacy 維持完全沒有額外圖形。
+ */
+class RecordingVisualPlanTest {
+
+    private val levelSteps = listOf(0f, 0.25f, 0.5f, 0.75f, 1f)
+
+    private fun planFor(themeId: AppThemeId, level: Float): RecordingVisualPlan {
+        val spec = ThemeVisualSpecRegistry.forTheme(themeId)
+        return RecordingVisualPlanner.planFor(
+            style = spec.recordingVisualStyle,
+            level = level,
+            segmentCount = spec.meterSegmentCount,
+            cycles = spec.animationStyle.pulseCycles
+        )
+    }
+
+    @Test
+    fun legacyDrawsNothingWhileEveryNewThemeActuallyDrawsSomething() {
+        levelSteps.forEach { level ->
+            assertTrue("Legacy 不得有額外圖形", planFor(AppThemeId.LEGACY_WARM, level).isEmpty)
+        }
+        listOf(
+            AppThemeId.CUTE_CREAM,
+            AppThemeId.INDUSTRIAL_LIGHT,
+            AppThemeId.BRIGHT_SCIFI,
+            AppThemeId.DAILY_LIVING
+        ).forEach { themeId ->
+            levelSteps.forEach { level ->
+                val plan = planFor(themeId, level)
+                assertTrue("$themeId @ $level 必須畫出圖形", !plan.isEmpty)
+            }
+        }
+    }
+
+    @Test
+    fun everyPlanStaysInsideTheReservedSafeArea() {
+        AppThemeId.entries.forEach { themeId ->
+            levelSteps.forEach { level ->
+                val plan = planFor(themeId, level)
+                assertTrue(
+                    "$themeId @ $level 超出安全半徑：${plan.maxRadiusFraction}",
+                    plan.maxRadiusFraction <= 1f
+                )
+                assertTrue("$themeId @ $level 半徑不可為負", plan.maxRadiusFraction >= 0f)
+                plan.rings.forEach { assertTrue("透明度必須在 0..255", it.alpha in 0..255) }
+                plan.wave?.let { assertTrue("透明度必須在 0..255", it.alpha in 0..255) }
+            }
+        }
+    }
+
+    @Test
+    fun theFourThemesProduceStructurallyDifferentVisuals() {
+        val atVolume = 0.7f
+        val plans = listOf(
+            AppThemeId.CUTE_CREAM,
+            AppThemeId.INDUSTRIAL_LIGHT,
+            AppThemeId.BRIGHT_SCIFI,
+            AppThemeId.DAILY_LIVING
+        ).map { planFor(it, atVolume) }
+
+        // 用「圖形種類」區分：脈動＝多圈、刻度＝格數、電波＝封閉波形、生活＝單圈。
+        assertTrue("Cute 應為多圈脈動", plans[0].rings.size >= 2 && plans[0].wave == null && plans[0].ticks.isEmpty())
+        assertTrue("Industrial 應為環形刻度", plans[1].ticks.isNotEmpty() && plans[1].rings.isEmpty())
+        assertTrue("Sci-Fi 應為電波紋", plans[2].wave != null && plans[2].rings.isEmpty() && plans[2].ticks.isEmpty())
+        assertTrue(
+            "Living 應為單圈簡潔變化",
+            plans[3].rings.size == 1 && plans[3].wave == null && plans[3].ticks.isEmpty()
+        )
+        assertEquals(4, plans.toSet().size)
+    }
+
+    @Test
+    fun eachVisualReactsToEveryVolumeStep() {
+        // 刻度：音量越大亮起越多，無聲仍有低活動量。
+        val tickCounts = levelSteps.map { planFor(AppThemeId.INDUSTRIAL_LIGHT, it).ticks.size }
+        assertEquals(RecordingVisualPlanner.METER_MIN_LIT, tickCounts.first())
+        assertEquals(16, tickCounts.last())
+        tickCounts.zipWithNext { lower, higher -> assertTrue("刻度必須單調增加：$tickCounts", higher >= lower) }
+
+        // 脈動：音量越大外圈越大、越明顯。
+        val pulseOuter = levelSteps.map { level ->
+            planFor(AppThemeId.CUTE_CREAM, level).rings.maxOf { it.radiusFraction }
+        }
+        assertTrue("脈動必須隨音量擴大：$pulseOuter", pulseOuter.last() > pulseOuter.first())
+        pulseOuter.zipWithNext { lower, higher -> assertTrue("脈動必須單調", higher >= lower) }
+
+        // 電波：振幅隨音量增加，波形因此不同。
+        val waves = levelSteps.map { level -> planFor(AppThemeId.BRIGHT_SCIFI, level).wave!! }
+        val amplitudeSpread = waves.map { wave -> wave.points.maxOf { it.second } - wave.points.minOf { it.second } }
+        assertTrue("電波振幅必須隨音量增加：$amplitudeSpread", amplitudeSpread.last() > amplitudeSpread.first())
+        assertTrue("無聲時波形應接近平的", amplitudeSpread.first() < 0.01f)
+
+        // 生活：單圈半徑固定但透明度隨音量變化。
+        val livingAlphas = levelSteps.map { planFor(AppThemeId.DAILY_LIVING, it).rings.single().alpha }
+        assertTrue("生活風格外圈透明度必須隨音量變化：$livingAlphas", livingAlphas.last() > livingAlphas.first())
+    }
+
+    @Test
+    fun theSameVolumeAlwaysYieldsTheSamePlan() {
+        levelSteps.forEach { level ->
+            AppThemeId.entries.forEach { themeId ->
+                assertEquals(planFor(themeId, level), planFor(themeId, level))
+            }
+        }
+        // 非有限音量一律視為無聲，不會放大任何圖形。
+        assertEquals(
+            planFor(AppThemeId.CUTE_CREAM, 0f),
+            planFor(AppThemeId.CUTE_CREAM, Float.NaN)
+        )
     }
 }

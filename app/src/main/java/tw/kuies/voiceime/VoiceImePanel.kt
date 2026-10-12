@@ -544,11 +544,16 @@ internal class VoiceImePanel(
             visibility = View.GONE
         }
         toolbarContainer.apply {
-            background = rounded(
-                TOOLBAR_BACKGROUND,
-                dp(context, 18),
-                blend(OUTLINE, BACKGROUND, 0.35f),
-                dp(context, 1)
+            // 外框只保留在「整個工具列容器」上（不是逐顆按鈕），四套主題各有不同處理。
+            val borderWidth = containerBorderWidthPx(context)
+            background = shape(
+                fill = TOOLBAR_BACKGROUND,
+                radius = dp(context, 18),
+                stroke = if (borderWidth > 0) blend(OUTLINE, BACKGROUND, 0.35f) else null,
+                strokeWidth = borderWidth,
+                borderStyle = visual.containerBorderStyle,
+                accent = TOOLBAR_ICON,
+                shadowAlpha = visual.shadowAlpha
             )
             addView(
                 topToolbarRow,
@@ -2718,39 +2723,38 @@ internal class VoiceImePanel(
         shadowAlpha
     ) { palette }
 
-    /** 目前主題的按鈕底色（只影響繪製，不影響量測）。 */
-    private fun themedButtonFill(): ImeColorSpec = when (visual.buttonStyle) {
-        ButtonStyle.HARD_GEOMETRIC -> SURFACE_VARIANT
-        ButtonStyle.HUD_OUTLINE -> TRANSPARENT
-        ButtonStyle.SOFT_PILL, ButtonStyle.SOFT_SUBTLE -> { current ->
-            ThemeMix.blend(current.surfaceVariant, current.surface, 0.6f)
-        }
-        ButtonStyle.NEUTRAL -> SURFACE_VARIANT
+    /**
+     * 工具列／晶片按鈕的背景：**只有底色，沒有逐顆外框**。
+     *
+     * 2026-10-12 實機回報：先前每個按鈕都畫白色圓角外框，七顆排在一起非常擁擠。
+     * 現在四套主題只靠底色（＋圖示色＋錄音視覺化）區分，外框只保留在「整個容器」上。
+     * Legacy 直接沿用原本的 [toolbarRipple]，因此外觀與 v0.15.5 完全相同。
+     */
+    private fun themedButtonBackground(context: Context, radiusPx: Int): Drawable {
+        val fill = visual.toolbarButtonFill(palette) ?: return toolbarRipple(radiusPx)
+        val content = shape(fill = { fill }, radius = radiusPx)
+        return RippleDrawable(ColorStateList.valueOf(RIPPLE_MASK(palette)), content, null)
+    }
+
+    /** 面板容器（工具列、卡片）的邊框寬度：Legacy 沿用原本的 1dp。 */
+    private fun containerBorderWidthPx(context: Context): Int = when (visual.themeId) {
+        AppThemeId.LEGACY_WARM -> dp(context, 1)
+        AppThemeId.CUTE_CREAM -> 0
+        else -> dp(context, visual.borderWidthDp.toInt().coerceIn(1, 3))
     }
 
     /**
-     * 工具列／晶片按鈕的背景：依主題的 ButtonStyle 與 BorderStyle 加上外框、HUD 角標或柔和外圈。
+     * 錄音視覺化圖形的前景色。
      *
-     * Legacy（NEUTRAL）直接回傳原本的 [toolbarRipple]，因此既有外觀完全不變。
-     * 這些都只是背景 Drawable，不參與量測，按鈕位置與大小不變。
+     * 必須與錄音圓形底色（珊瑚色）有足夠對比，否則圖形等於看不見：
+     * 先前的實作把刻度畫成與圓形相同的珊瑚色，才會出現「只有圓形縮放」的結果。
      */
-    private fun themedButtonBackground(context: Context, radiusPx: Int): Drawable {
-        if (visual.buttonStyle == ButtonStyle.NEUTRAL) return toolbarRipple(radiusPx)
-        val frameWidth = if (visual.borderWidthDp > 0f) {
-            dp(context, visual.borderWidthDp.toInt().coerceAtLeast(1))
-        } else {
-            0
-        }
-        val content = shape(
-            fill = themedButtonFill(),
-            radius = radiusPx,
-            stroke = if (frameWidth > 0) TOOLBAR_ICON else null,
-            strokeWidth = frameWidth,
-            borderStyle = visual.buttonBorderStyle,
-            accent = TOOLBAR_ICON,
-            shadowAlpha = visual.shadowAlpha
-        )
-        return RippleDrawable(ColorStateList.valueOf(RIPPLE_MASK(palette)), content, null)
+    private fun visualizerAccent(): ImeColorSpec = when (visual.recordingVisualStyle) {
+        RecordingVisualStyle.SOFT_PULSE -> LAVENDER_BRIGHT
+        RecordingVisualStyle.SEGMENTED_METER_RING -> RECORDER_FOREGROUND
+        RecordingVisualStyle.SIGNAL_WAVE -> SECONDARY_ACCENT
+        RecordingVisualStyle.SMOOTH_SCALE -> RECORDER_FOREGROUND
+        RecordingVisualStyle.LEGACY -> RECORDER_FOREGROUND
     }
 
     /** 主題的錄音視覺化圖形；只在該主題有定義且系統允許動畫時才會繪製。 */
@@ -2759,7 +2763,7 @@ internal class VoiceImePanel(
         if (!animationsEnabled()) return null
         return RecordingVisualizerDrawable(
             style = visual.recordingVisualStyle,
-            accent = CORAL,
+            accent = visualizerAccent(),
             segmentCount = visual.meterSegmentCount,
             cycles = visual.animationStyle.pulseCycles,
             provider = { palette }
@@ -2878,6 +2882,7 @@ internal class VoiceImePanel(
         val MINT: ImeColorSpec = { it.statusIdle }
         val AMBER: ImeColorSpec = { it.statusProcessing }
         val PINK: ImeColorSpec = { it.secondary }
+        val SECONDARY_ACCENT: ImeColorSpec = { it.secondary }
         val CORAL: ImeColorSpec = { it.recorderAccent }
         val ERROR: ImeColorSpec = { it.error }
         val BUTTON_TEXT: ImeColorSpec = { it.recorderForeground }
@@ -3125,64 +3130,42 @@ private class RecordingVisualizerDrawable(
         val centreY = rect.exactCenterY()
         val maxRadius = minOf(rect.width(), rect.height()) / 2f
         if (maxRadius <= 0f) return
-        when (style) {
-            RecordingVisualStyle.SOFT_PULSE -> {
-                val count = cycles.coerceAtLeast(1)
-                paint.color = color
-                repeat(count) { index ->
-                    val step = (index + 1f) / count
-                    paint.alpha = RecordingVisualScale.pulseAlpha(step, level)
-                    paint.strokeWidth = maxOf(2f, maxRadius * 0.06f)
-                    canvas.drawCircle(
-                        centreX,
-                        centreY,
-                        maxRadius * RecordingVisualScale.pulseRadiusFraction(step, level),
-                        paint
-                    )
-                }
+        // 與設定頁預覽共用同一份繪製計畫，因此預覽與實機的圖形一致。
+        val plan = RecordingVisualPlanner.planFor(style, level, segmentCount, cycles)
+        paint.color = color
+        plan.rings.forEach { ring ->
+            paint.alpha = ring.alpha
+            paint.strokeWidth = maxOf(2f, maxRadius * ring.strokeFraction)
+            canvas.drawCircle(centreX, centreY, maxRadius * ring.radiusFraction, paint)
+        }
+        if (plan.ticks.isNotEmpty()) {
+            val inner = maxRadius * plan.ticks.first().innerFraction
+            val outer = maxRadius * plan.ticks.first().outerFraction
+            paint.alpha = 255
+            paint.strokeWidth = maxOf(2f, maxRadius * 0.075f)
+            plan.ticks.forEach { tick ->
+                val cos = kotlin.math.cos(tick.angleRadians)
+                val sin = kotlin.math.sin(tick.angleRadians)
+                canvas.drawLine(
+                    centreX + cos * inner,
+                    centreY + sin * inner,
+                    centreX + cos * outer,
+                    centreY + sin * outer,
+                    paint
+                )
             }
-
-            RecordingVisualStyle.SEGMENTED_METER_RING -> {
-                val segments = segmentCount.coerceAtLeast(1)
-                val lit = RecordingVisualScale.litSegments(level, segments)
-                val radius = maxRadius * 0.97f
-                val tickLength = maxRadius * 0.18f
-                paint.color = color
-                paint.alpha = 255
-                paint.strokeWidth = maxOf(2f, maxRadius * 0.075f)
-                repeat(segments) { index ->
-                    if (index >= lit) return@repeat
-                    val angle = -Math.PI / 2 + 2 * Math.PI * index / segments
-                    val cos = kotlin.math.cos(angle).toFloat()
-                    val sin = kotlin.math.sin(angle).toFloat()
-                    canvas.drawLine(
-                        centreX + cos * (radius - tickLength),
-                        centreY + sin * (radius - tickLength),
-                        centreX + cos * radius,
-                        centreY + sin * radius,
-                        paint
-                    )
-                }
+        }
+        plan.wave?.let { wave ->
+            paint.alpha = wave.alpha
+            paint.strokeWidth = maxOf(2f, maxRadius * wave.strokeFraction)
+            path.reset()
+            wave.points.forEachIndexed { index, point ->
+                val x = centreX + kotlin.math.cos(point.first) * maxRadius * point.second
+                val y = centreY + kotlin.math.sin(point.first) * maxRadius * point.second
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
-
-            RecordingVisualStyle.SIGNAL_WAVE -> {
-                paint.color = color
-                paint.alpha = 210
-                paint.strokeWidth = maxOf(2f, maxRadius * 0.085f)
-                val amplitude = maxRadius * RecordingVisualScale.waveAmplitudeFraction(level)
-                val halfWidth = maxRadius * 0.8f
-                val steps = 24
-                path.reset()
-                repeat(steps + 1) { index ->
-                    val fraction = index.toFloat() / steps
-                    val x = centreX - halfWidth + 2 * halfWidth * fraction
-                    val y = centreY + kotlin.math.sin(fraction * Math.PI.toFloat() * 4f) * amplitude
-                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                }
-                canvas.drawPath(path, paint)
-            }
-
-            RecordingVisualStyle.SMOOTH_SCALE, RecordingVisualStyle.LEGACY -> Unit
+            path.close()
+            canvas.drawPath(path, paint)
         }
     }
 

@@ -30,6 +30,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,16 +112,19 @@ internal fun OnboardingScreen(
     onFinish: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val pagerState = rememberPagerState { OnboardingFlow.pageCount() }
+    // 導覽狀態是唯一權威：Pager 一開始就建立在目前步驟，而不是永遠從第 0 頁開始。
+    // （原本的寫法會讓新建 Pager 先回報 settledPage = 0，把外部狀態反向覆寫成第一頁。）
+    val pagerState = rememberPagerState(initialPage = step.index) { OnboardingFlow.pageCount() }
     val page = step.index
+    val latestStepIndex by rememberUpdatedState(step.index)
 
-    // 導覽狀態驅動頁面（例如從 Groq 設定儲存成功返回時要直接停在第三頁）。
+    // 外部狀態 → Pager：只有導覽狀態真的改變時才需要移動頁面。
     LaunchedEffect(page) { pagerState.animateScrollToPage(page) }
-    // 使用者滑動時把結果回報給導覽狀態，兩邊保持同一個來源。
+    // Pager → 外部狀態：只在使用者滑到「非目前步驟」時回報。
+    // 程式主動切頁時 settled 會等於目前步驟，因此不會反向覆寫導覽狀態。
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }.collect { settled ->
-            val target = OnboardingStep.fromIndex(settled)
-            if (target != step) onStepChange(target)
+            if (settled != latestStepIndex) onStepChange(OnboardingStep.fromIndex(settled))
         }
     }
 
@@ -296,13 +301,10 @@ private fun ImeOnboardingPage(
     onSwitchToKuiesVox: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    // 以官方 API 查到的狀態決定文案與動作，不以「設定頁是否開啟成功」推測。
-    val statusText = when (imeEnablement) {
-        ImeEnablement.NOT_ENABLED -> "尚未啟用 KuiesVox"
-        ImeEnablement.ENABLED -> "KuiesVox 已啟用"
-        ImeEnablement.DEFAULT -> "KuiesVox 已啟用並設為預設輸入法"
-    }
-    val statusColor = if (imeEnablement == ImeEnablement.NOT_ENABLED) colors.onSurfaceVariant else colors.primary
+    // 以官方 API 查到的狀態決定兩張步驟卡的內容；不以「設定頁是否開啟成功」推測。
+    val enabled = imeEnablement != ImeEnablement.NOT_ENABLED
+    val isDefault = imeEnablement == ImeEnablement.DEFAULT
+
     Box(
         modifier = Modifier
             .size(56.dp)
@@ -318,45 +320,113 @@ private fun ImeOnboardingPage(
         )
     }
     OnboardingPageTexts(
-        title = "開啟 KuiesVox 輸入法",
-        body = "到手機設定中開啟 KuiesVox，就可以開始使用。"
+        title = "啟用 KuiesVox",
+        body = "兩個步驟就能開始使用語音輸入。"
     )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            text = statusText,
-            style = MaterialTheme.typography.titleMedium,
-            color = statusColor
-        )
-        if (imeEnablement != ImeEnablement.NOT_ENABLED) {
-            Text("✔", style = MaterialTheme.typography.titleMedium, color = statusColor)
-        }
-    }
-    when (imeEnablement) {
-        ImeEnablement.NOT_ENABLED -> Button(
-            onClick = onOpenImeSettings,
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("前往輸入法設定") }
 
-        ImeEnablement.ENABLED -> Button(
-            onClick = onSwitchToKuiesVox,
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("切換至 KuiesVox") }
+    OnboardingStepCard(
+        stepNumber = 1,
+        title = "步驟 1：開啟 KuiesVox",
+        body = "前往手機的鍵盤設定，將 KuiesVox 輸入法開啟。\n三星：設定 → 一般管理 → 鍵盤清單與預設值",
+        statusText = if (enabled) "已完成 ✓" else "尚未啟用",
+        completed = enabled,
+        actionLabel = if (enabled) null else "前往鍵盤設定",
+        actionEnabled = !enabled,
+        onAction = onOpenImeSettings
+    )
 
-        // 已設為預設：顯示完成狀態即可，不需要再按任何按鈕。
-        ImeEnablement.DEFAULT -> Text(
-            "已完成，隨時可以在輸入欄位使用語音輸入。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onSurfaceVariant
-        )
-    }
+    OnboardingStepCard(
+        stepNumber = 2,
+        title = "步驟 2：選擇 KuiesVox",
+        body = "從系統輸入法清單選擇 KuiesVox，開始使用語音輸入。",
+        statusText = when {
+            isDefault -> "已完成 ✓"
+            enabled -> "尚未切換"
+            else -> "請先完成步驟 1"
+        },
+        completed = isDefault,
+        // 尚未啟用時不得標記完成，按鈕也停用（先完成第一步）。
+        actionLabel = if (isDefault) null else "選擇輸入法",
+        actionEnabled = enabled,
+        onAction = onSwitchToKuiesVox
+    )
+
     ImeStepsCard(hint)
     OnboardingHint("啟用後在任一輸入欄位切換到 KuiesVox，就能用語音輸入。")
+}
+
+/** 第三頁的單一步驟卡：編號、標題、說明、狀態與（可選的）動作按鈕。 */
+@Composable
+private fun OnboardingStepCard(
+    stepNumber: Int,
+    title: String,
+    body: String,
+    statusText: String,
+    completed: Boolean,
+    actionLabel: String?,
+    actionEnabled: Boolean,
+    onAction: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (completed) {
+                colors.primaryContainer.copy(alpha = 0.45f)
+            } else {
+                colors.surfaceVariant.copy(alpha = 0.35f)
+            }
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(if (completed) colors.primary else colors.outlineVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        stepNumber.toString(),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (completed) colors.onPrimary else colors.onSurfaceVariant
+                    )
+                }
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    statusText,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (completed) colors.primary else colors.onSurfaceVariant
+                )
+            }
+            Text(
+                body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurfaceVariant
+            )
+            if (actionLabel != null) {
+                Button(
+                    onClick = onAction,
+                    enabled = actionEnabled,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(actionLabel) }
+            }
+        }
+    }
 }
 
 /** 第 2 頁的步驟圖卡：用 Compose 畫出四個編號步驟，文具小卡片風格。 */
